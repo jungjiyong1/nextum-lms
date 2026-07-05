@@ -57,6 +57,18 @@ async function findOrCreateAcademy() {
     .select('id,name')
     .single();
 
+  if (error?.code === 'PGRST204') {
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .schema('core')
+      .from('academies')
+      .insert({ name: academyName })
+      .select('id,name')
+      .single();
+
+    if (fallbackError) throw fallbackError;
+    return fallbackData;
+  }
+
   if (error) throw error;
   return data;
 }
@@ -82,7 +94,20 @@ async function findOrCreatePerson(academyId) {
         metadata: { dev_seed: true },
       })
       .eq('id', existing.id);
-    if (updateError) throw updateError;
+    if (updateError?.code === 'PGRST204') {
+      const { error: fallbackUpdateError } = await supabase
+        .schema('core')
+        .from('people')
+        .update({
+          primary_academy_id: academyId,
+          full_name: '관리자',
+          metadata: { dev_seed: true },
+        })
+        .eq('id', existing.id);
+      if (fallbackUpdateError) throw fallbackUpdateError;
+    } else if (updateError) {
+      throw updateError;
+    }
     return existing;
   }
 
@@ -98,6 +123,23 @@ async function findOrCreatePerson(academyId) {
     })
     .select('id,full_name')
     .single();
+
+  if (error?.code === 'PGRST204') {
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .schema('core')
+      .from('people')
+      .insert({
+        primary_academy_id: academyId,
+        full_name: '관리자',
+        email,
+        metadata: { dev_seed: true },
+      })
+      .select('id,full_name')
+      .single();
+
+    if (fallbackError) throw fallbackError;
+    return fallbackData;
+  }
 
   if (error) throw error;
   return data;
@@ -123,7 +165,15 @@ async function main() {
       email_confirm: true,
       user_metadata: { ...(user.user_metadata || {}), login_id: loginId, name: '관리자' },
     });
-    if (updateError) throw updateError;
+    if (updateError?.code === 'weak_password') {
+      const { error: metadataError } = await supabase.auth.admin.updateUserById(user.id, {
+        email_confirm: true,
+        user_metadata: { ...(user.user_metadata || {}), login_id: loginId, name: '관리자' },
+      });
+      if (metadataError) throw metadataError;
+    } else if (updateError) {
+      throw updateError;
+    }
   }
 
   const academy = await findOrCreateAcademy();
