@@ -1,5 +1,6 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { assertReauthCookie } from '@/lib/lms/reauth';
+import { recordAdminAction } from '@/lib/lms/audit';
 import { resetLmsData, type ResetTarget } from '@/lib/lms/admin-operations';
 
 const resetTargets = new Set<ResetTarget>([
@@ -26,9 +27,16 @@ export async function POST(request: Request) {
 
         const admin = await assertLmsRoleForAcademy(academyId, ['owner', 'admin']);
         await assertReauthCookie({ userId: admin.userId, academyId });
-        await resetLmsData(target, academyId);
+        const summary = await resetLmsData(target, academyId);
+        await recordAdminAction({
+            academyId,
+            actorPersonId: admin.personId,
+            action: 'lms.admin.reset',
+            target,
+            payload: summary,
+        });
 
-        return Response.json({ success: true });
+        return Response.json({ success: true, reset: summary });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;

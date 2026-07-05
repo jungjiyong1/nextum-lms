@@ -1,5 +1,6 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { assertReauthCookie } from '@/lib/lms/reauth';
+import { recordAdminAction } from '@/lib/lms/audit';
 import { updateTaxSettingsForAcademy } from '@/lib/lms/admin-operations';
 
 export async function POST(request: Request) {
@@ -13,6 +14,15 @@ export async function POST(request: Request) {
         const admin = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
         await assertReauthCookie({ userId: admin.userId, academyId: body.academyId });
         await updateTaxSettingsForAcademy(body.settings, body.academyId);
+        await recordAdminAction({
+            academyId: body.academyId,
+            actorPersonId: admin.personId,
+            action: 'lms.admin.tax_settings.update',
+            target: 'tax_settings',
+            payload: {
+                keys: Object.keys(body.settings).sort(),
+            },
+        });
 
         return Response.json({ success: true });
     } catch (error) {

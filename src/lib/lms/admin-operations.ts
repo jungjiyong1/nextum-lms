@@ -32,6 +32,21 @@ export interface TaxReportExportOptions extends ExportDateRange {
 
 type CsvValue = string | number | boolean | null | undefined;
 
+export interface ResetTableSummary {
+    schema: 'core' | 'lms';
+    table: string;
+    deletedRows: number;
+}
+
+export interface ResetSummary {
+    target: ResetTarget;
+    tables: ResetTableSummary[];
+    totalDeletedRows: number;
+}
+
+const MAX_EXPORT_DETAIL_ROWS = 10000;
+const MAX_EXPORT_RANGE_DAYS = 370;
+
 function ensureNoError(error: { message?: string } | null, context: string) {
     if (error) {
         throw new Error(`${context}: ${error.message ?? 'Unknown Supabase error'}`);
@@ -42,80 +57,100 @@ function schema(client: LmsAdminClient, name: 'core' | 'lms') {
     return client.schema(name);
 }
 
-async function deleteByAcademy(db: SchemaClient, table: string, academyId: string) {
-    const { error } = await db
+async function deleteByAcademy(schemaName: 'core' | 'lms', db: SchemaClient, table: string, academyId: string): Promise<ResetTableSummary> {
+    const { error, count } = await db
         .from(table)
-        .delete()
+        .delete({ count: 'exact' })
         .eq('academy_id', academyId);
 
     ensureNoError(error, `Failed to reset ${table}`);
+    return { schema: schemaName, table, deletedRows: count ?? 0 };
 }
 
-async function resetSchedules(client: LmsAdminClient, academyId: string) {
+async function resetSchedules(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
     const lms = schema(client, 'lms');
-    await deleteByAcademy(lms, 'attendance_records', academyId);
-    await deleteByAcademy(lms, 'lesson_occurrences', academyId);
-    await deleteByAcademy(lms, 'class_schedule_rules', academyId);
+    return [
+        await deleteByAcademy('lms', lms, 'attendance_records', academyId),
+        await deleteByAcademy('lms', lms, 'lesson_occurrences', academyId),
+        await deleteByAcademy('lms', lms, 'class_schedule_rules', academyId),
+    ];
 }
 
-async function resetClasses(client: LmsAdminClient, academyId: string) {
-    await resetSchedules(client, academyId);
-    await deleteByAcademy(schema(client, 'lms'), 'class_profiles', academyId);
-    await deleteByAcademy(schema(client, 'core'), 'classes', academyId);
+async function resetClasses(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
+    return [
+        ...(await resetSchedules(client, academyId)),
+        await deleteByAcademy('lms', schema(client, 'lms'), 'class_profiles', academyId),
+        await deleteByAcademy('core', schema(client, 'core'), 'classes', academyId),
+    ];
 }
 
-async function resetStudents(client: LmsAdminClient, academyId: string) {
+async function resetStudents(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
     const lms = schema(client, 'lms');
     const core = schema(client, 'core');
-    await deleteByAcademy(lms, 'payments', academyId);
-    await deleteByAcademy(lms, 'invoices', academyId);
-    await deleteByAcademy(lms, 'student_billing_contracts', academyId);
-    await deleteByAcademy(core, 'students', academyId);
+    return [
+        await deleteByAcademy('lms', lms, 'payments', academyId),
+        await deleteByAcademy('lms', lms, 'invoices', academyId),
+        await deleteByAcademy('lms', lms, 'student_billing_contracts', academyId),
+        await deleteByAcademy('core', core, 'students', academyId),
+    ];
 }
 
-async function resetAccountingData(client: LmsAdminClient, academyId: string) {
+async function resetAccountingData(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
     const lms = schema(client, 'lms');
-    await deleteByAcademy(lms, 'payments', academyId);
-    await deleteByAcademy(lms, 'invoices', academyId);
-    await deleteByAcademy(lms, 'expenses', academyId);
-    await deleteByAcademy(lms, 'instructor_payments', academyId);
+    return [
+        await deleteByAcademy('lms', lms, 'payments', academyId),
+        await deleteByAcademy('lms', lms, 'invoices', academyId),
+        await deleteByAcademy('lms', lms, 'expenses', academyId),
+        await deleteByAcademy('lms', lms, 'instructor_payments', academyId),
+    ];
 }
 
-export async function resetLmsData(target: ResetTarget, academyId: string) {
+function resetSummary(target: ResetTarget, tables: ResetTableSummary[]): ResetSummary {
+    return {
+        target,
+        tables,
+        totalDeletedRows: tables.reduce((sum, table) => sum + table.deletedRows, 0),
+    };
+}
+
+export async function resetLmsData(target: ResetTarget, academyId: string): Promise<ResetSummary> {
     const client = createAdminClient();
+    let tables: ResetTableSummary[];
 
     switch (target) {
         case 'classrooms':
-            await deleteByAcademy(schema(client, 'lms'), 'classrooms', academyId);
-            return;
+            tables = [await deleteByAcademy('lms', schema(client, 'lms'), 'classrooms', academyId)];
+            return resetSummary(target, tables);
         case 'classes':
         case 'lessons':
         case 'enrollments':
-            await resetClasses(client, academyId);
-            return;
+            tables = await resetClasses(client, academyId);
+            return resetSummary(target, tables);
         case 'schedules':
-            await resetSchedules(client, academyId);
-            return;
+            tables = await resetSchedules(client, academyId);
+            return resetSummary(target, tables);
         case 'students':
-            await resetStudents(client, academyId);
-            return;
+            tables = await resetStudents(client, academyId);
+            return resetSummary(target, tables);
         case 'instructors':
-            await deleteByAcademy(schema(client, 'core'), 'staff_members', academyId);
-            return;
+            tables = [await deleteByAcademy('core', schema(client, 'core'), 'staff_members', academyId)];
+            return resetSummary(target, tables);
         case 'courses':
-            await deleteByAcademy(schema(client, 'lms'), 'courses', academyId);
-            return;
+            tables = [await deleteByAcademy('lms', schema(client, 'lms'), 'courses', academyId)];
+            return resetSummary(target, tables);
         case 'accounting':
-            await resetAccountingData(client, academyId);
-            return;
+            tables = await resetAccountingData(client, academyId);
+            return resetSummary(target, tables);
         case 'all':
-            await resetAccountingData(client, academyId);
-            await resetClasses(client, academyId);
-            await resetStudents(client, academyId);
-            await deleteByAcademy(schema(client, 'core'), 'staff_members', academyId);
-            await deleteByAcademy(schema(client, 'lms'), 'classrooms', academyId);
-            await deleteByAcademy(schema(client, 'lms'), 'courses', academyId);
-            return;
+            tables = [
+                ...(await resetAccountingData(client, academyId)),
+                ...(await resetClasses(client, academyId)),
+                ...(await resetStudents(client, academyId)),
+                await deleteByAcademy('core', schema(client, 'core'), 'staff_members', academyId),
+                await deleteByAcademy('lms', schema(client, 'lms'), 'classrooms', academyId),
+                await deleteByAcademy('lms', schema(client, 'lms'), 'courses', academyId),
+            ];
+            return resetSummary(target, tables);
         default:
             target satisfies never;
             throw new Error('Unsupported reset target.');
@@ -139,6 +174,41 @@ function csvSection(title: string, headers: string[], rows: CsvValue[][]): strin
 
 function dateRangeLabel({ startDate, endDate }: ExportDateRange): string {
     return `${startDate}_${endDate}`.replace(/[^0-9_-]/g, '');
+}
+
+function parseDateOnly(value: string, field: string): number {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        throw new Error(`${field} must be YYYY-MM-DD.`);
+    }
+
+    const parsed = Date.parse(`${value}T00:00:00.000Z`);
+    if (!Number.isFinite(parsed)) {
+        throw new Error(`${field} is not a valid date.`);
+    }
+    if (new Date(parsed).toISOString().slice(0, 10) !== value) {
+        throw new Error(`${field} is not a valid date.`);
+    }
+
+    return parsed;
+}
+
+function assertExportDateRange(options: ExportDateRange) {
+    const start = parseDateOnly(options.startDate, 'startDate');
+    const end = parseDateOnly(options.endDate, 'endDate');
+    if (end < start) {
+        throw new Error('Export endDate must be on or after startDate.');
+    }
+
+    const dayCount = Math.floor((end - start) / 86_400_000) + 1;
+    if (dayCount > MAX_EXPORT_RANGE_DAYS) {
+        throw new Error(`Export date range cannot exceed ${MAX_EXPORT_RANGE_DAYS} days.`);
+    }
+}
+
+function assertExportRowLimit(rows: unknown[], section: string) {
+    if (rows.length > MAX_EXPORT_DETAIL_ROWS) {
+        throw new Error(`${section} export exceeds ${MAX_EXPORT_DETAIL_ROWS} rows. Narrow the date range.`);
+    }
 }
 
 async function peopleNames(core: SchemaClient, peopleIds: string[]) {
@@ -179,6 +249,7 @@ async function staffNameMap(client: LmsAdminClient, academyId: string) {
 }
 
 export async function buildTaxReportExport(options: TaxReportExportOptions, academyId: string) {
+    assertExportDateRange(options);
     const client = createAdminClient();
     const sections: string[] = [];
 
@@ -189,9 +260,11 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
             .eq('academy_id', academyId)
             .gte('payment_date', options.startDate)
             .lte('payment_date', options.endDate)
-            .order('payment_date', { ascending: true });
+            .order('payment_date', { ascending: true })
+            .limit(MAX_EXPORT_DETAIL_ROWS + 1);
 
         ensureNoError(error, 'Failed to export revenue');
+        assertExportRowLimit(data || [], 'Revenue');
         const names = await studentNameMap(client, academyId);
         sections.push(csvSection('Revenue', ['Date', 'Student', 'Amount', 'Method', 'Status', 'Notes'], (data || []).map((row: Row) => [
             row.payment_date,
@@ -214,9 +287,11 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
             .eq('academy_id', academyId)
             .gte('expense_date', options.startDate)
             .lte('expense_date', options.endDate)
-            .order('expense_date', { ascending: true });
+            .order('expense_date', { ascending: true })
+            .limit(MAX_EXPORT_DETAIL_ROWS + 1);
 
         ensureNoError(error, 'Failed to export expenses');
+        assertExportRowLimit(data || [], 'Expenses');
         sections.push(csvSection('Expenses', ['Date', 'Category', 'Amount', 'Method', 'Recipient', 'Description', 'Notes'], (data || []).map((row: Row) => [
             row.expense_date,
             row.category,
@@ -239,6 +314,7 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
 }
 
 export async function buildPayrollExport(options: ExportDateRange, academyId: string) {
+    assertExportDateRange(options);
     const client = createAdminClient();
     return {
         filename: `nextum-lms-payroll-${dateRangeLabel(options)}.csv`,
@@ -268,9 +344,11 @@ async function buildPayrollSection(client: LmsAdminClient, options: ExportDateRa
         .eq('academy_id', academyId)
         .gte('payment_date', options.startDate)
         .lte('payment_date', options.endDate)
-        .order('payment_date', { ascending: true });
+        .order('payment_date', { ascending: true })
+        .limit(MAX_EXPORT_DETAIL_ROWS + 1);
 
     ensureNoError(error, 'Failed to export payroll');
+    assertExportRowLimit(data || [], 'Payroll');
     const names = await staffNameMap(client, academyId);
     return csvSection('Payroll', [
         'Date',

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { setReauthCookie } from '@/lib/lms/reauth';
+import { recordAdminAction } from '@/lib/lms/audit';
 
 function authClient() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,6 +47,13 @@ export async function POST(request: Request) {
         }
 
         await setReauthCookie(adminContext.userId, academyId);
+        await recordAdminAction({
+            academyId,
+            actorPersonId: adminContext.personId,
+            action: 'lms.admin.reauth',
+            target: 'admin_session',
+            payload: { method: 'password' },
+        });
         return Response.json({ success: true });
     } catch (error) {
         const authResponse = authErrorResponse(error);

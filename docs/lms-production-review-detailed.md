@@ -139,7 +139,10 @@ Implementation status:
 - 클라이언트 API는 현재 사용자의 `current_academy_id`를 body에 포함하도록 수정했다.
 - `/api/lms/admin/reauth`가 현재 세션 사용자와 입력 비밀번호를 서버에서 검증한 뒤 5분짜리 httpOnly reauth 쿠키를 발급한다.
 - reset/export/tax-settings는 reauth 쿠키의 user/academy scope가 현재 요청과 맞지 않으면 403을 반환한다.
-- 아직 남은 작업: reset 2단계 confirm token, audit log row, export row limit/scope 제한.
+- reset/export/tax-settings/reauth 성공 시 `audit.admin_actions`에 actor, academy, action, target, payload를 기록한다.
+- reset audit payload에는 target, 테이블별 삭제 count, 총 삭제 count가 포함된다.
+- export는 최대 370일, 상세 섹션별 10,000행으로 제한하고 filename/date/section scope를 audit payload에 기록한다.
+- 아직 남은 작업: reset 2단계 confirm token.
 
 Acceptance:
 - reauth token 없이 reset/tax settings가 401/403.

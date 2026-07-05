@@ -1,5 +1,6 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { assertReauthCookie } from '@/lib/lms/reauth';
+import { recordAdminAction } from '@/lib/lms/audit';
 import {
     buildPayrollExport,
     buildTaxReportExport,
@@ -16,6 +17,24 @@ function csvResponse(filename: string, csv: string) {
             'Cache-Control': 'no-store',
         },
     });
+}
+
+function exportAuditPayload(type: 'tax' | 'payroll', options: TaxReportExportOptions | ExportDateRange, filename: string) {
+    const taxOptions = options as TaxReportExportOptions;
+    return {
+        type,
+        filename,
+        startDate: options.startDate,
+        endDate: options.endDate,
+        includedSections: type === 'tax'
+            ? {
+                revenue: taxOptions.includeRevenue === true,
+                payroll: taxOptions.includePayroll === true,
+                expenses: taxOptions.includeExpenses === true,
+                profitLoss: taxOptions.includeProfitLoss === true,
+            }
+            : { payroll: true },
+    };
 }
 
 export async function POST(request: Request) {
@@ -37,6 +56,13 @@ export async function POST(request: Request) {
         const output = body.type === 'tax'
             ? await buildTaxReportExport(body.options as TaxReportExportOptions, body.academyId)
             : await buildPayrollExport(body.options as ExportDateRange, body.academyId);
+        await recordAdminAction({
+            academyId: body.academyId,
+            actorPersonId: admin.personId,
+            action: 'lms.admin.export',
+            target: body.type,
+            payload: exportAuditPayload(body.type, body.options, output.filename),
+        });
 
         return csvResponse(output.filename, output.csv);
     } catch (error) {
