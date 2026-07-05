@@ -140,7 +140,7 @@ Implementation status:
 - `/api/lms/admin/reauth`가 현재 세션 사용자와 입력 비밀번호를 서버에서 검증한 뒤 5분짜리 httpOnly reauth 쿠키를 발급한다.
 - reset/export/tax-settings는 reauth 쿠키의 user/academy scope가 현재 요청과 맞지 않으면 403을 반환한다.
 - reset/export/tax-settings/reauth 성공 시 `audit.admin_actions`에 actor, academy, action, target, payload를 기록한다.
-- reset audit payload에는 target, 테이블별 삭제 count, 총 삭제 count가 포함된다.
+- reset audit payload에는 target, 테이블별 operation/affected row count, 총 affected row count가 포함된다.
 - export는 최대 370일, 상세 섹션별 10,000행으로 제한하고 filename/date/section scope를 audit payload에 기록한다.
 - 아직 남은 작업: reset 2단계 confirm token.
 
@@ -224,6 +224,13 @@ Fix:
 - hard erase는 개인정보 삭제 요청 같은 별도 workflow로 분리한다.
 - reset target은 learning/ai/data/audit 영향을 명확히 선택하게 한다.
 - reset은 transaction RPC + audit log로 처리한다.
+
+Implementation status:
+- 2026-07-06 기준 legacy `window.api.students.delete()`는 `lms.students` hard delete 대신 `status='dropped'` update를 수행한다.
+- 학생 상세 UI는 "삭제"가 아니라 "퇴원 처리"로 표시하고, 학습/채점/AI 데이터가 보존됨을 안내한다.
+- LMS admin `students` reset은 `core.students`를 삭제하지 않는다. 대신 class assignment는 `dropped`, billing contract는 `archived`, student membership은 inactive, pending invitation은 expired, student row는 `dropped`로 상태 변경한다.
+- reset audit payload는 상태 변경/삭제 구분을 위해 `operation`과 `affectedRows`를 남긴다.
+- 아직 남은 작업: reset 전체를 transaction/RPC로 묶고, 개인정보 hard erase는 별도 승인 workflow로 분리.
 
 ### P1-4. account invitation flow가 제품 요구를 완전히 만족하지 않음
 

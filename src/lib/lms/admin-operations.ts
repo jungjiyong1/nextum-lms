@@ -35,13 +35,14 @@ type CsvValue = string | number | boolean | null | undefined;
 export interface ResetTableSummary {
     schema: 'core' | 'lms';
     table: string;
-    deletedRows: number;
+    operation: 'delete' | 'archive' | 'close' | 'deactivate' | 'void' | 'expire';
+    affectedRows: number;
 }
 
 export interface ResetSummary {
     target: ResetTarget;
     tables: ResetTableSummary[];
-    totalDeletedRows: number;
+    totalAffectedRows: number;
 }
 
 const MAX_EXPORT_DETAIL_ROWS = 10000;
@@ -51,6 +52,10 @@ function ensureNoError(error: { message?: string } | null, context: string) {
     if (error) {
         throw new Error(`${context}: ${error.message ?? 'Unknown Supabase error'}`);
     }
+}
+
+function dateString(date: Date): string {
+    return date.toISOString().slice(0, 10);
 }
 
 function schema(client: LmsAdminClient, name: 'core' | 'lms') {
@@ -64,7 +69,7 @@ async function deleteByAcademy(schemaName: 'core' | 'lms', db: SchemaClient, tab
         .eq('academy_id', academyId);
 
     ensureNoError(error, `Failed to reset ${table}`);
-    return { schema: schemaName, table, deletedRows: count ?? 0 };
+    return { schema: schemaName, table, operation: 'delete', affectedRows: count ?? 0 };
 }
 
 async function resetSchedules(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
@@ -87,11 +92,74 @@ async function resetClasses(client: LmsAdminClient, academyId: string): Promise<
 async function resetStudents(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
     const lms = schema(client, 'lms');
     const core = schema(client, 'core');
+    const today = dateString(new Date());
+    const now = new Date().toISOString();
+
+    const { data: students, error: studentsError } = await core
+        .from('students')
+        .select('id,person_id')
+        .eq('academy_id', academyId);
+    ensureNoError(studentsError, 'Failed to load students for archive reset');
+
+    const studentIds = (students || []).map((row: Row) => row.id).filter(Boolean);
+    const personIds = (students || []).map((row: Row) => row.person_id).filter(Boolean);
+
+    if (studentIds.length === 0) {
+        return [
+            { schema: 'core', table: 'class_students', operation: 'archive', affectedRows: 0 },
+            { schema: 'lms', table: 'student_billing_contracts', operation: 'close', affectedRows: 0 },
+            { schema: 'core', table: 'academy_members', operation: 'deactivate', affectedRows: 0 },
+            { schema: 'core', table: 'account_invitations', operation: 'expire', affectedRows: 0 },
+            { schema: 'core', table: 'students', operation: 'archive', affectedRows: 0 },
+        ];
+    }
+
+    const { error: classError, count: classCount } = await core
+        .from('class_students')
+        .update({ status: 'dropped', primary_class: false, ended_at: now }, { count: 'exact' })
+        .in('student_id', studentIds)
+        .in('status', ['active', 'pending', 'on_leave']);
+    ensureNoError(classError, 'Failed to archive student class assignments');
+
+    const { error: contractError, count: contractCount } = await lms
+        .from('student_billing_contracts')
+        .update({ status: 'archived', effective_to: today }, { count: 'exact' })
+        .eq('academy_id', academyId)
+        .in('student_id', studentIds)
+        .in('status', ['active', 'inactive']);
+    ensureNoError(contractError, 'Failed to archive student billing contracts');
+
+    const { error: memberError, count: memberCount } = await core
+        .from('academy_members')
+        .update({ active: false }, { count: 'exact' })
+        .eq('academy_id', academyId)
+        .eq('role', 'student')
+        .in('person_id', personIds)
+        .eq('active', true);
+    ensureNoError(memberError, 'Failed to deactivate student memberships');
+
+    const { error: invitationError, count: invitationCount } = await core
+        .from('account_invitations')
+        .update({ expires_at: now }, { count: 'exact' })
+        .eq('academy_id', academyId)
+        .in('student_id', studentIds)
+        .is('accepted_at', null);
+    ensureNoError(invitationError, 'Failed to expire student invitations');
+
+    const { error: studentError, count: studentCount } = await core
+        .from('students')
+        .update({ status: 'dropped' }, { count: 'exact' })
+        .eq('academy_id', academyId)
+        .in('id', studentIds)
+        .neq('status', 'dropped');
+    ensureNoError(studentError, 'Failed to archive students');
+
     return [
-        await deleteByAcademy('lms', lms, 'payments', academyId),
-        await deleteByAcademy('lms', lms, 'invoices', academyId),
-        await deleteByAcademy('lms', lms, 'student_billing_contracts', academyId),
-        await deleteByAcademy('core', core, 'students', academyId),
+        { schema: 'core', table: 'class_students', operation: 'archive', affectedRows: classCount ?? 0 },
+        { schema: 'lms', table: 'student_billing_contracts', operation: 'close', affectedRows: contractCount ?? 0 },
+        { schema: 'core', table: 'academy_members', operation: 'deactivate', affectedRows: memberCount ?? 0 },
+        { schema: 'core', table: 'account_invitations', operation: 'expire', affectedRows: invitationCount ?? 0 },
+        { schema: 'core', table: 'students', operation: 'archive', affectedRows: studentCount ?? 0 },
     ];
 }
 
@@ -109,7 +177,7 @@ function resetSummary(target: ResetTarget, tables: ResetTableSummary[]): ResetSu
     return {
         target,
         tables,
-        totalDeletedRows: tables.reduce((sum, table) => sum + table.deletedRows, 0),
+        totalAffectedRows: tables.reduce((sum, table) => sum + table.affectedRows, 0),
     };
 }
 

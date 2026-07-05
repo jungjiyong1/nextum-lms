@@ -260,13 +260,13 @@ export function StudentDetailPanel({
                 </div>
             </div>
 
-            {/* 삭제 확인 다이얼로그 */}
+            {/* 퇴원 처리 확인 다이얼로그 */}
             <ConfirmDialog
                 open={isDeleteDialogOpen}
                 onOpenChange={setIsDeleteDialogOpen}
-                title="학생 삭제"
-                description={`'${student.name}' 학생을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`}
-                confirmLabel="삭제"
+                title="학생 퇴원 처리"
+                description={`'${student.name}' 학생을 퇴원 처리합니다. 학습/채점/AI 데이터는 보존됩니다.`}
+                confirmLabel="퇴원 처리"
                 cancelLabel="취소"
                 variant="destructive"
                 onConfirm={onDelete}

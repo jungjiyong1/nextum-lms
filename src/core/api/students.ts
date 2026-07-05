@@ -85,7 +85,7 @@ export async function updateStudent(id: number, data: Partial<Student>): Promise
 export async function deleteStudent(id: number): Promise<Result<void>> {
     const { error } = await supabase
         .from('students')
-        .delete()
+        .update({ status: 'dropped' })
         .eq('id', id);
 
     if (error) return err(new Error(error.message));

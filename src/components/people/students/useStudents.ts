@@ -137,12 +137,12 @@ export function useStudents(options: UseStudentsOptions = {}) {
         try {
             const res = await window.api.students.delete(id);
             if (res.success) {
-                toast.success('삭제되었습니다.');
+                toast.success('학생을 퇴원 처리했습니다.');
                 emitDataChange('students');
                 if (selectedStudent?.id === id) setSelectedStudent(null);
                 return true;
             } else {
-                toast.error(apiErrorMessage(res.error, '삭제 실패'));
+                toast.error(apiErrorMessage(res.error, '퇴원 처리 실패'));
                 return false;
             }
         } catch (e) {
