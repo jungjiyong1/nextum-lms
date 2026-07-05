@@ -13,8 +13,14 @@
 - Moved high-risk create/generate mutations behind same-origin server API routes:
   - `/api/lms/classes`
   - `/api/lms/students`
+  - `/api/lms/staff`
+  - `/api/lms/schedule-rules`
+  - `/api/lms/class-books`
+  - `/api/lms/attendance`
+  - `/api/lms/invitations/issue`
   - `/api/lms/billing/generate`
   - These routes authorize the exact academy before using the server-only Supabase secret key.
+- Admin export/reset/tax-settings APIs now require the caller to provide the exact `academyId`; the server authorizes that academy instead of choosing the first admin membership.
 - Switched existing LMS routes to the new workflows:
   - learning dashboard
   - class/time schedule

@@ -1,4 +1,4 @@
-import { authErrorResponse, assertLmsAdminRequest } from '@/lib/lms/auth';
+import { assertRecentAuth, assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { resetLmsData, type ResetTarget } from '@/lib/lms/admin-operations';
 
 const resetTargets = new Set<ResetTarget>([
@@ -16,14 +16,16 @@ const resetTargets = new Set<ResetTarget>([
 
 export async function POST(request: Request) {
     try {
-        const admin = await assertLmsAdminRequest(request, { requireRecentAuth: true });
-        const { target } = await request.json() as { target?: ResetTarget };
+        assertSameOrigin(request);
+        const { academyId, target } = await request.json() as { academyId?: string; target?: ResetTarget };
 
-        if (!target || !resetTargets.has(target)) {
+        if (!academyId || !target || !resetTargets.has(target)) {
             return Response.json({ success: false, error: 'Invalid reset target.' }, { status: 400 });
         }
 
-        await resetLmsData(target, admin.academyId);
+        const admin = await assertLmsRoleForAcademy(academyId, ['owner', 'admin']);
+        assertRecentAuth(admin);
+        await resetLmsData(target, academyId);
 
         return Response.json({ success: true });
     } catch (error) {

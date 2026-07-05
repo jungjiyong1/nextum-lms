@@ -192,7 +192,7 @@ export function assertSameOrigin(request: Request) {
     }
 }
 
-export function assertRecentAuth(admin: LmsAdminContext, maxAgeSeconds = 300) {
+export function assertRecentAuth(admin: { authIssuedAt: number | null }, maxAgeSeconds = 300) {
     if (!admin.authIssuedAt) {
         throw new LmsAuthError('Recent authentication is required.', 403);
     }

@@ -1,15 +1,17 @@
-import { authErrorResponse, assertLmsAdminRequest } from '@/lib/lms/auth';
+import { assertRecentAuth, assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { updateTaxSettingsForAcademy } from '@/lib/lms/admin-operations';
 
 export async function POST(request: Request) {
     try {
-        const admin = await assertLmsAdminRequest(request, { requireRecentAuth: true });
-        const body = await request.json() as { settings?: Record<string, unknown> };
-        if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
+        assertSameOrigin(request);
+        const body = await request.json() as { academyId?: string; settings?: Record<string, unknown> };
+        if (!body.academyId || !body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
             return Response.json({ success: false, error: 'Invalid settings payload.' }, { status: 400 });
         }
 
-        await updateTaxSettingsForAcademy(body.settings, admin.academyId);
+        const admin = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
+        assertRecentAuth(admin);
+        await updateTaxSettingsForAcademy(body.settings, body.academyId);
 
         return Response.json({ success: true });
     } catch (error) {

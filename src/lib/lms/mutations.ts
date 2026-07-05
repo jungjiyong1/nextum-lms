@@ -1,13 +1,18 @@
 import 'server-only';
 
+import { createHash, randomBytes } from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { calculateInvoiceDraft } from '@/features/lms/billing';
 import type {
     BillingClassRuleType,
     BillingMode,
     CreateClassInput,
+    CreateScheduleRuleInput,
+    CreateStaffInput,
     CreateStudentInput,
+    RecordAttendanceInput,
     StudentClassBillingInput,
+    StudentInvitationResult,
 } from '@/features/lms/types';
 
 type Row = Record<string, any>;
@@ -48,6 +53,27 @@ function isEffective(row: Row, startDate: string, endDate: string): boolean {
 
 function uniqueClassIds(classIds: string[] | undefined) {
     return [...new Set((classIds || []).filter(Boolean))];
+}
+
+function normalizeTime(value: string | null | undefined): string {
+    return (value || '').slice(0, 5);
+}
+
+function minutesBetween(startTime: string, endTime: string): number {
+    const [startHour, startMinute] = normalizeTime(startTime).split(':').map(Number);
+    const [endHour, endMinute] = normalizeTime(endTime).split(':').map(Number);
+    const start = startHour * 60 + startMinute;
+    const end = endHour * 60 + endMinute;
+    return Math.max(0, end - start);
+}
+
+function randomInviteCode(): string {
+    const token = randomBytes(9).toString('base64url').replace(/[^A-Z0-9]/gi, '').slice(0, 12).toUpperCase();
+    return `NX-${token.slice(0, 4)}-${token.slice(4, 8)}-${token.slice(8, 12)}`;
+}
+
+function hashInviteCode(code: string): string {
+    return createHash('sha256').update(code.trim().toUpperCase()).digest('hex');
 }
 
 function defaultBillingRules(input: CreateStudentInput): StudentClassBillingInput[] {
@@ -96,6 +122,31 @@ async function fetchClassNames(core: SchemaClient, classIds: string[]) {
     ensureNoError(error, 'Failed to load class names');
 
     return new Map((data || []).map((row: Row) => [row.id, row.name]));
+}
+
+async function assertBookAssignableToAcademy(content: SchemaClient, academyId: string, bookId: string) {
+    const { data, error } = await content
+        .from('books')
+        .select('id,academy_id')
+        .eq('id', bookId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to verify book');
+
+    const book = data as Row | null;
+    if (!book || (book.academy_id && book.academy_id !== academyId)) {
+        throw new Error('Selected book does not belong to this academy.');
+    }
+}
+
+async function loadClassProfile(lms: SchemaClient, academyId: string, classId: string) {
+    const { data, error } = await lms
+        .from('class_profiles')
+        .select('default_classroom_id,default_instructor_staff_id')
+        .eq('academy_id', academyId)
+        .eq('class_id', classId)
+        .single();
+    ensureNoError(error, 'Failed to load class profile');
+    return data as Row;
 }
 
 function normalizeBillingMode(value: BillingMode): BillingMode {
@@ -223,6 +274,207 @@ export async function createStudentForAcademy(academyId: string, input: CreateSt
         await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
         throw error;
     }
+}
+
+export async function createStaffForAcademy(academyId: string, input: CreateStaffInput) {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const name = input.name.trim();
+    if (!name) throw new Error('이름을 입력하세요.');
+
+    const { data: person, error: personError } = await core
+        .from('people')
+        .insert({
+            primary_academy_id: academyId,
+            full_name: name,
+            display_name: name,
+            phone: input.phone || null,
+            email: input.email || null,
+        })
+        .select('id')
+        .single();
+    ensureNoError(personError, 'Failed to create person');
+
+    const personRow = person as Row;
+    try {
+        const { error: staffError } = await core.from('staff_members').insert({
+            academy_id: academyId,
+            person_id: personRow.id,
+            role: input.role,
+            status: 'active',
+            hourly_rate: input.hourlyRate ?? null,
+        });
+        ensureNoError(staffError, 'Failed to create staff member');
+    } catch (error) {
+        await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
+        throw error;
+    }
+}
+
+export async function createScheduleRuleForAcademy(academyId: string, input: CreateScheduleRuleInput) {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    await assertClassesBelongToAcademy(core, academyId, [input.classId]);
+
+    const profile = await loadClassProfile(lms, academyId, input.classId);
+    const { error } = await lms.from('class_schedule_rules').insert({
+        academy_id: academyId,
+        class_id: input.classId,
+        day_of_week: input.dayOfWeek,
+        start_time: input.startTime,
+        end_time: input.endTime,
+        start_date: input.startDate,
+        end_date: input.endDate || null,
+        classroom_id: input.classroomId || profile?.default_classroom_id || null,
+        instructor_staff_id: input.instructorId || profile?.default_instructor_staff_id || null,
+    });
+    ensureNoError(error, 'Failed to create schedule rule');
+}
+
+export async function setClassBookForAcademy(academyId: string, classId: string, bookId: string, active: boolean) {
+    if (!classId || !bookId) throw new Error('반과 교재를 선택하세요.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const content = client.schema('content');
+    await assertClassesBelongToAcademy(core, academyId, [classId]);
+    await assertBookAssignableToAcademy(content, academyId, bookId);
+
+    const { error } = await core
+        .from('class_books')
+        .upsert({ class_id: classId, book_id: bookId, active }, { onConflict: 'class_id,book_id' });
+    ensureNoError(error, 'Failed to assign class book');
+}
+
+export async function createStudentInvitationForAcademy(
+    academyId: string,
+    studentId: string,
+): Promise<StudentInvitationResult> {
+    if (!studentId) throw new Error('학생을 선택하세요.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const { data: student, error: studentError } = await core
+        .from('students')
+        .select('id,person_id,status')
+        .eq('academy_id', academyId)
+        .eq('id', studentId)
+        .eq('status', 'active')
+        .single();
+    ensureNoError(studentError, 'Failed to load student');
+
+    const studentRow = student as Row;
+    const { data: person, error: personError } = await core
+        .from('people')
+        .select('id,full_name,display_name')
+        .eq('id', studentRow.person_id)
+        .single();
+    ensureNoError(personError, 'Failed to load person');
+
+    const personRow = person as Row;
+    const code = randomInviteCode();
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    const { error } = await core.from('account_invitations').insert({
+        academy_id: academyId,
+        person_id: studentRow.person_id,
+        student_id: studentRow.id,
+        role: 'student',
+        invite_code_hash: hashInviteCode(code),
+        login_hint: personRow.display_name || personRow.full_name || null,
+        expires_at: expiresAt,
+    });
+    ensureNoError(error, 'Failed to create student invitation');
+
+    return {
+        code,
+        expiresAt,
+        loginHint: personRow.display_name || personRow.full_name || null,
+    };
+}
+
+async function ensureOccurrenceForAttendance(
+    lms: SchemaClient,
+    academyId: string,
+    input: RecordAttendanceInput,
+): Promise<string> {
+    if (input.occurrenceId) {
+        const { data, error } = await lms
+            .from('lesson_occurrences')
+            .select('id')
+            .eq('academy_id', academyId)
+            .eq('class_id', input.classId)
+            .eq('id', input.occurrenceId)
+            .maybeSingle();
+        ensureNoError(error, 'Failed to verify occurrence');
+        if (!data?.id) throw new Error('Selected occurrence does not belong to this academy.');
+        return input.occurrenceId;
+    }
+
+    const row = {
+        academy_id: academyId,
+        class_id: input.classId,
+        rule_id: input.ruleId || null,
+        occurrence_date: input.date,
+        start_time: input.startTime,
+        end_time: input.endTime,
+        status: 'scheduled',
+    };
+
+    const { data, error } = await lms.from('lesson_occurrences').insert(row).select('id').single();
+    if (!error) return (data as Row).id;
+
+    const maybeDuplicate = (error as Row).code === '23505';
+    if (!maybeDuplicate) throw new Error(error.message);
+
+    let query = lms
+        .from('lesson_occurrences')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('class_id', input.classId)
+        .eq('occurrence_date', input.date)
+        .eq('start_time', input.startTime);
+
+    query = input.ruleId ? query.eq('rule_id', input.ruleId) : query.is('rule_id', null);
+    const { data: existing, error: existingError } = await query.limit(1).maybeSingle();
+    ensureNoError(existingError, 'Failed to load existing occurrence');
+    if (!existing?.id) throw new Error('수업 회차를 생성하지 못했습니다.');
+    return existing.id;
+}
+
+export async function recordAttendanceForAcademy(academyId: string, input: RecordAttendanceInput) {
+    if (!input.studentId) throw new Error('학생을 선택하세요.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    await assertClassesBelongToAcademy(core, academyId, [input.classId]);
+
+    const { data: enrollment, error: enrollmentError } = await core
+        .from('class_students')
+        .select('student_id,status')
+        .eq('class_id', input.classId)
+        .eq('student_id', input.studentId)
+        .eq('status', 'active')
+        .maybeSingle();
+    ensureNoError(enrollmentError, 'Failed to verify enrollment');
+    if (!enrollment) throw new Error('학생이 해당 반에 배정되어 있지 않습니다.');
+
+    const occurrenceId = await ensureOccurrenceForAttendance(lms, academyId, input);
+    const defaultMinutes = ['absent', 'excused'].includes(input.status)
+        ? 0
+        : minutesBetween(input.startTime, input.endTime);
+
+    const { error } = await lms.from('attendance_records').upsert({
+        academy_id: academyId,
+        occurrence_id: occurrenceId,
+        student_id: input.studentId,
+        status: input.status,
+        attended_minutes: input.attendedMinutes ?? defaultMinutes,
+        billable_minutes: input.billableMinutes ?? defaultMinutes,
+        notes: input.notes || null,
+    }, { onConflict: 'occurrence_id,student_id' });
+    ensureNoError(error, 'Failed to record attendance');
 }
 
 async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: string, serviceMonth: string) {

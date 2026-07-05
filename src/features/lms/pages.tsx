@@ -517,7 +517,7 @@ export function ClassesPage() {
   const submitBook = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      await setClassBook(selectedClassId, selectedBookId, true);
+      await setClassBook(academyId, selectedClassId, selectedBookId, true);
       toast.success('교재를 배정했습니다.');
       setSelectedBookId('');
       await loadClassDetail();

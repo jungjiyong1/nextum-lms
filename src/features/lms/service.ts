@@ -26,12 +26,6 @@ type Row = Record<string, any>;
 
 const STAFF_ROLES = ['owner', 'admin', 'staff', 'teacher', 'instructor'];
 
-function requireData<T>(data: T | null, error: { message?: string } | null): T {
-  if (error) throw new Error(error.message || 'Database request failed');
-  if (data === null) throw new Error('Database returned no data');
-  return data;
-}
-
 function toNumber(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -62,14 +56,6 @@ function weeksBetween(start: Date, target: Date): number {
 
 function normalizeTime(value: string | null | undefined): string {
   return (value || '').slice(0, 5);
-}
-
-function minutesBetween(startTime: string, endTime: string): number {
-  const [startHour, startMinute] = normalizeTime(startTime).split(':').map(Number);
-  const [endHour, endMinute] = normalizeTime(endTime).split(':').map(Number);
-  const start = startHour * 60 + startMinute;
-  const end = endHour * 60 + endMinute;
-  return Math.max(0, end - start);
 }
 
 function monthRange(serviceMonth: string): { start: string; end: string } {
@@ -121,35 +107,17 @@ async function fetchStaffPeople(staffRows: Row[]): Promise<Map<string, string>> 
   return names;
 }
 
-async function postLmsMutation(path: string, payload: Record<string, unknown>): Promise<void> {
+async function postLmsMutation<T = undefined>(path: string, payload: Record<string, unknown>): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  const result = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
+  const result = await response.json().catch(() => null) as { success?: boolean; error?: string } & Record<string, unknown> | null;
   if (!response.ok || !result?.success) {
     throw new Error(result?.error || '요청 처리에 실패했습니다.');
   }
-}
-
-function randomInviteCode(): string {
-  const bytes = new Uint8Array(9);
-  crypto.getRandomValues(bytes);
-  const token = Array.from(bytes)
-    .map((byte) => byte.toString(36).padStart(2, '0'))
-    .join('')
-    .slice(0, 12)
-    .toUpperCase();
-  return `NX-${token.slice(0, 4)}-${token.slice(4, 8)}-${token.slice(8, 12)}`;
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(value.trim().toUpperCase()));
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+  return result as T;
 }
 
 export async function getAcademyName(academyId: string): Promise<string | null> {
@@ -318,65 +286,12 @@ export async function createStudent(academyId: string, input: CreateStudentInput
 }
 
 export async function createStudentInvitation(academyId: string, studentId: string): Promise<StudentInvitationResult> {
-  if (!studentId) throw new Error('학생을 선택하세요.');
-
-  const { data: student, error: studentError } = await coreDb
-    .from('students')
-    .select('id,person_id,status')
-    .eq('academy_id', academyId)
-    .eq('id', studentId)
-    .single();
-  const studentRow = requireData(student, studentError);
-
-  const people = await fetchPeople([studentRow.person_id]);
-  const person = people.get(studentRow.person_id);
-  const code = randomInviteCode();
-  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-
-  const { error } = await coreDb.from('account_invitations').insert({
-    academy_id: academyId,
-    person_id: studentRow.person_id,
-    student_id: studentRow.id,
-    role: 'student',
-    invite_code_hash: await sha256Hex(code),
-    login_hint: person?.display_name || person?.full_name || null,
-    expires_at: expiresAt,
-  });
-
-  if (error) throw new Error(error.message);
-
-  return {
-    code,
-    expiresAt,
-    loginHint: person?.display_name || person?.full_name || null,
-  };
+  const result = await postLmsMutation<{ invite: StudentInvitationResult }>('/api/lms/invitations/issue', { academyId, studentId });
+  return result.invite;
 }
 
 export async function createStaff(academyId: string, input: CreateStaffInput): Promise<void> {
-  const name = input.name.trim();
-  if (!name) throw new Error('이름을 입력하세요.');
-
-  const { data: person, error: personError } = await coreDb
-    .from('people')
-    .insert({
-      primary_academy_id: academyId,
-      full_name: name,
-      display_name: name,
-      phone: input.phone || null,
-      email: input.email || null,
-    })
-    .select('id')
-    .single();
-  const createdPerson = requireData(person, personError);
-
-  const { error: staffError } = await coreDb.from('staff_members').insert({
-    academy_id: academyId,
-    person_id: createdPerson.id,
-    role: input.role,
-    status: 'active',
-    hourly_rate: input.hourlyRate ?? null,
-  });
-  if (staffError) throw new Error(staffError.message);
+  await postLmsMutation('/api/lms/staff', { academyId, input });
 }
 
 export async function listSchedule(academyId: string, startDate: string, endDate: string): Promise<ScheduleItem[]> {
@@ -472,26 +387,7 @@ export async function listSchedule(academyId: string, startDate: string, endDate
 }
 
 export async function createScheduleRule(academyId: string, input: CreateScheduleRuleInput): Promise<void> {
-  const { data: profile, error: profileError } = await lmsDb
-    .from('class_profiles')
-    .select('default_classroom_id,default_instructor_staff_id')
-    .eq('class_id', input.classId)
-    .single();
-  if (profileError) throw new Error(profileError.message);
-
-  const { error } = await lmsDb.from('class_schedule_rules').insert({
-    academy_id: academyId,
-    class_id: input.classId,
-    day_of_week: input.dayOfWeek,
-    start_time: input.startTime,
-    end_time: input.endTime,
-    start_date: input.startDate,
-    end_date: input.endDate || null,
-    classroom_id: input.classroomId || profile?.default_classroom_id || null,
-    instructor_staff_id: input.instructorId || profile?.default_instructor_staff_id || null,
-  });
-
-  if (error) throw new Error(error.message);
+  await postLmsMutation('/api/lms/schedule-rules', { academyId, input });
 }
 
 export async function listClassStudents(academyId: string, classId: string): Promise<ClassStudentSummary[]> {
@@ -579,68 +475,13 @@ export async function listClassBooks(classId: string): Promise<ClassBookSummary[
   });
 }
 
-export async function setClassBook(classId: string, bookId: string, active: boolean): Promise<void> {
+export async function setClassBook(academyId: string, classId: string, bookId: string, active: boolean): Promise<void> {
   if (!classId || !bookId) throw new Error('반과 교재를 선택하세요.');
-
-  const { error } = await coreDb
-    .from('class_books')
-    .upsert({ class_id: classId, book_id: bookId, active }, { onConflict: 'class_id,book_id' });
-  if (error) throw new Error(error.message);
-}
-
-async function ensureOccurrence(academyId: string, input: RecordAttendanceInput): Promise<string> {
-  if (input.occurrenceId) return input.occurrenceId;
-
-  const row = {
-    academy_id: academyId,
-    class_id: input.classId,
-    rule_id: input.ruleId || null,
-    occurrence_date: input.date,
-    start_time: input.startTime,
-    end_time: input.endTime,
-    status: 'scheduled',
-  };
-
-  const { data, error } = await lmsDb.from('lesson_occurrences').insert(row).select('id').single();
-  if (!error) return requireData(data, null).id;
-
-  const maybeDuplicate = (error as Row).code === '23505';
-  if (!maybeDuplicate) throw new Error(error.message);
-
-  let query = lmsDb
-    .from('lesson_occurrences')
-    .select('id')
-    .eq('academy_id', academyId)
-    .eq('class_id', input.classId)
-    .eq('occurrence_date', input.date)
-    .eq('start_time', input.startTime);
-
-  query = input.ruleId ? query.eq('rule_id', input.ruleId) : query.is('rule_id', null);
-  const { data: existing, error: existingError } = await query.limit(1).maybeSingle();
-  if (existingError) throw new Error(existingError.message);
-  if (!existing?.id) throw new Error('수업 회차를 생성하지 못했습니다.');
-  return existing.id;
+  await postLmsMutation('/api/lms/class-books', { academyId, classId, bookId, active });
 }
 
 export async function recordAttendance(academyId: string, input: RecordAttendanceInput): Promise<void> {
-  if (!input.studentId) throw new Error('학생을 선택하세요.');
-
-  const occurrenceId = await ensureOccurrence(academyId, input);
-  const defaultMinutes = ['absent', 'excused'].includes(input.status)
-    ? 0
-    : minutesBetween(input.startTime, input.endTime);
-
-  const { error } = await lmsDb.from('attendance_records').upsert({
-    academy_id: academyId,
-    occurrence_id: occurrenceId,
-    student_id: input.studentId,
-    status: input.status,
-    attended_minutes: input.attendedMinutes ?? defaultMinutes,
-    billable_minutes: input.billableMinutes ?? defaultMinutes,
-    notes: input.notes || null,
-  }, { onConflict: 'occurrence_id,student_id' });
-
-  if (error) throw new Error(error.message);
+  await postLmsMutation('/api/lms/attendance', { academyId, input });
 }
 
 export async function listAttendance(academyId: string, startDate: string, endDate: string): Promise<AttendanceRow[]> {
