@@ -9,11 +9,10 @@ import { LoginPage } from './screens/LoginPage';
 import { PinLockScreen } from './components/security/PinLockScreen';
 import { NoAcademyScreen } from './components/security/NoAcademyScreen';
 import { useIdleTimer } from './core/hooks/useIdleTimer';
-import { pinApi } from './core/api';
+import { pinApi } from './core/api/pin';
 import { logger } from './core/logger';
-import * as api from './core/api';
+import { getAcademyName } from './features/lms/service';
 import './pointer-safety';
-import './core/api/legacyShim';
 
 export type AppPage = 'home' | 'classrooms' | 'instructors' | 'students' | 'accounting' | 'settings';
 
@@ -61,10 +60,7 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
                 return;
             }
             try {
-                const result = await api.getAcademyName(profile.current_academy_id);
-                if (result.success) {
-                    setAcademyName(result.data);
-                }
+                setAcademyName(await getAcademyName(String(profile.current_academy_id)));
             } catch (err) {
                 console.error('[App] Failed to fetch academy name:', err);
             }

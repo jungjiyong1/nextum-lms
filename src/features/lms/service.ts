@@ -56,10 +56,6 @@ function normalizeTime(value: string | null | undefined): string {
   return (value || '').slice(0, 5);
 }
 
-function mapById<T extends { id: string }>(rows: T[]): Map<string, T> {
-  return new Map(rows.map((row) => [row.id, row]));
-}
-
 async function fetchPeople(personIds: string[]): Promise<Map<string, Row>> {
   const ids = [...new Set(personIds.filter(Boolean))];
   if (ids.length === 0) return new Map();
@@ -81,6 +77,17 @@ async function fetchStaffPeople(staffRows: Row[]): Promise<Map<string, string>> 
     names.set(staff.id, person?.display_name || person?.full_name || '이름없음');
   }
   return names;
+}
+
+export async function getAcademyName(academyId: string): Promise<string | null> {
+  const { data, error } = await coreDb
+    .from('academies')
+    .select('name')
+    .eq('id', academyId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data?.name ?? null;
 }
 
 export async function listStaff(academyId: string): Promise<StaffSummary[]> {
