@@ -11,6 +11,7 @@
     "clean": "rimraf .next out dist",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
+    "db:check": "node scripts/check-lms-db-health.mjs",
     "seed:dev-admin": "node scripts/seed-lms-dev-admin.mjs"
   },
   "dependencies": {

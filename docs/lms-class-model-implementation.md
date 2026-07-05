@@ -4,6 +4,7 @@
 
 - Replaced accumulated Supabase migrations with a clean baseline owned by the LMS repo.
 - Added development-only admin seeding through `npm run seed:dev-admin`; the script now requires `LMS_DEV_SEED_ALLOW=true`.
+- Added a read-only database contract check through `npm run db:check` so the LMS can verify the Supabase Data API baseline before authenticated screens are used.
 - Added a new `src/features/lms` service/UI layer using the class-centered schema.
 - Added class book assignment, class attendance recording, and monthly billing draft calculation from base fee, class rules, and billable attendance minutes.
 - Added LMS book maintenance on top of the grade-app content contract:
@@ -91,6 +92,8 @@ npm test -- --run
 npm run lint
 npm run build
 ```
+
+`npm run db:check` is the read-only cutover gate for the target Supabase project. It should pass only after the clean LMS baseline has been applied or repaired on that project.
 
 SQL baseline syntax was checked with an ephemeral Postgres 17 Docker container plus minimal Supabase stubs:
 

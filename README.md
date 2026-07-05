@@ -62,6 +62,7 @@ npm run dev
 npm run build
 npm run lint
 npm run typecheck
+npm run db:check
 npm test -- --run
 $env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin
 ```
@@ -89,6 +90,14 @@ supabase/migrations/0001_nextum_lms_baseline.sql
 This baseline is intended for the new shared database. It replaces the previous incremental LMS/grade-app compatibility migrations.
 
 The intended production target is the existing `nextum-data` Supabase project, but do not apply this baseline destructively without an explicit backup/export and cutover plan. Old LMS schema tables can be removed during cutover, but imported grade-app book/problem data must be preserved.
+
+Before seeding or running the authenticated LMS screens against a Supabase project, verify the Data API contract:
+
+```bash
+npm run db:check
+```
+
+This check is read-only. It fails when required LMS tables, views, exposed schemas, grants, or columns are missing from the target database.
 
 Local Supabase API schema exposure is recorded in:
 
