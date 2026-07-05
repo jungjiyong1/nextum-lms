@@ -78,6 +78,7 @@ LMS에서 학생을 삭제하거나 reset하면 core 학생 데이터, grade-app
 - 2026-07-06 기준 legacy 학생 삭제 버튼은 hard delete 대신 `dropped` 상태 변경으로 동작한다.
 - 학생 reset은 `core.students`를 삭제하지 않고 학생/반배정/청구계약/학생 멤버십/미사용 초대를 상태 변경으로 닫는다.
 - reset 결과는 audit payload에 operation과 affected row count로 남긴다.
+- clean baseline 검증에서 service-role reset RPC 실행과 authenticated 직접 실행 거부를 확인했다.
 
 ### 6-1. Admin 민감 작업은 서버 재인증이 필요함
 
@@ -89,6 +90,7 @@ LMS에서 학생을 삭제하거나 reset하면 core 학생 데이터, grade-app
 - reset/export/tax-settings/reauth 성공은 `audit.admin_actions`에 기록한다.
 - reset은 테이블별 operation/affected row count를, export는 filename/date/section scope를 audit payload로 남긴다.
 - export는 최대 370일, 상세 섹션별 10,000행으로 제한한다.
+- reset은 service-role 전용 `lms.reset_academy_data()` RPC로 실행되어 DB 함수 단위로 롤백된다.
 
 ### 7. 회계/급여 로직에 실제 금액 오류 가능성이 있음
 

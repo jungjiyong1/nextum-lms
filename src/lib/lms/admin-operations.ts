@@ -54,175 +54,104 @@ function ensureNoError(error: { message?: string } | null, context: string) {
     }
 }
 
-function dateString(date: Date): string {
-    return date.toISOString().slice(0, 10);
-}
-
 function schema(client: LmsAdminClient, name: 'core' | 'lms') {
     return client.schema(name);
 }
 
-async function deleteByAcademy(schemaName: 'core' | 'lms', db: SchemaClient, table: string, academyId: string): Promise<ResetTableSummary> {
-    const { error, count } = await db
-        .from(table)
-        .delete({ count: 'exact' })
-        .eq('academy_id', academyId);
+const resetTargets = new Set<ResetTarget>([
+    'classrooms',
+    'classes',
+    'lessons',
+    'schedules',
+    'students',
+    'instructors',
+    'courses',
+    'enrollments',
+    'accounting',
+    'all',
+]);
 
-    ensureNoError(error, `Failed to reset ${table}`);
-    return { schema: schemaName, table, operation: 'delete', affectedRows: count ?? 0 };
+const resetOperations = new Set<ResetTableSummary['operation']>([
+    'delete',
+    'archive',
+    'close',
+    'deactivate',
+    'void',
+    'expire',
+]);
+
+function asRecord(value: unknown): Row {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('Reset RPC returned an invalid payload.');
+    }
+    return value as Row;
 }
 
-async function resetSchedules(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
-    const lms = schema(client, 'lms');
-    return [
-        await deleteByAcademy('lms', lms, 'attendance_records', academyId),
-        await deleteByAcademy('lms', lms, 'lesson_occurrences', academyId),
-        await deleteByAcademy('lms', lms, 'class_schedule_rules', academyId),
-    ];
+function parseResetTarget(value: unknown): ResetTarget {
+    if (typeof value === 'string' && resetTargets.has(value as ResetTarget)) {
+        return value as ResetTarget;
+    }
+    throw new Error('Reset RPC returned an invalid target.');
 }
 
-async function resetClasses(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
-    return [
-        ...(await resetSchedules(client, academyId)),
-        await deleteByAcademy('lms', schema(client, 'lms'), 'class_profiles', academyId),
-        await deleteByAcademy('core', schema(client, 'core'), 'classes', academyId),
-    ];
+function parseResetSchema(value: unknown): ResetTableSummary['schema'] {
+    if (value === 'core' || value === 'lms') return value;
+    throw new Error('Reset RPC returned an invalid table schema.');
 }
 
-async function resetStudents(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
-    const lms = schema(client, 'lms');
-    const core = schema(client, 'core');
-    const today = dateString(new Date());
-    const now = new Date().toISOString();
+function parseResetOperation(value: unknown): ResetTableSummary['operation'] {
+    if (typeof value === 'string' && resetOperations.has(value as ResetTableSummary['operation'])) {
+        return value as ResetTableSummary['operation'];
+    }
+    throw new Error('Reset RPC returned an invalid operation.');
+}
 
-    const { data: students, error: studentsError } = await core
-        .from('students')
-        .select('id,person_id')
-        .eq('academy_id', academyId);
-    ensureNoError(studentsError, 'Failed to load students for archive reset');
+function parseAffectedRows(value: unknown): number {
+    const numberValue = typeof value === 'number' ? value : Number(value);
+    if (Number.isInteger(numberValue) && numberValue >= 0) return numberValue;
+    throw new Error('Reset RPC returned an invalid affected row count.');
+}
 
-    const studentIds = (students || []).map((row: Row) => row.id).filter(Boolean);
-    const personIds = (students || []).map((row: Row) => row.person_id).filter(Boolean);
-
-    if (studentIds.length === 0) {
-        return [
-            { schema: 'core', table: 'class_students', operation: 'archive', affectedRows: 0 },
-            { schema: 'lms', table: 'student_billing_contracts', operation: 'close', affectedRows: 0 },
-            { schema: 'core', table: 'academy_members', operation: 'deactivate', affectedRows: 0 },
-            { schema: 'core', table: 'account_invitations', operation: 'expire', affectedRows: 0 },
-            { schema: 'core', table: 'students', operation: 'archive', affectedRows: 0 },
-        ];
+function parseResetSummary(value: unknown): ResetSummary {
+    const payload = asRecord(value);
+    if (!Array.isArray(payload.tables)) {
+        throw new Error('Reset RPC returned invalid table summaries.');
     }
 
-    const { error: classError, count: classCount } = await core
-        .from('class_students')
-        .update({ status: 'dropped', primary_class: false, ended_at: now }, { count: 'exact' })
-        .in('student_id', studentIds)
-        .in('status', ['active', 'pending', 'on_leave']);
-    ensureNoError(classError, 'Failed to archive student class assignments');
+    const tables = payload.tables.map((entry): ResetTableSummary => {
+        const row = asRecord(entry);
+        if (typeof row.table !== 'string' || row.table.length === 0) {
+            throw new Error('Reset RPC returned an invalid table name.');
+        }
 
-    const { error: contractError, count: contractCount } = await lms
-        .from('student_billing_contracts')
-        .update({ status: 'archived', effective_to: today }, { count: 'exact' })
-        .eq('academy_id', academyId)
-        .in('student_id', studentIds)
-        .in('status', ['active', 'inactive']);
-    ensureNoError(contractError, 'Failed to archive student billing contracts');
+        return {
+            schema: parseResetSchema(row.schema),
+            table: row.table,
+            operation: parseResetOperation(row.operation),
+            affectedRows: parseAffectedRows(row.affectedRows),
+        };
+    });
 
-    const { error: memberError, count: memberCount } = await core
-        .from('academy_members')
-        .update({ active: false }, { count: 'exact' })
-        .eq('academy_id', academyId)
-        .eq('role', 'student')
-        .in('person_id', personIds)
-        .eq('active', true);
-    ensureNoError(memberError, 'Failed to deactivate student memberships');
+    const totalAffectedRows = parseAffectedRows(
+        payload.totalAffectedRows ?? tables.reduce((sum, table) => sum + table.affectedRows, 0),
+    );
 
-    const { error: invitationError, count: invitationCount } = await core
-        .from('account_invitations')
-        .update({ expires_at: now }, { count: 'exact' })
-        .eq('academy_id', academyId)
-        .in('student_id', studentIds)
-        .is('accepted_at', null);
-    ensureNoError(invitationError, 'Failed to expire student invitations');
-
-    const { error: studentError, count: studentCount } = await core
-        .from('students')
-        .update({ status: 'dropped' }, { count: 'exact' })
-        .eq('academy_id', academyId)
-        .in('id', studentIds)
-        .neq('status', 'dropped');
-    ensureNoError(studentError, 'Failed to archive students');
-
-    return [
-        { schema: 'core', table: 'class_students', operation: 'archive', affectedRows: classCount ?? 0 },
-        { schema: 'lms', table: 'student_billing_contracts', operation: 'close', affectedRows: contractCount ?? 0 },
-        { schema: 'core', table: 'academy_members', operation: 'deactivate', affectedRows: memberCount ?? 0 },
-        { schema: 'core', table: 'account_invitations', operation: 'expire', affectedRows: invitationCount ?? 0 },
-        { schema: 'core', table: 'students', operation: 'archive', affectedRows: studentCount ?? 0 },
-    ];
-}
-
-async function resetAccountingData(client: LmsAdminClient, academyId: string): Promise<ResetTableSummary[]> {
-    const lms = schema(client, 'lms');
-    return [
-        await deleteByAcademy('lms', lms, 'payments', academyId),
-        await deleteByAcademy('lms', lms, 'invoices', academyId),
-        await deleteByAcademy('lms', lms, 'expenses', academyId),
-        await deleteByAcademy('lms', lms, 'instructor_payments', academyId),
-    ];
-}
-
-function resetSummary(target: ResetTarget, tables: ResetTableSummary[]): ResetSummary {
     return {
-        target,
+        target: parseResetTarget(payload.target),
         tables,
-        totalAffectedRows: tables.reduce((sum, table) => sum + table.affectedRows, 0),
+        totalAffectedRows,
     };
 }
 
 export async function resetLmsData(target: ResetTarget, academyId: string): Promise<ResetSummary> {
     const client = createAdminClient();
-    let tables: ResetTableSummary[];
+    const { data, error } = await client.schema('lms').rpc('reset_academy_data', {
+        p_academy_id: academyId,
+        p_target: target,
+    });
+    ensureNoError(error, 'Failed to reset LMS data');
 
-    switch (target) {
-        case 'classrooms':
-            tables = [await deleteByAcademy('lms', schema(client, 'lms'), 'classrooms', academyId)];
-            return resetSummary(target, tables);
-        case 'classes':
-        case 'lessons':
-        case 'enrollments':
-            tables = await resetClasses(client, academyId);
-            return resetSummary(target, tables);
-        case 'schedules':
-            tables = await resetSchedules(client, academyId);
-            return resetSummary(target, tables);
-        case 'students':
-            tables = await resetStudents(client, academyId);
-            return resetSummary(target, tables);
-        case 'instructors':
-            tables = [await deleteByAcademy('core', schema(client, 'core'), 'staff_members', academyId)];
-            return resetSummary(target, tables);
-        case 'courses':
-            tables = [await deleteByAcademy('lms', schema(client, 'lms'), 'courses', academyId)];
-            return resetSummary(target, tables);
-        case 'accounting':
-            tables = await resetAccountingData(client, academyId);
-            return resetSummary(target, tables);
-        case 'all':
-            tables = [
-                ...(await resetAccountingData(client, academyId)),
-                ...(await resetClasses(client, academyId)),
-                ...(await resetStudents(client, academyId)),
-                await deleteByAcademy('core', schema(client, 'core'), 'staff_members', academyId),
-                await deleteByAcademy('lms', schema(client, 'lms'), 'classrooms', academyId),
-                await deleteByAcademy('lms', schema(client, 'lms'), 'courses', academyId),
-            ];
-            return resetSummary(target, tables);
-        default:
-            target satisfies never;
-            throw new Error('Unsupported reset target.');
-    }
+    return parseResetSummary(data);
 }
 
 function csvEscape(value: CsvValue): string {

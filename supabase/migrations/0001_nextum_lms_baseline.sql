@@ -952,6 +952,190 @@ as $$
   )
 $$;
 
+create or replace function lms.reset_academy_data(p_academy_id uuid, p_target text)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = lms, core, public
+as $$
+declare
+  normalized_target text := lower(coalesce(p_target, ''));
+  summaries jsonb := '[]'::jsonb;
+  affected integer := 0;
+begin
+  if p_academy_id is null then
+    raise exception 'academy id is required';
+  end if;
+
+  if normalized_target not in (
+    'classrooms',
+    'classes',
+    'lessons',
+    'schedules',
+    'students',
+    'instructors',
+    'courses',
+    'enrollments',
+    'accounting',
+    'all'
+  ) then
+    raise exception 'unsupported reset target: %', p_target;
+  end if;
+
+  if normalized_target in ('schedules', 'classes', 'lessons', 'enrollments', 'all') then
+    delete from lms.attendance_records where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'attendance_records', 'operation', 'delete', 'affectedRows', affected
+    ));
+
+    delete from lms.lesson_occurrences where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'lesson_occurrences', 'operation', 'delete', 'affectedRows', affected
+    ));
+
+    delete from lms.class_schedule_rules where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'class_schedule_rules', 'operation', 'delete', 'affectedRows', affected
+    ));
+  end if;
+
+  if normalized_target in ('classes', 'lessons', 'enrollments', 'all') then
+    delete from lms.class_profiles where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'class_profiles', 'operation', 'delete', 'affectedRows', affected
+    ));
+
+    delete from core.classes where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'core', 'table', 'classes', 'operation', 'delete', 'affectedRows', affected
+    ));
+  end if;
+
+  if normalized_target in ('students', 'all') then
+    update core.class_students
+       set status = 'dropped',
+           primary_class = false,
+           ended_at = now()
+     where student_id in (
+       select id from core.students where academy_id = p_academy_id
+     )
+       and status in ('active', 'pending', 'on_leave');
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'core', 'table', 'class_students', 'operation', 'archive', 'affectedRows', affected
+    ));
+
+    update lms.student_billing_contracts
+       set status = 'archived',
+           effective_to = current_date
+     where academy_id = p_academy_id
+       and status in ('active', 'inactive');
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'student_billing_contracts', 'operation', 'archive', 'affectedRows', affected
+    ));
+
+    update core.academy_members
+       set active = false
+     where academy_id = p_academy_id
+       and role = 'student'
+       and active = true
+       and person_id in (
+         select person_id from core.students where academy_id = p_academy_id
+       );
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'core', 'table', 'academy_members', 'operation', 'deactivate', 'affectedRows', affected
+    ));
+
+    update core.account_invitations
+       set expires_at = now()
+     where academy_id = p_academy_id
+       and accepted_at is null
+       and student_id in (
+         select id from core.students where academy_id = p_academy_id
+       );
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'core', 'table', 'account_invitations', 'operation', 'expire', 'affectedRows', affected
+    ));
+
+    update core.students
+       set status = 'dropped'
+     where academy_id = p_academy_id
+       and status <> 'dropped';
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'core', 'table', 'students', 'operation', 'archive', 'affectedRows', affected
+    ));
+  end if;
+
+  if normalized_target in ('accounting', 'all') then
+    delete from lms.payments where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'payments', 'operation', 'delete', 'affectedRows', affected
+    ));
+
+    delete from lms.invoices where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'invoices', 'operation', 'delete', 'affectedRows', affected
+    ));
+
+    delete from lms.expenses where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'expenses', 'operation', 'delete', 'affectedRows', affected
+    ));
+
+    delete from lms.instructor_payments where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'instructor_payments', 'operation', 'delete', 'affectedRows', affected
+    ));
+  end if;
+
+  if normalized_target in ('instructors', 'all') then
+    delete from core.staff_members where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'core', 'table', 'staff_members', 'operation', 'delete', 'affectedRows', affected
+    ));
+  end if;
+
+  if normalized_target in ('classrooms', 'all') then
+    delete from lms.classrooms where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'classrooms', 'operation', 'delete', 'affectedRows', affected
+    ));
+  end if;
+
+  if normalized_target in ('courses', 'all') then
+    delete from lms.courses where academy_id = p_academy_id;
+    get diagnostics affected = row_count;
+    summaries := summaries || jsonb_build_array(jsonb_build_object(
+      'schema', 'lms', 'table', 'courses', 'operation', 'delete', 'affectedRows', affected
+    ));
+  end if;
+
+  return jsonb_build_object(
+    'target', normalized_target,
+    'tables', summaries,
+    'totalAffectedRows', coalesce((
+      select sum((entry->>'affectedRows')::integer)
+      from jsonb_array_elements(summaries) as entries(entry)
+    ), 0)
+  );
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Reporting views
 
@@ -1495,6 +1679,10 @@ grant execute on function
   content.can_report_problem(text),
   content.problem_public_payload(jsonb)
 to authenticated, service_role;
+
+revoke execute on function lms.reset_academy_data(uuid, text) from public;
+revoke execute on function lms.reset_academy_data(uuid, text) from anon, authenticated;
+grant execute on function lms.reset_academy_data(uuid, text) to service_role;
 
 grant select, insert, update, delete on all tables in schema core to authenticated;
 grant select on content.books, content.units, content.concepts, content.problem_types, content.assets, content.problem_reports to authenticated;

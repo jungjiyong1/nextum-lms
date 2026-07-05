@@ -142,6 +142,7 @@ Implementation status:
 - reset/export/tax-settings/reauth 성공 시 `audit.admin_actions`에 actor, academy, action, target, payload를 기록한다.
 - reset audit payload에는 target, 테이블별 operation/affected row count, 총 affected row count가 포함된다.
 - export는 최대 370일, 상세 섹션별 10,000행으로 제한하고 filename/date/section scope를 audit payload에 기록한다.
+- reset은 service-role 전용 `lms.reset_academy_data()` RPC로 실행되며, clean baseline 검증에서 authenticated 직접 실행이 거부됨을 확인했다.
 - 아직 남은 작업: reset 2단계 confirm token.
 
 Acceptance:
@@ -230,7 +231,8 @@ Implementation status:
 - 학생 상세 UI는 "삭제"가 아니라 "퇴원 처리"로 표시하고, 학습/채점/AI 데이터가 보존됨을 안내한다.
 - LMS admin `students` reset은 `core.students`를 삭제하지 않는다. 대신 class assignment는 `dropped`, billing contract는 `archived`, student membership은 inactive, pending invitation은 expired, student row는 `dropped`로 상태 변경한다.
 - reset audit payload는 상태 변경/삭제 구분을 위해 `operation`과 `affectedRows`를 남긴다.
-- 아직 남은 작업: reset 전체를 transaction/RPC로 묶고, 개인정보 hard erase는 별도 승인 workflow로 분리.
+- 2026-07-06 clean baseline에는 `lms.reset_academy_data()` RPC를 추가했고, LMS reset route는 이 RPC만 호출한다. Postgres 함수 호출 단위로 실행되므로 중간 실패 시 전체가 롤백된다.
+- 아직 남은 작업: 개인정보 hard erase는 별도 승인 workflow로 분리.
 
 ### P1-4. account invitation flow가 제품 요구를 완전히 만족하지 않음
 
