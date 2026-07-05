@@ -10,6 +10,7 @@ out/
 coverage/
 output/
 .playwright-cli/
+.playwright-mcp/
 renderer/bundle.js
 renderer/styles/tailwind.out.css
 renderer/styles/files/

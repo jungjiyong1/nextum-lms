@@ -2,6 +2,7 @@
 import { lmsDb as supabase } from '../supabaseClient';
 import type { Classroom, Result } from './shared/types';
 import { ok, err } from './shared/result';
+import { resetClassrooms as resetClassroomsViaAdmin } from './reset';
 
 export async function listClassrooms(): Promise<Result<Classroom[]>> {
     const { data, error } = await supabase
@@ -96,11 +97,5 @@ export async function deleteClassroom(id: number): Promise<Result<void>> {
 }
 
 export async function resetClassrooms(): Promise<Result<void>> {
-    const { error } = await supabase
-        .from('classrooms')
-        .delete()
-        .neq('id', 0); // Delete all
-
-    if (error) return err(new Error(error.message));
-    return ok(undefined);
+    return resetClassroomsViaAdmin();
 }

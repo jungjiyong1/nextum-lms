@@ -1,40 +1,70 @@
-// Reset functions - centralized for all domains
-import { lmsDb as supabase } from '../supabaseClient';
-import { resetClassrooms } from './classrooms';
-import { resetLessons } from './lessons';
-import { resetSchedules } from './schedules';
-import { resetStudents } from './students';
-import { resetInstructors } from './instructors';
-import { resetEnrollments } from './enrollments';
-import { resetAccounting } from './accounting';
+// Admin reset functions are executed through Next.js Route Handlers so the
+// service-role key and destructive operations stay on the server.
+import { ok, err } from './shared/result';
+import type { Result } from './shared/types';
 
-export async function resetCourses(): Promise<void> {
-    const { error } = await supabase
-        .from('courses')
-        .delete()
-        .neq('id', 0);
+type ResetTarget =
+    | 'classrooms'
+    | 'lessons'
+    | 'schedules'
+    | 'students'
+    | 'instructors'
+    | 'courses'
+    | 'enrollments'
+    | 'accounting'
+    | 'all';
 
-    if (error) throw error;
+async function runAdminReset(target: ResetTarget): Promise<Result<void>> {
+    try {
+        const response = await fetch('/api/lms/admin/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target }),
+        });
+
+        if (!response.ok) {
+            const payload = await response.json().catch(() => null) as { error?: string } | null;
+            return err(new Error(payload?.error || `Reset failed with HTTP ${response.status}`));
+        }
+
+        return ok(undefined);
+    } catch (error) {
+        return err(error instanceof Error ? error : new Error(String(error)));
+    }
 }
 
-export async function resetAll(): Promise<void> {
-    // Delete all data in correct order to respect foreign keys
-    await resetAccounting();
-    await resetEnrollments();
-    await resetSchedules();
-    await supabase.from('lesson_rules').delete().neq('id', 0);
-    await resetLessons();
-    await resetClassrooms();
-    await resetStudents();
-    await resetInstructors();
-    await resetCourses();
+export async function resetClassrooms(): Promise<Result<void>> {
+    return runAdminReset('classrooms');
 }
 
-// Re-export individual reset functions
-export { resetClassrooms } from './classrooms';
-export { resetLessons } from './lessons';
-export { resetSchedules } from './schedules';
-export { resetStudents } from './students';
-export { resetInstructors } from './instructors';
-export { resetEnrollments } from './enrollments';
-export { resetAccounting } from './accounting';
+export async function resetLessons(): Promise<Result<void>> {
+    return runAdminReset('lessons');
+}
+
+export async function resetSchedules(): Promise<Result<void>> {
+    return runAdminReset('schedules');
+}
+
+export async function resetStudents(): Promise<Result<void>> {
+    return runAdminReset('students');
+}
+
+export async function resetInstructors(): Promise<Result<void>> {
+    return runAdminReset('instructors');
+}
+
+export async function resetCourses(): Promise<Result<void>> {
+    return runAdminReset('courses');
+}
+
+export async function resetEnrollments(): Promise<Result<void>> {
+    return runAdminReset('enrollments');
+}
+
+export async function resetAccounting(): Promise<Result<void>> {
+    return runAdminReset('accounting');
+}
+
+export async function resetAll(): Promise<Result<void>> {
+    return runAdminReset('all');
+}

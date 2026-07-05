@@ -3,6 +3,7 @@ import { lmsDb as supabase } from '../supabaseClient';
 import type { ExpenseData, StudentPaymentData, Result } from './shared/types';
 import { ok, err } from './shared/result';
 import { calculateInstructorMonthlySalary } from './instructors';
+import { resetAccounting as resetAccountingViaAdmin } from './reset';
 
 interface DashboardData {
     monthlyRevenue: number;
@@ -103,28 +104,25 @@ interface TaxReportExportOptions extends ExportDateRange {
     includeProfitLoss?: boolean;
 }
 
-type CsvValue = string | number | boolean | null | undefined;
-
-function csvEscape(value: CsvValue): string {
-    const text = value === null || value === undefined ? '' : String(value);
-    if (!/[",\r\n]/.test(text)) return text;
-    return `"${text.replace(/"/g, '""')}"`;
+async function parseErrorResponse(response: Response, fallback: string): Promise<Error> {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    return new Error(payload?.error || fallback);
 }
 
-function csvSection(title: string, headers: string[], rows: CsvValue[][]): string {
-    return [
-        title,
-        headers.map(csvEscape).join(','),
-        ...rows.map((row) => row.map(csvEscape).join(',')),
-    ].join('\r\n');
+function parseAttachmentFilename(response: Response, fallback: string): string {
+    const disposition = response.headers.get('content-disposition') || '';
+    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/"/g, ''));
+
+    const asciiMatch = /filename="?([^";]+)"?/i.exec(disposition);
+    return asciiMatch?.[1] || fallback;
 }
 
-function downloadCsv(filename: string, content: string): string {
+function downloadBlob(filename: string, blob: Blob): string {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
         throw new Error('CSV export is only available in the browser.');
     }
 
-    const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8' });
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -137,8 +135,23 @@ function downloadCsv(filename: string, content: string): string {
     return filename;
 }
 
-function fileDateRange({ startDate, endDate }: ExportDateRange): string {
-    return `${startDate}_${endDate}`.replace(/[^0-9_-]/g, '');
+async function downloadAdminCsv(
+    type: 'tax' | 'payroll',
+    options: TaxReportExportOptions | ExportDateRange,
+    fallbackFilename: string,
+): Promise<string> {
+    const response = await fetch('/api/lms/admin/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, options }),
+    });
+
+    if (!response.ok) {
+        throw await parseErrorResponse(response, `Export failed with HTTP ${response.status}`);
+    }
+
+    const filename = parseAttachmentFilename(response, fallbackFilename);
+    return downloadBlob(filename, await response.blob());
 }
 
 // 회계 API - Supabase 연동
@@ -610,19 +623,21 @@ export const accountingApi = {
 
     // 세금 설정 저장
     updateTaxSettings: async (newSettings: Record<string, string>): Promise<Result<void>> => {
-        const entries = Object.entries(newSettings).map(([key, value]) => ({
-            key: `tax_${key}`,
-            value: String(value),
-        }));
+        try {
+            const response = await fetch('/api/lms/admin/tax-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ settings: newSettings }),
+            });
 
-        for (const entry of entries) {
-            const { error } = await supabase
-                .from('settings')
-                .upsert({ key: entry.key, value: entry.value }, { onConflict: 'key' });
-            if (error) console.error('Failed to save setting:', entry.key, error);
+            if (!response.ok) {
+                return err(await parseErrorResponse(response, `Failed to save tax settings with HTTP ${response.status}`));
+            }
+
+            return ok(undefined);
+        } catch (error) {
+            return err(error instanceof Error ? error : new Error(String(error)));
         }
-
-        return ok(undefined);
     },
 
     // 소득세 예상
@@ -816,117 +831,15 @@ export const accountingApi = {
     },
 
     exportTaxReport: async (options: TaxReportExportOptions): Promise<string> => {
-        const sections: string[] = [];
-
-        if (options.includeRevenue) {
-            const { data, error } = await supabase
-                .from('student_payments')
-                .select('payment_date, amount, payment_method, status, notes, students(name)')
-                .gte('payment_date', options.startDate)
-                .lte('payment_date', options.endDate)
-                .order('payment_date', { ascending: true });
-
-            if (error) throw new Error(error.message);
-
-            sections.push(csvSection('Revenue', ['Date', 'Student', 'Amount', 'Method', 'Status', 'Notes'], (data || []).map((row) => {
-                const student = Array.isArray(row.students) ? row.students[0] : row.students;
-                return [row.payment_date, student?.name, row.amount, row.payment_method, row.status, row.notes];
-            })));
-        }
-
-        if (options.includePayroll) {
-            const { data, error } = await supabase
-                .from('instructor_payments')
-                .select('payment_date, amount, work_hours, status, notes, instructors(name)')
-                .gte('payment_date', options.startDate)
-                .lte('payment_date', options.endDate)
-                .order('payment_date', { ascending: true });
-
-            if (error) throw new Error(error.message);
-
-            sections.push(csvSection('Payroll', ['Date', 'Instructor', 'Amount', 'Hours', 'Status', 'Notes'], (data || []).map((row) => {
-                const instructor = Array.isArray(row.instructors) ? row.instructors[0] : row.instructors;
-                return [row.payment_date, instructor?.name, row.amount, row.work_hours, row.status, row.notes];
-            })));
-        }
-
-        if (options.includeExpenses) {
-            const { data, error } = await supabase
-                .from('expenses')
-                .select('expense_date, category, amount, payment_method, recipient, description, notes')
-                .gte('expense_date', options.startDate)
-                .lte('expense_date', options.endDate)
-                .order('expense_date', { ascending: true });
-
-            if (error) throw new Error(error.message);
-
-            sections.push(csvSection('Expenses', ['Date', 'Category', 'Amount', 'Method', 'Recipient', 'Description', 'Notes'], (data || []).map((row) => [
-                row.expense_date,
-                row.category,
-                row.amount,
-                row.payment_method,
-                row.recipient,
-                row.description,
-                row.notes,
-            ])));
-        }
-
-        if (options.includeProfitLoss) {
-            const result = await accountingApi.incomeStatement(options.startDate, options.endDate);
-            if (!result.success) throw result.error;
-
-            sections.push(csvSection('Profit And Loss', ['Metric', 'Amount'], [
-                ['Tuition income', result.data.tuitionIncome],
-                ['Other income', result.data.otherIncome],
-                ['Total income', result.data.totalIncome],
-                ['Instructor salary', result.data.instructorSalary],
-                ['Other expenses', result.data.otherExpenses],
-                ['Total expenses', result.data.totalExpenses],
-                ['Net income', result.data.netIncome],
-            ]));
-        }
-
-        return downloadCsv(`nextum-lms-tax-report-${fileDateRange(options)}.csv`, sections.join('\r\n\r\n'));
+        return downloadAdminCsv('tax', options, 'nextum-lms-tax-report.csv');
     },
 
     exportPayrollReport: async (options: ExportDateRange): Promise<string> => {
-        const { data, error } = await supabase
-            .from('instructor_payments')
-            .select('payment_date, amount, work_hours, period_start, period_end, status, notes, instructors(name)')
-            .gte('payment_date', options.startDate)
-            .lte('payment_date', options.endDate)
-            .order('payment_date', { ascending: true });
-
-        if (error) throw new Error(error.message);
-
-        const csv = csvSection('Payroll', ['Date', 'Instructor', 'Amount', 'Hours', 'Period Start', 'Period End', 'Status', 'Notes'], (data || []).map((row) => {
-            const instructor = Array.isArray(row.instructors) ? row.instructors[0] : row.instructors;
-            return [
-                row.payment_date,
-                instructor?.name,
-                row.amount,
-                row.work_hours,
-                row.period_start,
-                row.period_end,
-                row.status,
-                row.notes,
-            ];
-        }));
-
-        return downloadCsv(`nextum-lms-payroll-${fileDateRange(options)}.csv`, csv);
+        return downloadAdminCsv('payroll', options, 'nextum-lms-payroll.csv');
     },
 };
 
 // Reset accounting data
 export async function resetAccounting(): Promise<Result<void>> {
-    const { error: paymentsError } = await supabase.from('student_payments').delete().neq('id', 0);
-    if (paymentsError) return err(new Error(paymentsError.message));
-
-    const { error: instructorPaymentsError } = await supabase.from('instructor_payments').delete().neq('id', 0);
-    if (instructorPaymentsError) return err(new Error(instructorPaymentsError.message));
-
-    const { error: expensesError } = await supabase.from('expenses').delete().neq('id', 0);
-    if (expensesError) return err(new Error(expensesError.message));
-
-    return ok(undefined);
+    return resetAccountingViaAdmin();
 }

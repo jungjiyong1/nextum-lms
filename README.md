@@ -57,6 +57,7 @@ src/screens/          페이지급 화면 컴포넌트
 src/components/       기능/UI 컴포넌트
 src/contexts/         AuthProvider 등 React Context
 src/core/api/         Supabase API 호환 레이어
+src/lib/lms/          LMS 서버 전용 관리자 작업
 src/lib/supabase/     browser/server/admin Supabase client
 src/stores/           Zustand stores
 supabase/migrations/  LMS 스키마 마이그레이션
@@ -67,4 +68,5 @@ supabase/migrations/  LMS 스키마 마이그레이션
 - Electron, preload, IPC, local SQLite 경로는 제거되었습니다.
 - 기존 컴포넌트가 사용하던 `window.api`는 브라우저 호환 shim으로 유지됩니다.
 - Supabase Data API 설정에서 `lms` 스키마가 노출되어 있어야 브라우저 클라이언트 조회가 동작합니다.
+- 데이터 초기화, 세금 설정 저장, CSV 내보내기처럼 관리자 권한과 서버 secret이 필요한 작업은 `/api/lms/admin/*` Route Handler를 통해 실행합니다.
 - 장기적으로 grade-app과 공유할 학생/학습/채점 데이터는 DB 설계 문서 기준으로 core/lms/grading 영역을 분리해 확장합니다.

@@ -13,7 +13,6 @@ export {
     updateClassroomRect,
     renameClassroom,
     deleteClassroom,
-    resetClassrooms,
 } from './classrooms';
 
 // Re-export from lessons
@@ -25,7 +24,6 @@ export {
     updateLesson,
     updateLessonRule,
     deleteLesson,
-    resetLessons,
 } from './lessons';
 
 // Re-export from schedules
@@ -33,7 +31,6 @@ export {
     createSchedule,
     updateSchedule,
     deleteSchedule,
-    resetSchedules,
     cancelSchedule,
     setSubstituteInstructor,
     cancelSchedulesByDateRange,
@@ -48,7 +45,6 @@ export {
     createStudent,
     updateStudent,
     deleteStudent,
-    resetStudents,
     listIrregularLessonsByStudent,
     studentsApi,
 } from './students';
@@ -60,7 +56,6 @@ export {
     createInstructor,
     updateInstructor,
     deleteInstructor,
-    resetInstructors,
     listLessonsByInstructor,
     getInstructorMonthlySchedule,
     listIrregularLessonsByInstructor,
@@ -75,14 +70,12 @@ export {
     listEnrollmentsByStudent,
     createEnrollment,
     deleteEnrollment,
-    resetEnrollments,
     enrollmentsApi,
 } from './enrollments';
 
 // Re-export from accounting
 export {
     accountingApi,
-    resetAccounting,
 } from './accounting';
 
 // Re-export from pin
@@ -95,8 +88,18 @@ export type { AcademyId, AppRole, AuthProfile, SecuritySettings } from './identi
 // Academy API
 export { getAcademyName } from './academy';
 
-// Re-export from reset
-export { resetCourses, resetAll } from './reset';
+// Re-export destructive reset operations through server-backed handlers.
+export {
+    resetClassrooms,
+    resetLessons,
+    resetSchedules,
+    resetStudents,
+    resetInstructors,
+    resetCourses,
+    resetEnrollments,
+    resetAccounting,
+    resetAll,
+} from './reset';
 
 // Import for supabaseApi object
 import { lmsDb as supabase } from '../supabaseClient';
@@ -107,6 +110,7 @@ import { studentsApi } from './students';
 import { instructorsApi } from './instructors';
 import { enrollmentsApi } from './enrollments';
 import { accountingApi } from './accounting';
+import { resetClassrooms } from './reset';
 import type { LessonPayload } from './shared/types';
 
 // Export Supabase API for direct import (backward compatible object)
@@ -127,9 +131,7 @@ export const supabaseApi = {
         if (error) throw error;
     },
     deleteClassroom: classroomsModule.deleteClassroom,
-    resetClassrooms: async () => {
-        // TODO: 구현 필요
-    },
+    resetClassrooms,
 
     // Lesson APIs
     listLessons: lessonsModule.listLessons,

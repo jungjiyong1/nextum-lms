@@ -5,13 +5,22 @@ import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { toast } from 'sonner';
-import { ShieldCheck, Lock, Trash2, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Lock, Trash2 } from 'lucide-react';
 import { emitDataChange } from '../../core/events';
 import { useAuth } from '../../contexts/AuthContext';
 import { PinSetupDialog } from '../security/PinSetupDialog';
 import { PasswordConfirmDialog } from '../security/PasswordConfirmDialog';
 import { pinApi } from '../../core/api';
 import * as api from '../../core/api';
+
+function isFailedResult(value: unknown): value is { success: false; error: unknown } {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        'success' in value &&
+        (value as { success?: unknown }).success === false
+    );
+}
 
 export function SettingsPanel() {
     const [loading, setLoading] = useState(false);
@@ -52,7 +61,11 @@ export function SettingsPanel() {
         const { label, action, eventScope } = pendingReset;
         setLoading(true);
         try {
-            await action();
+            const result = await action();
+            if (isFailedResult(result)) {
+                throw result.error instanceof Error ? result.error : new Error(String(result.error));
+            }
+
             if (typeof eventScope === 'string') {
                 emitDataChange(eventScope as any);
             } else if (Array.isArray(eventScope)) {

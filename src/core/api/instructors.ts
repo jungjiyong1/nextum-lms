@@ -6,6 +6,7 @@ import { slotToTime } from './shared/normalizers';
 import { ok, err } from './shared/result';
 import { logger } from '../logger';
 import { listInstructorsFromCoreProjection, mapLegacyInstructor } from './directoryAdapters';
+import { resetInstructors as resetInstructorsViaAdmin } from './reset';
 
 async function tryListInstructorsFromCore(filter?: { status?: string; search?: string }): Promise<InstructorType[] | null> {
     try {
@@ -100,13 +101,7 @@ export async function deleteInstructor(id: number): Promise<Result<void>> {
 }
 
 export async function resetInstructors(): Promise<Result<void>> {
-    const { error } = await supabase
-        .from('instructors')
-        .delete()
-        .neq('id', 0);
-
-    if (error) return err(new Error(error.message));
-    return ok(undefined);
+    return resetInstructorsViaAdmin();
 }
 
 // Get lessons assigned to a specific instructor

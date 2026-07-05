@@ -4,6 +4,7 @@ import type { Student, IrregularLessonSchedule } from '../types';
 import type { Result } from './shared/types';
 import { ok, err } from './shared/result';
 import { listStudentsFromCoreProjection, mapLegacyStudent } from './directoryAdapters';
+import { resetStudents as resetStudentsViaAdmin } from './reset';
 
 async function tryListStudentsFromCore(filter?: { status?: string; search?: string }): Promise<Student[] | null> {
     try {
@@ -90,20 +91,7 @@ export async function deleteStudent(id: number): Promise<Result<void>> {
 }
 
 export async function resetStudents(): Promise<Result<void>> {
-    // First delete related data (enrollments, payments)
-    const { error: paymentsError } = await supabase.from('student_payments').delete().neq('id', 0);
-    if (paymentsError) return err(new Error(paymentsError.message));
-
-    const { error: enrollmentsError } = await supabase.from('enrollments').delete().neq('id', 0);
-    if (enrollmentsError) return err(new Error(enrollmentsError.message));
-
-    const { error } = await supabase
-        .from('students')
-        .delete()
-        .neq('id', 0);
-
-    if (error) return err(new Error(error.message));
-    return ok(undefined);
+    return resetStudentsViaAdmin();
 }
 
 // Get future irregular lessons for a specific student via enrollments

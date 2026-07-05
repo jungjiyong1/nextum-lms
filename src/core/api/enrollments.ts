@@ -2,6 +2,7 @@
 import { lmsDb as supabase } from '../supabaseClient';
 import type { Enrollment, Result } from './shared/types';
 import { ok, err } from './shared/result';
+import { resetEnrollments as resetEnrollmentsViaAdmin } from './reset';
 
 export async function listEnrollments(lessonId?: number): Promise<Result<Enrollment[]>> {
     let query = supabase
@@ -58,13 +59,7 @@ export async function deleteEnrollment(id: number): Promise<Result<void>> {
 }
 
 export async function resetEnrollments(): Promise<Result<void>> {
-    const { error } = await supabase
-        .from('enrollments')
-        .delete()
-        .neq('id', 0);
-
-    if (error) return err(new Error(error.message));
-    return ok(undefined);
+    return resetEnrollmentsViaAdmin();
 }
 
 // Get all enrollments for a specific student

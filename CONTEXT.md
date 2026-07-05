@@ -26,6 +26,7 @@ src/screens/          페이지급 화면
 src/components/       화면/도메인/UI 컴포넌트
 src/contexts/         인증 컨텍스트
 src/core/api/         도메인별 Supabase API
+src/lib/lms/          서버 전용 LMS 관리자 작업과 권한 검사
 src/lib/supabase/     browser/server/admin client
 src/stores/           Zustand store
 src/styles/           기존 도메인 CSS
@@ -39,6 +40,7 @@ supabase/migrations/  LMS DB 마이그레이션
 - 신규 코드는 가능한 한 `window.api` 대신 `src/core/api/*` 도메인 함수를 직접 import합니다.
 - Supabase browser client는 `lms` 스키마를 기본으로 사용합니다.
 - 서버 전용 Supabase secret key는 `src/lib/supabase/admin.ts` 안에서만 사용합니다.
+- reset/export/tax settings 같은 관리자 작업은 `/api/lms/admin/*` Route Handler에서 `assertLmsAdmin()` 후 처리합니다.
 
 ## Verification Commands
 
@@ -54,4 +56,5 @@ npm run build
 - 새 페이지는 `src/app` route와 `src/app-routes` wrapper를 함께 고려합니다.
 - shared UI는 `src/components/ui`를 우선 사용합니다.
 - DB 접근은 `src/core/api`에서 도메인별로 분리합니다.
+- 브라우저에서 전체 reset이나 서버 secret이 필요한 작업을 직접 실행하지 않습니다.
 - grade-app과 공유할 데이터는 앱별 테이블에 직접 중복 저장하지 말고 core/lms/grading 분리 설계를 기준으로 확장합니다.

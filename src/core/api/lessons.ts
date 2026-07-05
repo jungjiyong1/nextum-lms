@@ -7,6 +7,7 @@ import { ok, err } from './shared/result';
 import { getDayIndex } from '../utils/date';
 import { timeToSlot } from '../utils/time';
 import { logger } from '../logger';
+import { resetLessons as resetLessonsViaAdmin } from './reset';
 
 export async function listLessons(): Promise<Result<Lesson[]>> {
     const { data, error } = await supabase
@@ -406,13 +407,7 @@ export async function deleteLesson(id: number): Promise<Result<void>> {
 }
 
 export async function resetLessons(): Promise<Result<void>> {
-    const { error } = await supabase
-        .from('lessons')
-        .delete()
-        .neq('id', 0);
-
-    if (error) return err(new Error(error.message));
-    return ok(undefined);
+    return resetLessonsViaAdmin();
 }
 
 export async function listScheduleLessonsByRange(startDate: string, endDate: string): Promise<Result<ScheduleLesson[]>> {

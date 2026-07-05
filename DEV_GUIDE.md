@@ -33,6 +33,7 @@ npm run start
 - 앱 데이터는 Supabase `lms` 스키마를 사용합니다.
 - Supabase Data API 설정에서 `lms` 스키마를 노출해야 클라이언트 쿼리가 동작합니다.
 - RLS 정책은 인증 사용자와 학원 소속 기준으로 설계합니다.
+- reset, CSV export, tax settings 저장은 `src/app/api/lms/admin/*` Route Handler에서 `assertLmsAdmin()` 확인 후 실행합니다.
 
 ## Adding Pages
 
@@ -53,3 +54,5 @@ src/core/api/accounting.ts
 ```
 
 기존 화면 호환이 필요하면 `src/core/api/index.ts`의 `supabaseApi` 객체에도 연결합니다.
+
+관리자 전용이거나 파괴적인 작업은 브라우저 API 함수에서 직접 Supabase를 호출하지 말고 `src/lib/lms/admin-operations.ts`와 Route Handler를 통해 구현합니다.

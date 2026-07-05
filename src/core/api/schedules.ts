@@ -3,6 +3,7 @@ import { lmsDb as supabase } from '../supabaseClient';
 import { timeToSlot } from '../utils/time';
 import type { Result } from './shared/types';
 import { ok, err } from './shared/result';
+import { resetSchedules as resetSchedulesViaAdmin } from './reset';
 
 interface ScheduleData {
     id: number;
@@ -79,13 +80,7 @@ export async function deleteSchedule(id: number): Promise<Result<void>> {
 }
 
 export async function resetSchedules(): Promise<Result<void>> {
-    const { error } = await supabase
-        .from('lesson_schedules')
-        .delete()
-        .neq('id', 0);
-
-    if (error) return err(new Error(error.message));
-    return ok(undefined);
+    return resetSchedulesViaAdmin();
 }
 
 // Cancel a scheduled lesson
