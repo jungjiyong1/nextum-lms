@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+node_modules (1)/
+
+# Build Output
+dist/
+release/
+out/
+.next/
+coverage/
+renderer/bundle.js
+renderer/styles/tailwind.out.css
+renderer/styles/files/
+*.tsbuildinfo
+.turbo/
+
+# Environment and Config
+.env
+.env.local
+.env.*
+!.env.example
+
+# IDE and AI
+.vscode/
+.idea/
+.gemini/
+.claude/
+.agents/
+
+# Planning and Documentation
+planning/
+!.agent/
+!.agent/**
+
+# System Files
+desktop.ini
+Thumbs.db
+.DS_Store

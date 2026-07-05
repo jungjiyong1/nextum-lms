@@ -1,0 +1,969 @@
+/* ===== 회계 대시보드 - 심플하고 가독성 좋은 스타일 ===== */
+
+.accounting-simple {
+    padding: 24px;
+    max-width: 100%;
+    margin: 0;
+}
+
+/* 헤더 */
+.acc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--border);
+}
+
+.acc-header h2 {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 0;
+}
+
+.acc-month-select {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.acc-month-select label {
+    font-size: 15px;
+    color: var(--ink);
+    font-weight: 500;
+}
+
+.acc-month-select input {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--ink);
+    font-size: 15px;
+}
+
+/* 요약 정보 */
+.acc-summary {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.acc-summary-row {
+    display: flex;
+    gap: 32px;
+    margin-bottom: 16px;
+}
+
+.acc-summary-row:last-child {
+    margin-bottom: 0;
+}
+
+.acc-summary-item {
+    flex: 1;
+    text-align: center;
+    padding: 16px;
+    background: var(--bg-deep);
+    border-radius: 6px;
+}
+
+.acc-summary-item.small {
+    padding: 12px;
+}
+
+.acc-label {
+    display: block;
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+
+.acc-value {
+    display: block;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.acc-value.blue {
+    color: #2563eb;
+}
+
+.acc-value.red {
+    color: #dc2626;
+}
+
+.acc-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.acc-warning {
+    display: inline-block;
+    background: #fef3c7;
+    color: #b45309;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 8px;
+}
+
+.acc-ok {
+    display: inline-block;
+    background: #dcfce7;
+    color: #166534;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 8px;
+}
+
+/* 탭 */
+.acc-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.acc-tab {
+    padding: 12px 24px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.2s;
+}
+
+.acc-tab:hover {
+    color: var(--ink);
+}
+
+.acc-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+/* 컨텐츠 */
+.acc-content {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.acc-content.hidden {
+    display: none;
+}
+
+.acc-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.acc-toolbar h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0;
+}
+
+.acc-empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    font-size: 15px;
+}
+
+/* 테이블 */
+.acc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.acc-table th {
+    text-align: left;
+    padding: 12px 16px;
+    background: var(--bg-deep);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+}
+
+.acc-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink);
+}
+
+.acc-table tbody tr:hover {
+    background: var(--bg-deep);
+}
+
+.acc-table .row-paid {
+    background: rgba(34, 197, 94, 0.05);
+}
+
+.acc-table .row-unpaid {
+    background: rgba(245, 158, 11, 0.05);
+}
+
+.status-paid {
+    display: inline-block;
+    background: #22c55e;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.status-unpaid {
+    display: inline-block;
+    background: #f59e0b;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.text-blue {
+    color: #2563eb;
+    font-weight: 600;
+}
+
+/* 버튼 */
+.acc-btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.acc-btn:hover {
+    background: var(--bg-deep);
+}
+
+.acc-btn.primary {
+    background: var(--accent);
+    color: white;
+    border: none;
+}
+
+.acc-btn.primary:hover {
+    opacity: 0.9;
+}
+
+.acc-btn.small {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+/* 다이얼로그 */
+.acc-dialog {
+    border: none;
+    border-radius: 8px;
+    padding: 0;
+    background: var(--panel);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    min-width: 400px;
+}
+
+.acc-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.acc-dialog-content {
+    padding: 24px;
+    max-height: 85vh;
+    /* 화면 높이를 넘지 않도록 제한 */
+    overflow-y: auto;
+    /* 내용이 넘칠 때만 스크롤 표시 */
+    scrollbar-width: thin;
+    /* 파이어폭스 얇은 스크롤바 */
+}
+
+/* 웹킷 브라우저 크롬/사파리 스크롤바 스타일링 - 가급적 안 보이게 하거나 깔끔하게 */
+.acc-dialog-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.acc-dialog-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.acc-dialog-content::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+}
+
+.acc-dialog-content h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 20px 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.acc-dialog-content p {
+    margin: 0 0 16px 0;
+    font-size: 15px;
+    color: var(--ink);
+}
+
+.acc-dialog-content label {
+    display: block;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.acc-dialog-content input:not([type="radio"]):not([type="checkbox"]),
+.acc-dialog-content select,
+.acc-dialog-content textarea {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    margin-top: 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-deep);
+    color: var(--ink);
+    font-size: 14px;
+}
+
+.acc-dialog-content input:focus,
+.acc-dialog-content select:focus,
+.acc-dialog-content textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.acc-dialog-btns {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+/* 지출 장부 */
+.acc-total {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-right: 16px;
+}
+
+.acc-info {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 16px 0;
+    padding: 8px 12px;
+    background: var(--bg-deep);
+    border-radius: 4px;
+}
+
+.text-red {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.text-warning {
+    color: #f59e0b;
+}
+
+.text-muted {
+    color: #9ca3af;
+    font-style: italic;
+}
+
+.acc-btn.danger {
+    color: #dc2626;
+    border-color: #dc2626;
+}
+
+.acc-btn.danger:hover {
+    background: #fef2f2;
+}
+
+.acc-checkbox-row {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 16px;
+}
+
+.acc-checkbox-row label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0;
+}
+
+.acc-checkbox-row input[type="checkbox"] {
+    margin: 0;
+    flex-shrink: 0;
+}
+
+/* 보고서 스타일 */
+.report-section {
+    margin-bottom: 24px;
+}
+
+.report-section h4 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 0 0 12px 0;
+    padding: 8px 0;
+    border-bottom: 2px solid var(--border);
+}
+
+.report-table {
+    width: 100%;
+}
+
+.report-table td {
+    padding: 10px 16px;
+}
+
+.report-table .text-right {
+    text-align: right;
+}
+
+.report-table .total-row {
+    background: var(--bg-deep);
+    font-size: 15px;
+}
+
+.report-table .total-row td {
+    padding: 12px 16px;
+    border-top: 2px solid var(--border);
+}
+
+.result-section {
+    background: linear-gradient(135deg, var(--panel) 0%, var(--bg-deep) 100%);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.result-row td {
+    padding: 16px !important;
+    font-size: 18px !important;
+}
+
+.tax-section {
+    background: #fffbeb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 24px;
+}
+
+.tax-section h4 {
+    color: #92400e;
+}
+
+.tax-section .acc-info {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+/* Payroll */
+.acc-payroll-summary {
+    margin-bottom: 16px;
+}
+
+.payroll-dialog .payroll-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.payroll-type-box {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--bg-deep);
+}
+
+.payroll-type-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--ink);
+}
+
+.radio-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--ink);
+    margin-bottom: 6px;
+}
+
+.payroll-preview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+}
+
+.payroll-preview div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.payroll-preview strong {
+    color: var(--ink);
+}
+
+.payroll-preview .preview-rate {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.payroll-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+/* Tax calculator */
+.acc-year-select {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.acc-year-select select {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--ink);
+}
+
+.tax-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.tax-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 16px;
+}
+
+.tax-card h4 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: var(--ink);
+}
+
+.tax-form {
+    display: grid;
+    gap: 12px;
+}
+
+.tax-form label {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.tax-form select,
+.tax-form input {
+    margin-top: 6px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-deep);
+    color: var(--ink);
+}
+
+.tax-summary {
+    display: grid;
+    gap: 8px;
+    /* Added for animation layout stability */
+    grid-template-columns: 1fr;
+}
+
+.tax-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--ink);
+}
+
+.tax-row.highlight {
+    font-weight: 600;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+}
+
+.tax-row.warn strong {
+    color: #dc2626;
+}
+
+.tax-row.ok strong {
+    color: #16a34a;
+}
+
+.tax-disclaimer {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    padding: 16px;
+    color: #9a3412;
+}
+
+.tax-disclaimer ul {
+    margin: 8px 0 0 18px;
+    padding: 0;
+    font-size: 13px;
+}
+
+.acc-table.compact th,
+.acc-table.compact td {
+    padding: 8px 10px;
+}
+
+/* Expense tracker */
+.expense-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.expense-summary-card {
+    background: var(--bg-deep);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    color: var(--ink);
+}
+
+.expense-category {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.expense-category h4 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    color: var(--ink);
+}
+
+.expense-category-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 4px 0;
+}
+
+/* Export */
+.export-panel {
+    display: grid;
+    gap: 16px;
+}
+
+.export-range {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.export-range input {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-deep);
+    color: var(--ink);
+}
+
+.export-options {
+    display: grid;
+    gap: 12px;
+}
+
+.export-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* 세그먼트 컨트롤 */
+.tax-segment-control {
+    display: inline-flex;
+    background: var(--bg-deep);
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.tax-segment-btn {
+    padding: 6px 16px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.tax-segment-btn:hover {
+    color: var(--ink);
+}
+
+.tax-segment-btn.active {
+    background: white;
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Autocomplete styles */
+.autocomplete-container {
+    position: relative;
+    width: 100%;
+}
+
+.autocomplete-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-deep);
+    color: var(--ink);
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.autocomplete-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.autocomplete-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 4px;
+    padding: 0;
+    list-style: none;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    display: none;
+}
+
+.autocomplete-item.selected {
+    background-color: var(--bg-deep);
+    color: var(--accent);
+}
+
+.autocomplete-list.show {
+    display: block;
+}
+
+.autocomplete-item {
+    padding: 10px 12px;
+    font-size: 14px;
+    color: var(--ink);
+    cursor: pointer;
+    border-bottom: 1px solid var(--bg-deep);
+    transition: background-color 0.15s ease;
+}
+
+.autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.autocomplete-item:hover {
+    background-color: var(--bg-deep);
+}
+
+.autocomplete-item strong {
+    color: var(--accent);
+}
+
+.autocomplete-empty {
+    padding: 12px;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+}
+
+
+/* ===== 애니메이션 및 인터랙션 ===== */
+
+/* 등장 애니메이션 Keyframes */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* 그리드 및 섹션 등장 애니메이션 */
+.tax-grid,
+.tax-income-statement,
+.tax-disclaimer {
+    animation: fadeInUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    opacity: 0;
+    /* 초기 상태 hidden */
+}
+
+/* 순차적 등장 (Staggering) */
+.tax-grid:nth-of-type(1) {
+    animation-delay: 0s;
+}
+
+.tax-grid:nth-of-type(2) {
+    animation-delay: 0.1s;
+}
+
+.tax-income-statement {
+    animation-delay: 0.15s;
+}
+
+.tax-disclaimer {
+    animation-delay: 0.2s;
+}
+
+/* 카드 호버 이펙트 - 부드러운 부상감 */
+.tax-card {
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s ease, border-color 0.3s ease;
+    border: 1px solid var(--border);
+    /* 기본 보더 명시 */
+}
+
+.tax-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+    border-color: var(--accent);
+    /* 호버 시 강조색 살짝 */
+    z-index: 1;
+    /* 호버 시 위로 */
+}
+
+/* 행(Row) 인터랙션 */
+.tax-row {
+    position: relative;
+    padding: 6px 8px;
+    /* 터치 영역 및 시각적 여유 확보 */
+    border-radius: 6px;
+    margin: 0 -8px;
+    /* 패딩만큼 음수 마진으로 레이아웃 유지하며 클릭영역 확장 */
+    transition: background-color 0.2s ease;
+}
+
+.tax-row:hover {
+    background-color: var(--bg-deep);
+}
+
+.tax-row.highlight {
+    margin-top: 8px;
+    /* 하이라이트 행 간격 */
+    background-color: rgba(37, 99, 235, 0.03);
+    /* 아주 연한 블루 틴트 */
+    border-top: none;
+    /* 기존 점선 제거하고 배경색으로 구분 */
+}
+
+.tax-segment-btn:active {
+    transform: scale(0.96);
+}
+
+.tax-segment-btn.active {
+    /* 쉐도우 조금 더 부드럽게 */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 입력 폼 인터랙션 */
+.tax-form input,
+.tax-form select {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tax-form input:focus,
+.tax-form select:focus {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* 탭 전환 시 전체 컨텐츠 페이드 */
+.acc-content {
+    animation: scaleIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}

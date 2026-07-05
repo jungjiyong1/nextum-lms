@@ -1,0 +1,23 @@
+{
+    "extends": "../tsconfig.renderer.json",
+    "compilerOptions": {
+        "baseUrl": "..",
+        "paths": {
+            "@/*": [
+                "renderer/js/*"
+            ],
+            "@/components/*": [
+                "renderer/js/components/*"
+            ],
+            "@/lib/*": [
+                "renderer/js/lib/*"
+            ],
+            "@/stores/*": [
+                "renderer/js/stores/*"
+            ],
+            "@/hooks/*": [
+                "renderer/js/hooks/*"
+            ]
+        }
+    }
+}

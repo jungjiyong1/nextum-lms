@@ -1,0 +1,11 @@
+{
+    "watch": [
+        "dist/main.js"
+    ],
+    "ext": "js",
+    "ignore": [
+        "*"
+    ],
+    "delay": 2000,
+    "exec": "cross-env NODE_ENV=development electron ."
+}

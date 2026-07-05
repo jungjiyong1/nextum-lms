@@ -1,0 +1,245 @@
+/* ===== 홈 대시보드 - 실용적인 스타일 ===== */
+
+.home-dashboard {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.home-header {
+    margin-bottom: 24px;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 16px;
+}
+
+.home-header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 0 0 4px 0;
+}
+
+.home-date {
+    font-size: 15px;
+    color: var(--muted);
+    margin: 0;
+}
+
+/* 요약 박스 */
+.home-summary {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.summary-box {
+    flex: 1;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.summary-box.income {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 1px solid #93c5fd;
+}
+
+.summary-box.expense {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    border: 1px solid #fca5a5;
+}
+
+.summary-box.profit {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    border: 1px solid #86efac;
+}
+
+.summary-box.loss {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    border: 1px solid #fca5a5;
+}
+
+.summary-label {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+
+.summary-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.summary-box.income .summary-value {
+    color: #2563eb;
+}
+
+.summary-box.expense .summary-value {
+    color: #dc2626;
+}
+
+.summary-box.profit .summary-value {
+    color: #16a34a;
+}
+
+.summary-box.loss .summary-value {
+    color: #dc2626;
+}
+
+.summary-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+}
+
+/* 그리드 */
+.home-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* 섹션 */
+.home-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.home-section.alert {
+    border-color: #f59e0b;
+    border-width: 2px;
+}
+
+.home-section.ok {
+    border-color: #22c55e;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-deep);
+    border-bottom: 1px solid var(--border);
+}
+
+.home-section.alert .section-header {
+    background: #fffbeb;
+}
+
+.section-header h2 {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0;
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.link-btn:hover {
+    text-decoration: underline;
+}
+
+.section-body {
+    padding: 16px 20px;
+}
+
+/* 테이블 */
+.home-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.home-table th {
+    text-align: left;
+    padding: 10px 12px;
+    background: var(--bg-deep);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+}
+
+.home-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink);
+}
+
+.home-table tbody tr:hover {
+    background: var(--bg-deep);
+}
+
+.time-cell {
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.amount-cell {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.overdue-cell {
+    background: #fef3c7;
+    color: #b45309;
+    padding: 4px 10px !important;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* 알림 요약 */
+.alert-summary {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 15px;
+}
+
+.alert-summary strong {
+    font-size: 18px;
+    color: #b45309;
+}
+
+/* 빈 상태 */
+.empty-box {
+    text-align: center;
+    padding: 24px;
+    color: var(--muted);
+    font-size: 14px;
+    background: var(--bg-deep);
+    border-radius: 8px;
+}
+
+.empty-box.success {
+    background: #dcfce7;
+    color: #166534;
+    font-weight: 500;
+}
+
+/* 반응형 */
+@media (max-width: 700px) {
+    .home-summary {
+        flex-direction: column;
+    }
+
+    .summary-value {
+        font-size: 22px;
+    }
+}
