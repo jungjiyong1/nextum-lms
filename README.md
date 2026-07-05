@@ -21,6 +21,11 @@ Nextum LMS is the operator-facing web app for academy management. The current ap
   - `learning.attempts` remains append-only.
   - `ai.conversations` and `ai.messages` store grade-app AI tutor conversations.
   - `reporting.v_student_type_weakness` is the primary student weakness view.
+- Student-facing problem reads use `content.student_problems`, which omits
+  answer data. Direct `content.problems.answer` access is not part of the
+  browser contract.
+- Problem issue reports live in `content.problem_reports`; generated internal
+  and parent-facing learning reports live in `learning.reports`.
 
 ## Stack
 

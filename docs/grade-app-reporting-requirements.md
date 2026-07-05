@@ -34,6 +34,14 @@ grade-app is migrated later. Do not treat this as completed grade-app work.
 - If a student is active in `core.class_students`, and the class has an active
   book assignment, the student can use that book in grade-app.
 - LMS is the owner of student registration, class membership, and book access.
+- Student-facing grade-app screens must read problem payloads from
+  `content.student_problems`, not directly from `content.problems`.
+- `content.student_problems` intentionally omits `answer` and `answer_key`.
+  Grading should happen through a server-side API/RPC that can read answer data
+  with privileged credentials.
+- Problem issue reports should be written to `content.problem_reports`.
+- Generated analysis and parent-facing report artifacts should be written to
+  `learning.reports`.
 
 ## Grade App Write Contract
 
@@ -83,4 +91,3 @@ The LMS should eventually expose:
 - Class detail tab for book progress
 - Report draft generation for internal analysis
 - Parent-facing report export, likely PDF
-

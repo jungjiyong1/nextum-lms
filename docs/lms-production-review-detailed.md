@@ -104,6 +104,12 @@ Fix:
 - 채점은 answer를 반환하지 않는 RPC/server route에서 처리한다.
 - 기존 `content.problems.answer` 직접 read는 staff/admin만 허용한다.
 
+Implementation status:
+- 2026-07-06 clean baseline에 `content.student_problems` view를 추가했다.
+- `authenticated` role에는 `content.problems`의 안전 컬럼만 grant하고 `answer`, `answer_key`, `metadata`는 직접 grant하지 않는다.
+- 임시 Postgres 17 검증에서 `authenticated` role의 `content.student_problems` 조회는 성공하고 `content.problems.answer` 조회는 거부됨을 확인했다.
+- 원격 `nextum-data`는 아직 baseline 미적용 상태라 운영 검증은 컷오버 후 다시 필요하다.
+
 Acceptance:
 - student auth로 `content.problems.answer` select가 실패하거나 null이다.
 - grade-app 풀이 flow는 answer 없이 동작한다.

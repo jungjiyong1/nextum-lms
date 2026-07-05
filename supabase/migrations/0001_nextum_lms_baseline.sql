@@ -290,6 +290,38 @@ create table content.assets (
   created_at   timestamptz not null default now()
 );
 
+create table content.problem_reports (
+  id              uuid primary key default gen_random_uuid(),
+  academy_id      uuid not null references core.academies (id) on delete cascade,
+  core_student_id uuid references core.students (id) on delete set null,
+  problem_id      text not null references content.problems (id) on delete cascade,
+  reason          text not null,
+  status          text not null default 'open' check (status in ('open', 'fixed', 'rejected')),
+  metadata        jsonb not null default '{}'::jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create view content.student_problems
+with (security_invoker = true) as
+select
+  id,
+  book_id,
+  unit_id,
+  concept_id,
+  problem_type_id,
+  page_printed,
+  number,
+  image_path,
+  public_payload,
+  position_in_type,
+  is_example,
+  difficulty_hint,
+  verified,
+  created_at,
+  updated_at
+from content.problems;
+
 -- ---------------------------------------------------------------------------
 -- Canonical classes and book assignments
 
@@ -617,11 +649,18 @@ create table learning.wrong_notes (
 create table learning.reports (
   id              uuid primary key default gen_random_uuid(),
   academy_id      uuid not null references core.academies (id) on delete cascade,
-  core_student_id uuid not null references core.students (id) on delete cascade,
-  problem_id      text not null references content.problems (id) on delete cascade,
-  reason          text not null,
-  status          text not null default 'open' check (status in ('open', 'fixed', 'rejected')),
-  created_at      timestamptz not null default now()
+  core_student_id uuid references core.students (id) on delete set null,
+  report_type     text not null check (report_type in ('internal_analysis', 'parent_report', 'progress', 'diagnostic')),
+  title           text,
+  period_start    date,
+  period_end      date,
+  status          text not null default 'draft' check (status in ('draft', 'generated', 'published', 'archived')),
+  generated_by    uuid references core.people (id) on delete set null,
+  generated_at    timestamptz not null default now(),
+  payload         jsonb not null default '{}'::jsonb,
+  metadata        jsonb not null default '{}'::jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
 );
 
 create table ai.conversations (
@@ -696,6 +735,8 @@ create index content_problem_types_book_idx on content.problem_types (book_id, u
 create index content_problems_book_idx on content.problems (book_id, unit_id);
 create index content_problems_type_idx on content.problems (problem_type_id) where problem_type_id is not null;
 create index content_assets_problem_idx on content.assets (problem_id);
+create index content_problem_reports_student_idx on content.problem_reports (academy_id, core_student_id, status);
+create index content_problem_reports_problem_idx on content.problem_reports (problem_id, status);
 
 create index lms_class_profiles_academy_idx on lms.class_profiles (academy_id, status);
 create unique index lms_classrooms_id_academy_key on lms.classrooms (id, academy_id);
@@ -776,6 +817,8 @@ alter table lms.payments
 create index learning_sessions_student_idx on learning.sessions (core_student_id, started_at desc);
 create index learning_attempts_student_problem_idx on learning.attempts (core_student_id, problem_id);
 create index learning_attempts_session_idx on learning.attempts (session_id);
+create index learning_reports_student_idx on learning.reports (academy_id, core_student_id, generated_at desc);
+create index learning_reports_type_idx on learning.reports (academy_id, report_type, status);
 create index ai_conversations_student_idx on ai.conversations (student_id, created_at desc);
 create index ai_messages_conversation_idx on ai.messages (conversation_id, created_at);
 create index data_events_student_time_idx on data.events (student_id, occurred_at desc);
@@ -891,6 +934,21 @@ as $$
             )
         )
       )
+  )
+$$;
+
+create or replace function content.can_report_problem(check_problem_id text)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = content, core, public
+as $$
+  select exists (
+    select 1
+    from content.problems p
+    where p.id = check_problem_id
+      and core.can_access_book(p.book_id)
   )
 $$;
 
@@ -1012,6 +1070,8 @@ create trigger set_members_updated_at before update on core.academy_members for 
 create trigger set_security_updated_at before update on core.user_security_settings for each row execute function core.set_updated_at();
 create trigger set_classes_updated_at before update on core.classes for each row execute function core.set_updated_at();
 create trigger set_content_problems_updated_at before update on content.problems for each row execute function core.set_updated_at();
+create trigger set_content_problem_reports_updated_at before update on content.problem_reports for each row execute function core.set_updated_at();
+create trigger set_learning_reports_updated_at before update on learning.reports for each row execute function core.set_updated_at();
 create trigger set_courses_updated_at before update on lms.courses for each row execute function core.set_updated_at();
 create trigger set_classrooms_updated_at before update on lms.classrooms for each row execute function core.set_updated_at();
 create trigger set_class_profiles_updated_at before update on lms.class_profiles for each row execute function core.set_updated_at();
@@ -1050,6 +1110,7 @@ alter table content.concepts enable row level security;
 alter table content.problem_types enable row level security;
 alter table content.problems enable row level security;
 alter table content.assets enable row level security;
+alter table content.problem_reports enable row level security;
 
 alter table lms.courses enable row level security;
 alter table lms.classrooms enable row level security;
@@ -1199,8 +1260,68 @@ create policy content_types_select on content.problem_types for select to authen
   using (core.can_access_book(book_id));
 create policy content_problems_select on content.problems for select to authenticated
   using (core.can_access_book(book_id));
+create policy content_problems_staff_write on content.problems for insert to authenticated
+  with check (
+    exists (
+      select 1
+      from content.books b
+      where b.id = problems.book_id
+        and b.academy_id is not null
+        and core.has_academy_role(b.academy_id, array['owner','admin','staff'])
+    )
+  );
+create policy content_problems_staff_update on content.problems for update to authenticated
+  using (
+    exists (
+      select 1
+      from content.books b
+      where b.id = problems.book_id
+        and b.academy_id is not null
+        and core.has_academy_role(b.academy_id, array['owner','admin','staff'])
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from content.books b
+      where b.id = problems.book_id
+        and b.academy_id is not null
+        and core.has_academy_role(b.academy_id, array['owner','admin','staff'])
+    )
+  );
+create policy content_problems_staff_delete on content.problems for delete to authenticated
+  using (
+    exists (
+      select 1
+      from content.books b
+      where b.id = problems.book_id
+        and b.academy_id is not null
+        and core.has_academy_role(b.academy_id, array['owner','admin','staff'])
+    )
+  );
 create policy content_assets_select on content.assets for select to authenticated
   using (book_id is not null and core.can_access_book(book_id));
+create policy content_problem_reports_select on content.problem_reports for select to authenticated
+  using (
+    core_student_id = core.current_student_id(academy_id)
+    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+  );
+create policy content_problem_reports_insert on content.problem_reports for insert to authenticated
+  with check (
+    content.can_report_problem(problem_id)
+    and (
+      core_student_id = core.current_student_id(academy_id)
+      or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    )
+  );
+create policy content_problem_reports_update on content.problem_reports for update to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
+  with check (
+    content.can_report_problem(problem_id)
+    and core.has_academy_role(academy_id, array['owner','admin','staff'])
+  );
+create policy content_problem_reports_delete on content.problem_reports for delete to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 
 create policy content_staff_write_books on content.books for all to authenticated
   using (academy_id is not null and core.has_academy_role(academy_id, array['owner','admin','staff']))
@@ -1302,15 +1423,16 @@ create policy learning_wrong_notes_access on learning.wrong_notes for all to aut
     core_student_id = core.current_student_id(academy_id)
     or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
   );
-create policy learning_reports_access on learning.reports for all to authenticated
+create policy learning_reports_select on learning.reports for select to authenticated
   using (
-    core_student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
-  )
-  with check (
-    core_student_id = core.current_student_id(academy_id)
+    (status = 'published' and core_student_id = core.current_student_id(academy_id))
     or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
   );
+create policy learning_reports_insert on learning.reports for insert to authenticated
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy learning_reports_update on learning.reports for update to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
 
 create policy ai_conversations_access on ai.conversations for all to authenticated
   using (
@@ -1370,12 +1492,33 @@ grant execute on function
   core.current_student_id(uuid),
   core.can_access_student(uuid),
   core.can_access_book(uuid),
+  content.can_report_problem(text),
   content.problem_public_payload(jsonb)
 to authenticated, service_role;
 
 grant select, insert, update, delete on all tables in schema core to authenticated;
-grant select on all tables in schema content to authenticated;
+grant select on content.books, content.units, content.concepts, content.problem_types, content.assets, content.problem_reports to authenticated;
+grant select on content.student_problems to authenticated;
+grant select (
+  id,
+  book_id,
+  unit_id,
+  concept_id,
+  problem_type_id,
+  page_printed,
+  number,
+  image_path,
+  public_payload,
+  position_in_type,
+  is_example,
+  difficulty_hint,
+  verified,
+  created_at,
+  updated_at
+) on content.problems to authenticated;
 grant insert, update, delete on content.books to authenticated;
+grant insert, update, delete on content.problems to authenticated;
+grant insert, update, delete on content.problem_reports to authenticated;
 grant select, insert, update, delete on all tables in schema lms to authenticated;
 grant select, insert, update on learning.sessions, learning.wrong_notes, learning.reports to authenticated;
 grant select, insert on learning.attempts to authenticated;
@@ -1391,7 +1534,6 @@ revoke update, delete on learning.attempts from authenticated;
 revoke update, delete on data.events from authenticated;
 
 alter default privileges in schema core grant select, insert, update, delete on tables to authenticated;
-alter default privileges in schema content grant select on tables to authenticated;
 alter default privileges in schema lms grant select, insert, update, delete on tables to authenticated;
 alter default privileges in schema learning grant select on tables to authenticated;
 alter default privileges in schema ai grant select on tables to authenticated;

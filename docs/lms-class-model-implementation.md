@@ -13,6 +13,7 @@
   - create academy-owned `content.books` records from the class screen
   - edit title, subject, and grade without changing existing `book_key` references
   - keep hard delete out of the LMS UI so grade-app book/problem data is not accidentally broken
+- Added a student-safe `content.student_problems` view to the baseline so future grade-app screens can read problem payloads without receiving `answer` or `answer_key`.
 - Added class maintenance after creation:
   - edit class name, grade, status, capacity, color, and default instructor
   - create and maintain academy classrooms, then assign a default classroom to each class

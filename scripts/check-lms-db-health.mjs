@@ -36,6 +36,8 @@ const checks = [
   ['content', 'concepts', ['id', 'book_id', 'unit_id', 'name']],
   ['content', 'problem_types', ['id', 'book_id', 'unit_id', 'concept_id', 'name']],
   ['content', 'problems', ['id', 'book_id', 'unit_id', 'problem_type_id', 'page_printed', 'number', 'public_payload']],
+  ['content', 'student_problems', ['id', 'book_id', 'unit_id', 'problem_type_id', 'page_printed', 'number', 'public_payload']],
+  ['content', 'problem_reports', ['id', 'academy_id', 'core_student_id', 'problem_id', 'reason', 'status']],
 
   ['lms', 'classrooms', ['id', 'academy_id', 'name', 'capacity', 'color', 'active']],
   ['lms', 'class_profiles', ['class_id', 'academy_id', 'default_instructor_staff_id', 'default_classroom_id', 'capacity', 'color', 'status']],
@@ -54,7 +56,7 @@ const checks = [
   ['learning', 'sessions', ['id', 'academy_id', 'core_student_id', 'book_id', 'scope', 'scope_label', 'context', 'started_at']],
   ['learning', 'attempts', ['id', 'academy_id', 'session_id', 'core_student_id', 'problem_id', 'correct', 'attempt_no', 'created_at']],
   ['learning', 'wrong_notes', ['academy_id', 'core_student_id', 'problem_id', 'status']],
-  ['learning', 'reports', ['id', 'academy_id', 'core_student_id', 'report_type', 'generated_at']],
+  ['learning', 'reports', ['id', 'academy_id', 'core_student_id', 'report_type', 'status', 'generated_at', 'payload']],
 
   ['ai', 'conversations', ['id', 'academy_id', 'student_id', 'core_student_id', 'title', 'created_at']],
   ['ai', 'messages', ['id', 'conversation_id', 'role', 'content', 'created_at']],

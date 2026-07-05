@@ -40,6 +40,10 @@
 
 `content.problems`에 정답이 들어 있고, authenticated 사용자에게 read가 열려 있다. grade-app이 학생 앱이면 학생이 정답을 직접 읽을 수 있다.
 
+상태:
+- 2026-07-06 기준 clean baseline에는 정답 없는 `content.student_problems` view와 `content.problems` 컬럼 grant 제한을 추가했다.
+- 원격 `nextum-data`에는 아직 baseline이 적용되지 않았으므로, 컷오버 전에는 여전히 `db:check`와 실제 권한 검증이 필요하다.
+
 조치:
 - 학생용 문제 view에는 정답 제거
 - 정답은 staff-only 테이블 또는 서버 채점 RPC에서만 사용
