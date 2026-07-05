@@ -75,6 +75,7 @@ npm run seed:dev-admin
 - `/settings` operational configuration notes
 - `/login` Supabase Auth login
 - `/signup` student invite-code signup
+- `/api/lms/classes`, `/api/lms/students`, `/api/lms/billing/generate` server-side LMS mutations
 
 ## Database
 

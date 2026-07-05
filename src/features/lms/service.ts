@@ -17,7 +17,6 @@ import type {
   RecordAttendanceInput,
   ScheduleItem,
   StaffSummary,
-  StudentClassBillingInput,
   StudentInvitationResult,
   StudentSummary,
   WeakTypeRow,
@@ -122,25 +121,16 @@ async function fetchStaffPeople(staffRows: Row[]): Promise<Map<string, string>> 
   return names;
 }
 
-function defaultBillingRules(input: CreateStudentInput): StudentClassBillingInput[] {
-  const classIds = [...new Set(input.classIds || [])];
-  if (input.classBillingRules && input.classBillingRules.length > 0) {
-    return input.classBillingRules.filter((rule) => classIds.includes(rule.classId));
+async function postLmsMutation(path: string, payload: Record<string, unknown>): Promise<void> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
+  if (!response.ok || !result?.success) {
+    throw new Error(result?.error || '요청 처리에 실패했습니다.');
   }
-
-  if (input.billingMode === 'usage_based') {
-    return classIds.map((classId) => ({
-      classId,
-      ruleType: 'usage_based',
-      amount: input.hourlyRate || 0,
-    }));
-  }
-
-  return classIds.map((classId, index) => ({
-    classId,
-    ruleType: index === 0 || input.billingMode === 'manual' ? 'included' : 'extra_flat',
-    amount: 0,
-  }));
 }
 
 function randomInviteCode(): string {
@@ -267,33 +257,7 @@ export async function listClassSummaries(academyId: string): Promise<ClassSummar
 }
 
 export async function createClass(academyId: string, input: CreateClassInput): Promise<void> {
-  const name = input.name.trim();
-  if (!name) throw new Error('반 이름을 입력하세요.');
-
-  const { data: created, error } = await coreDb
-    .from('classes')
-    .insert({
-      academy_id: academyId,
-      name,
-      grade: input.grade || null,
-      active: true,
-    })
-    .select('id')
-    .single();
-
-  const classRow = requireData(created, error);
-
-  const { error: profileError } = await lmsDb.from('class_profiles').insert({
-    academy_id: academyId,
-    class_id: classRow.id,
-    capacity: input.capacity ?? null,
-    color: input.color || null,
-    default_instructor_staff_id: input.defaultInstructorId || null,
-    default_classroom_id: input.defaultClassroomId || null,
-    status: 'active',
-  });
-
-  if (profileError) throw new Error(profileError.message);
+  await postLmsMutation('/api/lms/classes', { academyId, input });
 }
 
 export async function listStudents(academyId: string): Promise<StudentSummary[]> {
@@ -350,76 +314,7 @@ export async function listStudents(academyId: string): Promise<StudentSummary[]>
 }
 
 export async function createStudent(academyId: string, input: CreateStudentInput): Promise<void> {
-  const name = input.name.trim();
-  if (!name) throw new Error('학생 이름을 입력하세요.');
-
-  const classIds = [...new Set(input.classIds || [])];
-
-  const { data: person, error: personError } = await coreDb
-    .from('people')
-    .insert({
-      primary_academy_id: academyId,
-      full_name: name,
-      display_name: name,
-      phone: input.phone || null,
-      parent_name: input.parentName || null,
-      parent_phone: input.parentPhone || null,
-    })
-    .select('id')
-    .single();
-  const createdPerson = requireData(person, personError);
-
-  const { data: student, error: studentError } = await coreDb
-    .from('students')
-    .insert({
-      academy_id: academyId,
-      person_id: createdPerson.id,
-      status: 'active',
-      school_type: input.schoolType || null,
-      grade: input.grade || null,
-      enrollment_date: dateString(new Date()),
-    })
-    .select('id')
-    .single();
-  const createdStudent = requireData(student, studentError);
-
-  const classRows = classIds.map((classId, index) => ({
-    class_id: classId,
-    student_id: createdStudent.id,
-    status: 'active',
-    primary_class: index === 0,
-  }));
-  if (classRows.length > 0) {
-    const { error } = await coreDb.from('class_students').insert(classRows);
-    if (error) throw new Error(error.message);
-  }
-
-  const { data: contract, error: contractError } = await lmsDb
-    .from('student_billing_contracts')
-    .insert({
-      academy_id: academyId,
-      student_id: createdStudent.id,
-      billing_mode: input.billingMode,
-      base_monthly_fee: input.baseMonthlyFee || 0,
-      hourly_rate: input.hourlyRate ?? null,
-      status: 'active',
-    })
-    .select('id')
-    .single();
-  const createdContract = requireData(contract, contractError);
-
-  const billingRules = defaultBillingRules(input).map((rule) => ({
-    academy_id: academyId,
-    contract_id: createdContract.id,
-    class_id: rule.classId,
-    rule_type: rule.ruleType,
-    amount: rule.amount || 0,
-  }));
-
-  if (billingRules.length > 0) {
-    const { error } = await lmsDb.from('billing_class_rules').insert(billingRules);
-    if (error) throw new Error(error.message);
-  }
+  await postLmsMutation('/api/lms/students', { academyId, input });
 }
 
 export async function createStudentInvitation(academyId: string, studentId: string): Promise<StudentInvitationResult> {
@@ -947,65 +842,7 @@ export async function listBilling(academyId: string, serviceMonth: string): Prom
 }
 
 export async function generateMonthlyInvoices(academyId: string, serviceMonth: string): Promise<void> {
-  const drafts = await buildBillingDrafts(academyId, serviceMonth);
-  const [year, month] = serviceMonth.split('-').map(Number);
-  const dueDate = `${serviceMonth}-${String(Math.min(28, new Date(year, month, 0).getDate())).padStart(2, '0')}`;
-
-  const { data: existingInvoices, error: existingError } = await lmsDb
-    .from('invoices')
-    .select('id,student_id,paid_amount')
-    .eq('academy_id', academyId)
-    .eq('service_month', serviceMonth);
-  if (existingError) throw new Error(existingError.message);
-
-  const existingMap = new Map((existingInvoices || []).map((row: Row) => [row.student_id, row]));
-
-  for (const { student, draft } of drafts) {
-    if (!draft) continue;
-    const existing = existingMap.get(student.id);
-    const paidAmount = toNumber(existing?.paid_amount);
-    const status = draft.totalAmount <= 0
-      ? 'draft'
-      : paidAmount >= draft.totalAmount
-        ? 'paid'
-        : paidAmount > 0
-          ? 'partial'
-          : 'issued';
-
-    const { data: invoice, error: invoiceError } = await lmsDb
-      .from('invoices')
-      .upsert({
-        academy_id: academyId,
-        student_id: student.id,
-        service_month: serviceMonth,
-        due_date: dueDate,
-        subtotal_amount: draft.subtotalAmount,
-        discount_amount: draft.discountAmount,
-        total_amount: draft.totalAmount,
-        status,
-      }, { onConflict: 'student_id,service_month' })
-      .select('id')
-      .single();
-    if (invoiceError) throw new Error(invoiceError.message);
-
-    const { error: deleteLinesError } = await lmsDb.from('invoice_lines').delete().eq('invoice_id', invoice.id);
-    if (deleteLinesError) throw new Error(deleteLinesError.message);
-    if (draft.lines.length > 0) {
-      const { error: lineError } = await lmsDb.from('invoice_lines').insert(
-        draft.lines.map((line) => ({
-          invoice_id: invoice.id,
-          line_type: line.lineType,
-          class_id: line.classId,
-          occurrence_id: line.occurrenceId,
-          description: line.description,
-          quantity: line.quantity,
-          unit_amount: line.unitAmount,
-          amount: line.amount,
-        })),
-      );
-      if (lineError) throw new Error(lineError.message);
-    }
-  }
+  await postLmsMutation('/api/lms/billing/generate', { academyId, serviceMonth });
 }
 
 export async function getDashboardData(academyId: string, serviceMonth: string): Promise<DashboardData> {

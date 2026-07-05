@@ -20,10 +20,31 @@ export interface LmsAdminContext {
     authIssuedAt: number | null;
 }
 
+export type LmsRole = 'owner' | 'admin' | 'staff' | 'teacher' | 'instructor' | 'student' | 'guardian';
+
+export interface LmsRoleContext {
+    userId: string;
+    accountId: string;
+    personId: string;
+    academyId: string;
+    role: LmsRole;
+    authIssuedAt: number | null;
+}
+
 type Row = Record<string, any>;
 
 function isAdminRole(value: unknown): value is 'admin' | 'owner' {
     return value === 'admin' || value === 'owner';
+}
+
+function isLmsRole(value: unknown): value is LmsRole {
+    return value === 'owner'
+        || value === 'admin'
+        || value === 'staff'
+        || value === 'teacher'
+        || value === 'instructor'
+        || value === 'student'
+        || value === 'guardian';
 }
 
 function getNumberClaim(claims: Record<string, unknown> | undefined, key: string): number | null {
@@ -100,6 +121,58 @@ export async function assertLmsAdmin(): Promise<LmsAdminContext> {
     }
 
     throw new LmsAuthError('LMS admin permission is required.', 403);
+}
+
+export async function assertLmsRoleForAcademy(
+    academyId: string,
+    allowedRoles: readonly LmsRole[],
+): Promise<LmsRoleContext> {
+    const serverClient = await createServerClient();
+    const { data, error } = await serverClient.auth.getClaims();
+    const claims = data?.claims as Record<string, unknown> | undefined;
+    const userId = typeof claims?.sub === 'string' ? claims.sub : null;
+
+    if (error || !userId) {
+        throw new LmsAuthError('Authentication is required.', 401);
+    }
+
+    const admin = createAdminClient();
+    const core = admin.schema('core');
+    const { data: account, error: accountError } = await core
+        .from('user_accounts')
+        .select('id,person_id,status')
+        .eq('auth_user_id', userId)
+        .maybeSingle();
+
+    if (accountError) throw accountError;
+    const accountRow = account as Row | null;
+    if (!accountRow || accountRow.status !== 'active') {
+        throw new LmsAuthError('Active LMS account is required.', 403);
+    }
+
+    const { data: member, error: memberError } = await core
+        .from('academy_members')
+        .select('academy_id,role,active')
+        .eq('academy_id', academyId)
+        .eq('active', true)
+        .or(`user_account_id.eq.${accountRow.id},person_id.eq.${accountRow.person_id}`)
+        .in('role', [...allowedRoles])
+        .limit(1)
+        .maybeSingle();
+
+    if (memberError) throw memberError;
+    if (!member?.academy_id || !isLmsRole(member.role)) {
+        throw new LmsAuthError('LMS permission is required for this academy.', 403);
+    }
+
+    return {
+        userId,
+        accountId: accountRow.id,
+        personId: accountRow.person_id,
+        academyId: member.academy_id,
+        role: member.role,
+        authIssuedAt: getNumberClaim(claims, 'iat'),
+    };
 }
 
 export function assertSameOrigin(request: Request) {

@@ -10,6 +10,11 @@
   - LMS issues codes from the student list.
   - `/signup` accepts the code and creates the Supabase Auth account with a normal login ID.
   - `core.user_accounts` and `core.academy_members` become the canonical account link.
+- Moved high-risk create/generate mutations behind same-origin server API routes:
+  - `/api/lms/classes`
+  - `/api/lms/students`
+  - `/api/lms/billing/generate`
+  - These routes authorize the exact academy before using the server-only Supabase secret key.
 - Switched existing LMS routes to the new workflows:
   - learning dashboard
   - class/time schedule

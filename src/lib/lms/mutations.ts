@@ -1,0 +1,428 @@
+import 'server-only';
+
+import { createAdminClient } from '@/lib/supabase/admin';
+import { calculateInvoiceDraft } from '@/features/lms/billing';
+import type {
+    BillingClassRuleType,
+    BillingMode,
+    CreateClassInput,
+    CreateStudentInput,
+    StudentClassBillingInput,
+} from '@/features/lms/types';
+
+type Row = Record<string, any>;
+type LmsAdminClient = ReturnType<typeof createAdminClient>;
+type SchemaClient = ReturnType<LmsAdminClient['schema']>;
+
+function ensureNoError(error: { message?: string } | null, context: string) {
+    if (error) {
+        throw new Error(`${context}: ${error.message ?? 'Unknown Supabase error'}`);
+    }
+}
+
+function dateString(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function monthRange(serviceMonth: string): { start: string; end: string } {
+    const [year, month] = serviceMonth.split('-').map(Number);
+    if (!year || !month || month < 1 || month > 12) {
+        throw new Error('청구 월은 YYYY-MM 형식이어야 합니다.');
+    }
+    return {
+        start: `${serviceMonth}-01`,
+        end: dateString(new Date(year, month, 0)),
+    };
+}
+
+function isEffective(row: Row, startDate: string, endDate: string): boolean {
+    const from = String(row.effective_from || startDate);
+    const to = row.effective_to ? String(row.effective_to) : null;
+    return from <= endDate && (!to || to >= startDate);
+}
+
+function uniqueClassIds(classIds: string[] | undefined) {
+    return [...new Set((classIds || []).filter(Boolean))];
+}
+
+function defaultBillingRules(input: CreateStudentInput): StudentClassBillingInput[] {
+    const classIds = uniqueClassIds(input.classIds);
+    if (input.classBillingRules && input.classBillingRules.length > 0) {
+        return input.classBillingRules.filter((rule) => classIds.includes(rule.classId));
+    }
+
+    if (input.billingMode === 'usage_based') {
+        return classIds.map((classId) => ({
+            classId,
+            ruleType: 'usage_based',
+            amount: input.hourlyRate || 0,
+        }));
+    }
+
+    return classIds.map((classId, index) => ({
+        classId,
+        ruleType: index === 0 || input.billingMode === 'manual' ? 'included' : 'extra_flat',
+        amount: 0,
+    }));
+}
+
+async function assertClassesBelongToAcademy(core: SchemaClient, academyId: string, classIds: string[]) {
+    if (classIds.length === 0) return;
+    const { data, error } = await core
+        .from('classes')
+        .select('id')
+        .eq('academy_id', academyId)
+        .in('id', classIds);
+    ensureNoError(error, 'Failed to verify class membership');
+
+    if ((data || []).length !== classIds.length) {
+        throw new Error('One or more selected classes do not belong to this academy.');
+    }
+}
+
+async function fetchClassNames(core: SchemaClient, classIds: string[]) {
+    const ids = [...new Set(classIds.filter(Boolean))];
+    if (ids.length === 0) return new Map<string, string>();
+
+    const { data, error } = await core
+        .from('classes')
+        .select('id,name')
+        .in('id', ids);
+    ensureNoError(error, 'Failed to load class names');
+
+    return new Map((data || []).map((row: Row) => [row.id, row.name]));
+}
+
+function normalizeBillingMode(value: BillingMode): BillingMode {
+    if (value === 'monthly_plus_classes' || value === 'usage_based' || value === 'manual') return value;
+    return 'monthly_plus_classes';
+}
+
+export async function createClassForAcademy(academyId: string, input: CreateClassInput) {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const name = input.name.trim();
+    if (!name) throw new Error('반 이름을 입력하세요.');
+
+    const { data: createdClass, error: classError } = await core
+        .from('classes')
+        .insert({
+            academy_id: academyId,
+            name,
+            grade: input.grade || null,
+            active: true,
+        })
+        .select('id')
+        .single();
+    ensureNoError(classError, 'Failed to create class');
+
+    const classRow = createdClass as Row;
+    try {
+        const { error: profileError } = await lms.from('class_profiles').insert({
+            academy_id: academyId,
+            class_id: classRow.id,
+            capacity: input.capacity ?? null,
+            color: input.color || null,
+            default_instructor_staff_id: input.defaultInstructorId || null,
+            default_classroom_id: input.defaultClassroomId || null,
+            status: 'active',
+        });
+        ensureNoError(profileError, 'Failed to create class profile');
+    } catch (error) {
+        await core.from('classes').delete().eq('id', classRow.id).eq('academy_id', academyId);
+        throw error;
+    }
+}
+
+export async function createStudentForAcademy(academyId: string, input: CreateStudentInput) {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const name = input.name.trim();
+    if (!name) throw new Error('학생 이름을 입력하세요.');
+
+    const classIds = uniqueClassIds(input.classIds);
+    await assertClassesBelongToAcademy(core, academyId, classIds);
+
+    const { data: person, error: personError } = await core
+        .from('people')
+        .insert({
+            primary_academy_id: academyId,
+            full_name: name,
+            display_name: name,
+            phone: input.phone || null,
+            parent_name: input.parentName || null,
+            parent_phone: input.parentPhone || null,
+        })
+        .select('id')
+        .single();
+    ensureNoError(personError, 'Failed to create person');
+
+    const personRow = person as Row;
+    try {
+        const { data: student, error: studentError } = await core
+            .from('students')
+            .insert({
+                academy_id: academyId,
+                person_id: personRow.id,
+                status: 'active',
+                school_type: input.schoolType || null,
+                grade: input.grade || null,
+                enrollment_date: dateString(new Date()),
+            })
+            .select('id')
+            .single();
+        ensureNoError(studentError, 'Failed to create student');
+
+        const studentRow = student as Row;
+        const classRows = classIds.map((classId, index) => ({
+            class_id: classId,
+            student_id: studentRow.id,
+            status: 'active',
+            primary_class: index === 0,
+        }));
+        if (classRows.length > 0) {
+            const { error } = await core.from('class_students').insert(classRows);
+            ensureNoError(error, 'Failed to assign student classes');
+        }
+
+        const { data: contract, error: contractError } = await lms
+            .from('student_billing_contracts')
+            .insert({
+                academy_id: academyId,
+                student_id: studentRow.id,
+                billing_mode: normalizeBillingMode(input.billingMode),
+                base_monthly_fee: input.baseMonthlyFee || 0,
+                hourly_rate: input.hourlyRate ?? null,
+                status: 'active',
+            })
+            .select('id')
+            .single();
+        ensureNoError(contractError, 'Failed to create billing contract');
+
+        const contractRow = contract as Row;
+        const billingRules = defaultBillingRules(input).map((rule) => ({
+            academy_id: academyId,
+            contract_id: contractRow.id,
+            class_id: rule.classId,
+            rule_type: rule.ruleType,
+            amount: rule.amount || 0,
+        }));
+
+        if (billingRules.length > 0) {
+            const { error } = await lms.from('billing_class_rules').insert(billingRules);
+            ensureNoError(error, 'Failed to create billing class rules');
+        }
+    } catch (error) {
+        await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
+        throw error;
+    }
+}
+
+async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: string, serviceMonth: string) {
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const range = monthRange(serviceMonth);
+
+    const { data: studentsData, error: studentsError } = await core
+        .from('students')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('status', 'active');
+    ensureNoError(studentsError, 'Failed to load students');
+
+    const students = (studentsData || []) as Row[];
+    const studentIds = students.map((student) => student.id);
+    if (studentIds.length === 0) return [];
+
+    const [
+        { data: contractsData, error: contractsError },
+        { data: rulesData, error: rulesError },
+        { data: occurrencesData, error: occurrencesError },
+    ] = await Promise.all([
+        lms
+            .from('student_billing_contracts')
+            .select('*')
+            .eq('academy_id', academyId)
+            .eq('status', 'active')
+            .in('student_id', studentIds),
+        lms.from('billing_class_rules').select('*').eq('academy_id', academyId),
+        lms
+            .from('lesson_occurrences')
+            .select('id,class_id,occurrence_date')
+            .eq('academy_id', academyId)
+            .gte('occurrence_date', range.start)
+            .lte('occurrence_date', range.end),
+    ]);
+    ensureNoError(contractsError, 'Failed to load billing contracts');
+    ensureNoError(rulesError, 'Failed to load billing class rules');
+    ensureNoError(occurrencesError, 'Failed to load lesson occurrences');
+
+    const contracts = ((contractsData || []) as Row[]).filter((row) => isEffective(row, range.start, range.end));
+    const contractMap = new Map(contracts.map((row) => [row.student_id, row]));
+    const contractIds = contracts.map((row) => row.id);
+    const rules = ((rulesData || []) as Row[])
+        .filter((row) => contractIds.includes(row.contract_id))
+        .filter((row) => isEffective(row, range.start, range.end));
+    const occurrenceRows = (occurrencesData || []) as Row[];
+    const classNames = await fetchClassNames(core, [
+        ...rules.map((row) => row.class_id),
+        ...occurrenceRows.map((row) => row.class_id),
+    ]);
+
+    let attendanceRows: Row[] = [];
+    const occurrenceIds = occurrenceRows.map((row) => row.id);
+    if (occurrenceIds.length > 0) {
+        const { data, error } = await lms
+            .from('attendance_records')
+            .select('occurrence_id,student_id,status,billable_minutes')
+            .eq('academy_id', academyId)
+            .in('occurrence_id', occurrenceIds)
+            .in('student_id', studentIds);
+        ensureNoError(error, 'Failed to load attendance records');
+        attendanceRows = (data || []) as Row[];
+    }
+
+    const occurrenceMap = new Map(occurrenceRows.map((row) => [row.id, row]));
+    const rulesByContract = new Map<string, Row[]>();
+    for (const rule of rules) {
+        rulesByContract.set(rule.contract_id, [...(rulesByContract.get(rule.contract_id) || []), rule]);
+    }
+
+    const attendanceByStudent = new Map<string, Row[]>();
+    for (const attendance of attendanceRows) {
+        attendanceByStudent.set(attendance.student_id, [...(attendanceByStudent.get(attendance.student_id) || []), attendance]);
+    }
+
+    return students.map((student) => {
+        const contract = contractMap.get(student.id);
+        if (!contract) return { student, draft: null };
+
+        const draft = calculateInvoiceDraft({
+            contract: {
+                studentId: student.id,
+                billingMode: contract.billing_mode,
+                baseMonthlyFee: toNumber(contract.base_monthly_fee),
+                hourlyRate: contract.hourly_rate === null || contract.hourly_rate === undefined ? null : Number(contract.hourly_rate),
+            },
+            rules: (rulesByContract.get(contract.id) || []).map((rule) => ({
+                classId: rule.class_id,
+                className: classNames.get(rule.class_id) || null,
+                ruleType: rule.rule_type as BillingClassRuleType,
+                amount: toNumber(rule.amount),
+            })),
+            attendances: (attendanceByStudent.get(student.id) || []).map((attendance) => {
+                const occurrence = occurrenceMap.get(attendance.occurrence_id);
+                return {
+                    classId: occurrence?.class_id || '',
+                    className: occurrence?.class_id ? classNames.get(occurrence.class_id) || null : null,
+                    occurrenceId: attendance.occurrence_id,
+                    status: attendance.status,
+                    billableMinutes: attendance.billable_minutes ?? null,
+                };
+            }),
+        });
+
+        return { student, draft };
+    });
+}
+
+async function replaceInvoiceLinesSafely(lms: SchemaClient, invoiceId: string, lines: ReturnType<typeof calculateInvoiceDraft>['lines']) {
+    const { data: existingLines, error: existingError } = await lms
+        .from('invoice_lines')
+        .select('line_type,class_id,occurrence_id,description,quantity,unit_amount,amount,metadata')
+        .eq('invoice_id', invoiceId);
+    ensureNoError(existingError, 'Failed to snapshot existing invoice lines');
+
+    const { error: deleteError } = await lms.from('invoice_lines').delete().eq('invoice_id', invoiceId);
+    ensureNoError(deleteError, 'Failed to delete invoice lines');
+
+    try {
+        if (lines.length > 0) {
+            const { error: insertError } = await lms.from('invoice_lines').insert(
+                lines.map((line) => ({
+                    invoice_id: invoiceId,
+                    line_type: line.lineType,
+                    class_id: line.classId,
+                    occurrence_id: line.occurrenceId,
+                    description: line.description,
+                    quantity: line.quantity,
+                    unit_amount: line.unitAmount,
+                    amount: line.amount,
+                })),
+            );
+            ensureNoError(insertError, 'Failed to insert invoice lines');
+        }
+    } catch (error) {
+        if ((existingLines || []).length > 0) {
+            await lms.from('invoice_lines').insert(
+                (existingLines || []).map((line: Row) => ({
+                    invoice_id: invoiceId,
+                    line_type: line.line_type,
+                    class_id: line.class_id,
+                    occurrence_id: line.occurrence_id,
+                    description: line.description,
+                    quantity: line.quantity,
+                    unit_amount: line.unit_amount,
+                    amount: line.amount,
+                    metadata: line.metadata || {},
+                })),
+            );
+        }
+        throw error;
+    }
+}
+
+export async function generateMonthlyInvoicesForAcademy(academyId: string, serviceMonth: string) {
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const drafts = await buildBillingDraftsForAcademy(client, academyId, serviceMonth);
+    const [year, month] = serviceMonth.split('-').map(Number);
+    const dueDate = `${serviceMonth}-${String(Math.min(28, new Date(year, month, 0).getDate())).padStart(2, '0')}`;
+
+    const { data: existingInvoices, error: existingError } = await lms
+        .from('invoices')
+        .select('id,student_id,paid_amount')
+        .eq('academy_id', academyId)
+        .eq('service_month', serviceMonth);
+    ensureNoError(existingError, 'Failed to load existing invoices');
+
+    const existingMap = new Map((existingInvoices || []).map((row: Row) => [row.student_id, row]));
+
+    for (const { student, draft } of drafts) {
+        if (!draft) continue;
+        const existing = existingMap.get(student.id);
+        const paidAmount = toNumber(existing?.paid_amount);
+        const status = draft.totalAmount <= 0
+            ? 'draft'
+            : paidAmount >= draft.totalAmount
+                ? 'paid'
+                : paidAmount > 0
+                    ? 'partial'
+                    : 'issued';
+
+        const { data: invoice, error: invoiceError } = await lms
+            .from('invoices')
+            .upsert({
+                academy_id: academyId,
+                student_id: student.id,
+                service_month: serviceMonth,
+                due_date: dueDate,
+                subtotal_amount: draft.subtotalAmount,
+                discount_amount: draft.discountAmount,
+                total_amount: draft.totalAmount,
+                status,
+            }, { onConflict: 'student_id,service_month' })
+            .select('id')
+            .single();
+        ensureNoError(invoiceError, 'Failed to upsert invoice');
+
+        await replaceInvoiceLinesSafely(lms, (invoice as Row).id, draft.lines);
+    }
+}
