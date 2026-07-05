@@ -5,6 +5,8 @@ export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'cancelled' | '
 export type PayrollStatus = 'pending' | 'paid' | 'cancelled';
 export type WithholdingType = 'none' | 'freelance_3.3' | 'custom';
 export type StudentStatus = 'active' | 'inactive' | 'on_leave' | 'graduated' | 'dropped';
+export type StaffRole = 'admin' | 'teacher' | 'instructor' | 'staff';
+export type StaffStatus = 'active' | 'inactive' | 'on_leave';
 export type AdminExportType = 'tax' | 'payroll';
 export type AdminResetTarget =
   | 'classrooms'
@@ -85,8 +87,8 @@ export interface StaffSummary {
   name: string;
   phone: string | null;
   email: string | null;
-  role: string;
-  status: string;
+  role: StaffRole | 'owner';
+  status: StaffStatus;
   hourlyRate: number | null;
 }
 
@@ -249,8 +251,12 @@ export interface CreateStaffInput {
   name: string;
   phone?: string | null;
   email?: string | null;
-  role: 'admin' | 'teacher' | 'instructor' | 'staff';
+  role: StaffRole;
   hourlyRate?: number | null;
+}
+
+export interface UpdateStaffInput extends CreateStaffInput {
+  status: StaffStatus;
 }
 
 export interface CreateScheduleRuleInput {

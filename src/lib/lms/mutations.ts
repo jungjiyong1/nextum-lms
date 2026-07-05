@@ -19,6 +19,9 @@ import type {
     StudentStatus,
     StudentClassBillingInput,
     StudentInvitationResult,
+    StaffRole,
+    StaffStatus,
+    UpdateStaffInput,
     UpdateStudentInput,
     WithholdingType,
 } from '@/features/lms/types';
@@ -192,6 +195,16 @@ function normalizeStudentStatus(value: StudentStatus): StudentStatus {
     if (value === 'active' || value === 'inactive' || value === 'on_leave' || value === 'graduated' || value === 'dropped') {
         return value;
     }
+    return 'active';
+}
+
+function normalizeStaffRole(value: StaffRole): StaffRole {
+    if (value === 'admin' || value === 'teacher' || value === 'instructor' || value === 'staff') return value;
+    return 'instructor';
+}
+
+function normalizeStaffStatus(value: StaffStatus): StaffStatus {
+    if (value === 'active' || value === 'inactive' || value === 'on_leave') return value;
     return 'active';
 }
 
@@ -556,6 +569,51 @@ export async function createStaffForAcademy(academyId: string, input: CreateStaf
         await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
         throw error;
     }
+}
+
+export async function updateStaffForAcademy(academyId: string, staffId: string, input: UpdateStaffInput) {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const name = input.name.trim();
+    if (!staffId) throw new Error('강사/직원을 선택하세요.');
+    if (!name) throw new Error('이름을 입력하세요.');
+
+    const { data: staff, error: staffError } = await core
+        .from('staff_members')
+        .select('id,person_id,role')
+        .eq('academy_id', academyId)
+        .eq('id', staffId)
+        .maybeSingle();
+    ensureNoError(staffError, 'Failed to load staff member');
+    if (!staff?.id) throw new Error('Selected staff member does not belong to this academy.');
+    if ((staff as Row).role === 'owner') throw new Error('Owner role cannot be edited here.');
+
+    const { error: personError } = await core
+        .from('people')
+        .update({
+            full_name: name,
+            display_name: name,
+            phone: input.phone || null,
+            email: input.email || null,
+        })
+        .eq('id', (staff as Row).person_id)
+        .eq('primary_academy_id', academyId)
+        .select('id')
+        .single();
+    ensureNoError(personError, 'Failed to update staff person');
+
+    const { error: updateError } = await core
+        .from('staff_members')
+        .update({
+            role: normalizeStaffRole(input.role),
+            status: normalizeStaffStatus(input.status),
+            hourly_rate: input.hourlyRate ?? null,
+        })
+        .eq('academy_id', academyId)
+        .eq('id', staffId)
+        .select('id')
+        .single();
+    ensureNoError(updateError, 'Failed to update staff member');
 }
 
 export async function createScheduleRuleForAcademy(academyId: string, input: CreateScheduleRuleInput) {

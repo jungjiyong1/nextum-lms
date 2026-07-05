@@ -54,6 +54,7 @@ import {
   resetAdminData,
   setClassBook,
   updateStudent,
+  updateStaff,
   updateTaxSettings,
   createExpense,
   createInstructorPayment,
@@ -74,13 +75,15 @@ import type {
   InstructorPaymentRow,
   PaymentRow,
   ScheduleItem,
+  StaffRole,
   StaffSummary,
+  StaffStatus,
   StudentStatus,
   StudentSummary,
   WithholdingType,
 } from './types';
 
-type CreateStaffRole = 'admin' | 'teacher' | 'instructor' | 'staff';
+type CreateStaffRole = StaffRole;
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -1116,9 +1119,11 @@ export function StaffOperationsPage() {
   const academyId = useAcademyId();
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingStaffId, setEditingStaffId] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<CreateStaffRole>('instructor');
+  const [staffStatus, setStaffStatus] = useState<StaffStatus>('active');
   const [hourlyRate, setHourlyRate] = useState('');
 
   const load = useCallback(async () => {
@@ -1139,17 +1144,43 @@ export function StaffOperationsPage() {
 
   if (!academyId) return <MissingAcademy />;
 
+  const resetStaffForm = () => {
+    setEditingStaffId('');
+    setName('');
+    setPhone('');
+    setRole('instructor');
+    setStaffStatus('active');
+    setHourlyRate('');
+  };
+
+  const editStaff = (row: StaffSummary) => {
+    if (row.role === 'owner') {
+      toast.error('소유자 권한은 이 화면에서 수정하지 않습니다.');
+      return;
+    }
+    setEditingStaffId(row.id);
+    setName(row.name);
+    setPhone(row.phone || '');
+    setRole(row.role as CreateStaffRole);
+    setStaffStatus(row.status);
+    setHourlyRate(row.hourlyRate === null ? '' : String(row.hourlyRate));
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      await createStaff(academyId, { name, phone, role, hourlyRate: hourlyRate ? Number(hourlyRate) : null });
-      setName('');
-      setPhone('');
-      setHourlyRate('');
-      toast.success('강사/직원을 등록했습니다.');
+      const payload = { name, phone, role, hourlyRate: hourlyRate ? Number(hourlyRate) : null };
+      if (editingStaffId) {
+        await updateStaff(academyId, editingStaffId, { ...payload, status: staffStatus });
+        toast.success('강사/직원 정보를 수정했습니다.');
+      } else {
+        await createStaff(academyId, payload);
+        toast.success('강사/직원을 등록했습니다.');
+      }
+      resetStaffForm();
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '등록 실패');
+      toast.error(err instanceof Error ? err.message : '저장 실패');
     }
   };
 
@@ -1169,13 +1200,16 @@ export function StaffOperationsPage() {
                   </div>
                   <p className="mt-1 text-sm text-slate-500">{row.role} · {row.phone || '-'}</p>
                   <p className="mt-2 text-sm font-medium">{row.hourlyRate ? `${currency(row.hourlyRate)} / 시간` : '시급 미설정'}</p>
+                  <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => editStaff(row)} disabled={row.role === 'owner'}>
+                    수정
+                  </Button>
                 </div>
               ))}
               {staff.length === 0 && <p className="py-8 text-center text-sm text-slate-400 md:col-span-2">등록된 강사/직원이 없습니다.</p>}
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>강사/직원 등록</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{editingStaffId ? '강사/직원 수정' : '강사/직원 등록'}</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={submit} className="space-y-3">
                 <div><Label>이름</Label><Input value={name} onChange={(event) => setName(event.target.value)} /></div>
@@ -1189,8 +1223,21 @@ export function StaffOperationsPage() {
                     <option value="admin">관리자</option>
                   </SelectBox>
                 </div>
+                {editingStaffId && (
+                  <div>
+                    <Label>상태</Label>
+                    <SelectBox value={staffStatus} onChange={(event) => setStaffStatus(event.target.value as StaffStatus)}>
+                      <option value="active">재직</option>
+                      <option value="on_leave">휴직</option>
+                      <option value="inactive">퇴직/비활성</option>
+                    </SelectBox>
+                  </div>
+                )}
                 <div><Label>시급</Label><Input type="number" value={hourlyRate} onChange={(event) => setHourlyRate(event.target.value)} /></div>
-                <Button type="submit" className="w-full">등록</Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="submit" className="w-full">{editingStaffId ? '수정 저장' : '등록'}</Button>
+                  <Button type="button" variant="outline" className="w-full" onClick={resetStaffForm}>새 입력</Button>
+                </div>
               </form>
             </CardContent>
           </Card>

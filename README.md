@@ -71,7 +71,7 @@ $env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin
 - `/` learning performance dashboard
 - `/classrooms` class and timetable operations
 - `/students` student roster, class assignment, invitation, status, and billing contract setup
-- `/instructors` staff/instructor roster
+- `/instructors` staff/instructor roster, role, status, and pay-rate maintenance
 - `/accounting` monthly billing, payment, expense, and instructor payroll operations
 - `/settings` operational settings, CSV export, tax defaults, and guarded reset actions
 - `/login` Supabase Auth login

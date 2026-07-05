@@ -29,6 +29,7 @@ import type {
   StaffSummary,
   StudentInvitationResult,
   StudentSummary,
+  UpdateStaffInput,
   UpdateStudentInput,
   WeakTypeRow,
 } from './types';
@@ -358,6 +359,10 @@ export async function createStudentInvitation(academyId: string, studentId: stri
 
 export async function createStaff(academyId: string, input: CreateStaffInput): Promise<void> {
   await postLmsMutation('/api/lms/staff', { academyId, input });
+}
+
+export async function updateStaff(academyId: string, staffId: string, input: UpdateStaffInput): Promise<void> {
+  await postLmsMutation('/api/lms/staff', { academyId, staffId, input });
 }
 
 export async function listSchedule(academyId: string, startDate: string, endDate: string): Promise<ScheduleItem[]> {
