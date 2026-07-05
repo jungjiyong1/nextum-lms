@@ -337,13 +337,15 @@ export const schedulesApi = {
       `)
             .gte('date', startDate)
             .lte('date', endDate)
-            .or(`lessons.instructor_id.eq.${instructorId},substitute_instructor_id.eq.${instructorId}`)
             .order('date')
             .order('start_time');
 
         if (error) return err(new Error(error.message));
 
-        return ok((data || []).map((s) => {
+        return ok((data || []).filter((s) => {
+            const lesson = Array.isArray(s.lessons) ? s.lessons[0] : s.lessons;
+            return lesson?.instructor_id === instructorId || s.substitute_instructor_id === instructorId;
+        }).map((s) => {
             const lesson = Array.isArray(s.lessons) ? s.lessons[0] : s.lessons;
             const classroom = Array.isArray(lesson?.classrooms) ? lesson?.classrooms[0] : lesson?.classrooms;
             return {
