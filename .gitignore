@@ -8,6 +8,8 @@ release/
 out/
 .next/
 coverage/
+output/
+.playwright-cli/
 renderer/bundle.js
 renderer/styles/tailwind.out.css
 renderer/styles/files/

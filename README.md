@@ -1,90 +1,70 @@
 # Nextum LMS
 
-> 학원 운영의 본질에 집중할 수 있도록 설계된 학원 관리 시스템
+Nextum LMS는 학원 운영용 웹앱입니다. 기존 Electron 데스크톱 앱을 Next.js App Router 기반 웹앱으로 전환했으며, Supabase Cloud를 백엔드로 사용합니다.
 
-## 📖 프로젝트 소개
+## Stack
 
-Nextum LMS는 학원 원장님이 정말 필요한 기능에만 집중할 수 있도록 만든 학원 관리 데스크탑 애플리케이션입니다.
+- Next.js 16 App Router
+- React 19, TypeScript
+- Supabase Auth, PostgreSQL, RLS
+- Zustand
+- Tailwind CSS, Radix UI, shadcn/ui 스타일 컴포넌트
+- Vitest, React Testing Library
 
-### 개발 배경
+## Environment
 
-이 프로그램은 실제 학원 원장님의 고민에서 시작되었습니다:
-- 시중의 학원 관리 프로그램은 불필요한 기능이 너무 많아 복잡함
-- 정작 필요한 기능(학생 관리, 수업 스케줄링)은 사용하기 불편함
-- "학생 관리와 수업 운영에만 집중하고 싶다"는 원장님의 필요
+`.env.local`에 아래 값을 설정합니다. grade-app의 Supabase 값을 복사해 쓰되, LMS 전용 스키마는 `lms`로 분리합니다.
 
-Nextum LMS는 이러한 문제를 해결하기 위해 만들어졌습니다.
-
-### 핵심 기능
-
-- 📅 **시간표 관리**: 드래그 앤 드롭으로 쉽게 수업 스케줄 조정
-- 🏫 **강의실 배치도**: 비주얼 강의실 관리 및 수업 배정
-- 👥 **학생/강사 관리**: 수강 내역, 출결, 수납 관리
-- 💰 **회계 관리**: 수납, 급여, 지출 통합 관리 및 세무 보고서
-- 📊 **대시보드**: 한눈에 보는 학원 운영 현황
-
-## 🛠️ 기술 스택
-
-### Core
-- **Electron** `^30.0.0` - 크로스 플랫폼 데스크탑 앱
-- **React** `^19.2.3` - UI 프레임워크
-- **TypeScript** `^5.4.5` - 타입 안정성
-- **Zustand** `^5.0.10` - 상태 관리
-
-### UI/UX
-- **TailwindCSS** `^3.4.17` - 스타일링
-- **shadcn/ui** - 모던한 UI 컴포넌트 라이브러리
-- **Radix UI** - 접근성 높은 기본 컴포넌트
-- **Lucide React** `^0.563.0` - 아이콘
-- **Framer Motion** `^12.29.2` - 애니메이션
-
-### Database
-- **better-sqlite3** `^11.0.0` - 로컬 SQLite 데이터베이스
-
-### Performance
-- **@tanstack/react-virtual** `^3.13.18` - 리스트 가상화
-
-### Build Tools
-- **esbuild** `^0.27.2` - 빠른 번들링
-- **electron-builder** `^26.4.0` - 배포 패키징
-
-### Testing
-- **Vitest** `^4.0.18` - 단위 테스트
-- **@testing-library/react** `^16.3.2` - 컴포넌트 테스트
-
-## 🏗️ 아키텍처
-
-```
-┌─────────────┐   IPC (contextBridge)   ┌─────────────┐
-│  Renderer   │  ◄─────────────────────►  │    Main     │
-│  (React)    │     window.api          │  (Electron) │
-└─────────────┘                         └─────────────┘
-       │                                       │
-       ▼                                       ▼
-┌─────────────┐                         ┌─────────────┐
-│  Zustand    │                         │  SQLite DB  │
-│  Stores     │                         │  (better-   │
-│             │                         │   sqlite3)  │
-└─────────────┘                         └─────────────┘
-```
-
-## 🚀 개발 & 빌드
-
-### 개발 모드
 ```bash
-npm run dev        # 핫 리로드 개발 모드
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+SUPABASE_SECRET_KEY=
 ```
 
-### 프로덕션 빌드
+`SUPABASE_SECRET_KEY`는 서버 전용입니다. `NEXT_PUBLIC_` 접두사를 붙이면 브라우저 번들에 노출되므로 사용하지 않습니다.
+
+## Scripts
+
 ```bash
-npm run build      # 빌드
-npm run dist       # 플랫폼별 패키징
+npm run dev        # Next 개발 서버
+npm run build      # 프로덕션 빌드
+npm run start      # 빌드 결과 실행
+npm run lint       # ESLint
+npm run typecheck  # TypeScript 검사
+npm test -- --run  # 테스트 1회 실행
 ```
 
-## 📄 라이선스
+## Routes
 
-이 프로젝트는 개인 프로젝트로, 재배포 및 상업적 이용은 허용되지 않습니다.
+- `/` 홈
+- `/classrooms` 강의실/시간표
+- `/instructors` 강사
+- `/students` 학생
+- `/accounting` 회계
+- `/settings` 설정
+- `/login` 로그인
 
----
+## Auth
 
-**Made with ❤️ for Academy Directors**
+로그인은 Supabase Auth를 사용합니다. 사용자가 `admin`처럼 이메일이 아닌 아이디를 입력하면 앱에서 `admin@nextum.com` 형식으로 변환해 Supabase에 로그인 요청합니다.
+
+## Structure
+
+```text
+src/app/              Next.js App Router routes
+src/app-routes/       라우트별 클라이언트 화면 래퍼
+src/screens/          페이지급 화면 컴포넌트
+src/components/       기능/UI 컴포넌트
+src/contexts/         AuthProvider 등 React Context
+src/core/api/         Supabase API 호환 레이어
+src/lib/supabase/     browser/server/admin Supabase client
+src/stores/           Zustand stores
+supabase/migrations/  LMS 스키마 마이그레이션
+```
+
+## Current Notes
+
+- Electron, preload, IPC, local SQLite 경로는 제거되었습니다.
+- 기존 컴포넌트가 사용하던 `window.api`는 브라우저 호환 shim으로 유지됩니다.
+- Supabase Data API 설정에서 `lms` 스키마가 노출되어 있어야 브라우저 클라이언트 조회가 동작합니다.
+- 장기적으로 grade-app과 공유할 학생/학습/채점 데이터는 DB 설계 문서 기준으로 core/lms/grading 영역을 분리해 확장합니다.

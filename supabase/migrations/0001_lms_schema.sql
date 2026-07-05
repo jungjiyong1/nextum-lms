@@ -1,4 +1,4 @@
--- LMS schema for the Electron app.
+-- LMS schema for the Nextum LMS web app.
 -- Keep this separate from grade-app:
 --   core     = shared roster contract used by grade-app
 --   learning = grade-app owned grading/learning data

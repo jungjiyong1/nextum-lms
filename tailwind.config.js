@@ -5,8 +5,7 @@ module.exports = {
         preflight: false,
     },
     content: [
-        "./renderer/**/*.{html,ts,tsx}",
-        "./renderer/js/components/**/*.{ts,tsx}",
+        "./src/**/*.{ts,tsx}",
     ],
     theme: {
         container: {

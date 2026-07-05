@@ -5,17 +5,17 @@ export default defineConfig({
     test: {
         environment: 'jsdom',
         globals: true,
-        setupFiles: ['./renderer/js/test/setup.ts'],
-        include: ['renderer/js/**/*.test.{ts,tsx}'],
+        setupFiles: ['./src/test/setup.ts'],
+        include: ['src/**/*.test.{ts,tsx}'],
         coverage: {
             reporter: ['text', 'html'],
-            exclude: ['node_modules/', 'renderer/js/test/']
+            exclude: ['node_modules/', 'src/test/']
         }
     },
     resolve: {
         alias: {
-            '@': resolve(__dirname, './renderer/js'),
-            '@/components': resolve(__dirname, './renderer/js/components'),
+            '@': resolve(__dirname, './src'),
+            '@/components': resolve(__dirname, './src/components'),
         }
     }
 });
