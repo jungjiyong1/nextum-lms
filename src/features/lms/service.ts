@@ -13,8 +13,10 @@ import type {
   ClassBookSummary,
   ClassStudentSummary,
   ClassSummary,
+  ClassroomSummary,
   CreateBookInput,
   CreateClassInput,
+  CreateClassroomInput,
   CreateExpenseInput,
   CreateInstructorPaymentInput,
   CreateScheduleRuleInput,
@@ -35,6 +37,7 @@ import type {
   UpdateBookInput,
   UpdateLessonOccurrenceInput,
   UpdateScheduleRuleInput,
+  UpdateClassroomInput,
   UpdateStaffInput,
   UpdateStudentInput,
   WeakTypeRow,
@@ -591,6 +594,31 @@ export async function createBook(academyId: string, input: CreateBookInput): Pro
 
 export async function updateBook(academyId: string, bookId: string, input: UpdateBookInput): Promise<void> {
   await postLmsMutation('/api/lms/books', { academyId, bookId, input });
+}
+
+export async function listClassrooms(academyId: string): Promise<ClassroomSummary[]> {
+  const { data, error } = await lmsDb
+    .from('classrooms')
+    .select('id,name,capacity,color,active')
+    .eq('academy_id', academyId)
+    .order('name');
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((row: Row) => ({
+    id: row.id,
+    name: row.name,
+    capacity: row.capacity === null || row.capacity === undefined ? null : Number(row.capacity),
+    color: row.color ?? null,
+    active: Boolean(row.active),
+  }));
+}
+
+export async function createClassroom(academyId: string, input: CreateClassroomInput): Promise<void> {
+  await postLmsMutation('/api/lms/classrooms', { academyId, input });
+}
+
+export async function updateClassroom(academyId: string, classroomId: string, input: UpdateClassroomInput): Promise<void> {
+  await postLmsMutation('/api/lms/classrooms', { academyId, classroomId, input });
 }
 
 export async function listClassBooks(classId: string): Promise<ClassBookSummary[]> {

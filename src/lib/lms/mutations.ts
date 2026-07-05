@@ -10,6 +10,7 @@ import type {
     CreateInstructorPaymentInput,
     CreateBookInput,
     CreateClassInput,
+    CreateClassroomInput,
     CreateScheduleRuleInput,
     CreateStaffInput,
     CreateStudentInput,
@@ -24,6 +25,7 @@ import type {
     StaffStatus,
     ClassStatus,
     UpdateBookInput,
+    UpdateClassroomInput,
     UpdateStaffInput,
     UpdateClassInput,
     UpdateLessonOccurrenceInput,
@@ -172,6 +174,18 @@ async function assertStaffBelongsToAcademy(core: SchemaClient, academyId: string
     if (!data?.id) throw new Error('Selected staff member does not belong to this academy.');
 }
 
+async function assertClassroomBelongsToAcademy(lms: SchemaClient, academyId: string, classroomId: string | null | undefined) {
+    if (!classroomId) return;
+    const { data, error } = await lms
+        .from('classrooms')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('id', classroomId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to verify classroom');
+    if (!data?.id) throw new Error('Selected classroom does not belong to this academy.');
+}
+
 async function fetchClassNames(core: SchemaClient, classIds: string[]) {
     const ids = [...new Set(classIds.filter(Boolean))];
     if (ids.length === 0) return new Map<string, string>();
@@ -248,6 +262,44 @@ export async function updateBookForAcademy(academyId: string, bookId: string, in
     ensureNoError(error, 'Failed to update book');
 }
 
+export async function createClassroomForAcademy(academyId: string, input: CreateClassroomInput) {
+    const name = input.name.trim();
+    if (!name) throw new Error('강의실명을 입력하세요.');
+
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const { error } = await lms.from('classrooms').insert({
+        academy_id: academyId,
+        name,
+        capacity: input.capacity ?? null,
+        color: input.color || null,
+        active: true,
+    });
+    ensureNoError(error, 'Failed to create classroom');
+}
+
+export async function updateClassroomForAcademy(academyId: string, classroomId: string, input: UpdateClassroomInput) {
+    if (!classroomId) throw new Error('강의실을 선택하세요.');
+    const name = input.name.trim();
+    if (!name) throw new Error('강의실명을 입력하세요.');
+
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const { error } = await lms
+        .from('classrooms')
+        .update({
+            name,
+            capacity: input.capacity ?? null,
+            color: input.color || null,
+            active: input.active,
+        })
+        .eq('academy_id', academyId)
+        .eq('id', classroomId)
+        .select('id')
+        .single();
+    ensureNoError(error, 'Failed to update classroom');
+}
+
 function normalizeBillingMode(value: BillingMode): BillingMode {
     if (value === 'monthly_plus_classes' || value === 'usage_based' || value === 'manual') return value;
     return 'monthly_plus_classes';
@@ -309,6 +361,10 @@ export async function createClassForAcademy(academyId: string, input: CreateClas
     const lms = client.schema('lms');
     const name = input.name.trim();
     if (!name) throw new Error('반 이름을 입력하세요.');
+    if (input.defaultInstructorId) {
+        await assertStaffBelongsToAcademy(core, academyId, input.defaultInstructorId);
+    }
+    await assertClassroomBelongsToAcademy(lms, academyId, input.defaultClassroomId);
 
     const { data: createdClass, error: classError } = await core
         .from('classes')
@@ -437,6 +493,7 @@ export async function updateClassForAcademy(academyId: string, classId: string, 
     if (input.defaultInstructorId) {
         await assertStaffBelongsToAcademy(core, academyId, input.defaultInstructorId);
     }
+    await assertClassroomBelongsToAcademy(lms, academyId, input.defaultClassroomId);
 
     const status = normalizeClassStatus(input.status);
     const active = input.active && status === 'active';
@@ -750,6 +807,10 @@ export async function createScheduleRuleForAcademy(academyId: string, input: Cre
     const core = client.schema('core');
     const lms = client.schema('lms');
     await assertClassesBelongToAcademy(core, academyId, [input.classId]);
+    if (input.instructorId) {
+        await assertStaffBelongsToAcademy(core, academyId, input.instructorId);
+    }
+    await assertClassroomBelongsToAcademy(lms, academyId, input.classroomId);
 
     const profile = await loadClassProfile(lms, academyId, input.classId);
     const { error } = await lms.from('class_schedule_rules').insert({
@@ -785,6 +846,7 @@ export async function updateScheduleRuleForAcademy(academyId: string, ruleId: st
     if (input.instructorId) {
         await assertStaffBelongsToAcademy(core, academyId, input.instructorId);
     }
+    await assertClassroomBelongsToAcademy(lms, academyId, input.classroomId);
 
     const profile = await loadClassProfile(lms, academyId, input.classId);
     const { error } = await lms

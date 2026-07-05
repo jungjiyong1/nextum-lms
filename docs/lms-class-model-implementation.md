@@ -12,6 +12,8 @@
   - keep hard delete out of the LMS UI so grade-app book/problem data is not accidentally broken
 - Added class maintenance after creation:
   - edit class name, grade, status, capacity, color, and default instructor
+  - create and maintain academy classrooms, then assign a default classroom to each class
+  - validate classroom ownership on class and schedule mutations
   - deactivate schedule rules when a class is stopped or archived
   - remove class book assignments so grade-app book access can be revoked
 - Added timetable maintenance after schedule creation:
@@ -31,6 +33,7 @@
   - `/api/lms/students`
   - `/api/lms/staff`
   - `/api/lms/books`
+  - `/api/lms/classrooms`
   - `/api/lms/schedule-rules`
   - `/api/lms/lesson-occurrences`
   - `/api/lms/class-books`

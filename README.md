@@ -69,14 +69,14 @@ $env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin
 ## Routes
 
 - `/` learning performance dashboard
-- `/classrooms` class roster, maintenance, book creation, book access, recurring timetable maintenance, lesson status overrides, and attendance operations
+- `/classrooms` class roster, classroom maintenance, book creation, book access, recurring timetable maintenance, lesson status overrides, and attendance operations
 - `/students` student roster, class assignment, invitation, status, and billing contract setup
 - `/instructors` staff/instructor roster, role, status, and pay-rate maintenance
 - `/accounting` monthly billing, payment, expense, and instructor payroll operations
 - `/settings` operational settings, CSV export, tax defaults, and guarded reset actions
 - `/login` Supabase Auth login
 - `/signup` student invite-code signup
-- `/api/lms/classes`, `/api/lms/students`, `/api/lms/staff`, `/api/lms/books`, `/api/lms/schedule-rules`, `/api/lms/lesson-occurrences`, `/api/lms/class-books`, `/api/lms/attendance`, `/api/lms/invitations/issue`, `/api/lms/billing/generate`, `/api/lms/payments`, `/api/lms/expenses`, `/api/lms/payroll`, `/api/lms/admin/export`, `/api/lms/admin/reset`, `/api/lms/admin/tax-settings` server-side LMS mutations and admin operations
+- `/api/lms/classes`, `/api/lms/classrooms`, `/api/lms/students`, `/api/lms/staff`, `/api/lms/books`, `/api/lms/schedule-rules`, `/api/lms/lesson-occurrences`, `/api/lms/class-books`, `/api/lms/attendance`, `/api/lms/invitations/issue`, `/api/lms/billing/generate`, `/api/lms/payments`, `/api/lms/expenses`, `/api/lms/payroll`, `/api/lms/admin/export`, `/api/lms/admin/reset`, `/api/lms/admin/tax-settings` server-side LMS mutations and admin operations
 
 ## Database
 

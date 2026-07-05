@@ -30,6 +30,7 @@ import {
   createClass,
   createBook,
   createScheduleRule,
+  createClassroom,
   createStaff,
   createStudent,
   createStudentInvitation,
@@ -42,6 +43,7 @@ import {
   listClassBooks,
   listClassStudents,
   listClassSummaries,
+  listClassrooms,
   listExpenses,
   listInstructorPayments,
   listPayments,
@@ -56,6 +58,7 @@ import {
   setClassBook,
   updateClass,
   updateBook,
+  updateClassroom,
   updateLessonOccurrence,
   updateScheduleRule,
   updateStudent,
@@ -76,6 +79,7 @@ import type {
   ClassBookSummary,
   ClassStudentSummary,
   ClassSummary,
+  ClassroomSummary,
   DashboardData,
   ExpenseRow,
   InstructorPaymentRow,
@@ -469,6 +473,7 @@ export function ClassesPage() {
   const [classStudents, setClassStudents] = useState<ClassStudentSummary[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
   const [staff, setStaff] = useState<StaffSummary[]>([]);
+  const [classrooms, setClassrooms] = useState<ClassroomSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [editingClassId, setEditingClassId] = useState('');
@@ -478,7 +483,13 @@ export function ClassesPage() {
   const [capacity, setCapacity] = useState('');
   const [classColor, setClassColor] = useState('#059669');
   const [defaultInstructorId, setDefaultInstructorId] = useState('');
+  const [defaultClassroomId, setDefaultClassroomId] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
+  const [editingClassroomId, setEditingClassroomId] = useState('');
+  const [classroomName, setClassroomName] = useState('');
+  const [classroomCapacity, setClassroomCapacity] = useState('');
+  const [classroomColor, setClassroomColor] = useState('#64748b');
+  const [classroomActive, setClassroomActive] = useState(true);
   const [editingRuleId, setEditingRuleId] = useState('');
   const [ruleActive, setRuleActive] = useState(true);
   const [dayOfWeek, setDayOfWeek] = useState(0);
@@ -507,13 +518,14 @@ export function ClassesPage() {
     try {
       const rangeStart = today();
       const rangeEnd = addDaysString(rangeStart, 14);
-      const [classRows, scheduleRows, ruleRows, bookRows, attendanceRows, staffRows] = await Promise.all([
+      const [classRows, scheduleRows, ruleRows, bookRows, attendanceRows, staffRows, classroomRows] = await Promise.all([
         listClassSummaries(academyId),
         listSchedule(academyId, rangeStart, rangeEnd),
         listScheduleRules(academyId),
         listBooks(academyId),
         listAttendance(academyId, rangeStart, rangeEnd),
         listStaff(academyId),
+        listClassrooms(academyId),
       ]);
       setClasses(classRows);
       setSchedule(scheduleRows);
@@ -521,6 +533,7 @@ export function ClassesPage() {
       setBooks(bookRows);
       setAttendance(attendanceRows);
       setStaff(staffRows);
+      setClassrooms(classroomRows);
       setSelectedClassId((current) => current || classRows[0]?.id || '');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 정보를 불러오지 못했습니다.');
@@ -604,6 +617,7 @@ export function ClassesPage() {
     setCapacity('');
     setClassColor('#059669');
     setDefaultInstructorId('');
+    setDefaultClassroomId('');
   };
 
   const editClass = (row: ClassSummary) => {
@@ -615,6 +629,45 @@ export function ClassesPage() {
     setCapacity(row.capacity === null ? '' : String(row.capacity));
     setClassColor(row.color || '#059669');
     setDefaultInstructorId(row.defaultInstructorId || '');
+    setDefaultClassroomId(row.defaultClassroomId || '');
+  };
+
+  const resetClassroomForm = () => {
+    setEditingClassroomId('');
+    setClassroomName('');
+    setClassroomCapacity('');
+    setClassroomColor('#64748b');
+    setClassroomActive(true);
+  };
+
+  const editClassroom = (row: ClassroomSummary) => {
+    setEditingClassroomId(row.id);
+    setClassroomName(row.name);
+    setClassroomCapacity(row.capacity === null ? '' : String(row.capacity));
+    setClassroomColor(row.color || '#64748b');
+    setClassroomActive(row.active);
+  };
+
+  const submitClassroom = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      const payload = {
+        name: classroomName,
+        capacity: classroomCapacity ? Number(classroomCapacity) : null,
+        color: classroomColor || null,
+      };
+      if (editingClassroomId) {
+        await updateClassroom(academyId, editingClassroomId, { ...payload, active: classroomActive });
+        toast.success('강의실을 수정했습니다.');
+      } else {
+        await createClassroom(academyId, payload);
+        toast.success('강의실을 추가했습니다.');
+      }
+      resetClassroomForm();
+      await loadBase();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '강의실 저장 실패');
+    }
   };
 
   const resetRuleForm = () => {
@@ -666,6 +719,7 @@ export function ClassesPage() {
         capacity: capacity ? Number(capacity) : null,
         color: classColor || null,
         defaultInstructorId: defaultInstructorId || null,
+        defaultClassroomId: defaultClassroomId || null,
       };
       if (editingClassId) {
         await updateClass(academyId, editingClassId, {
@@ -916,6 +970,15 @@ export function ClassesPage() {
                       ))}
                     </SelectBox>
                   </div>
+                  <div>
+                    <Label>기본 강의실</Label>
+                    <SelectBox value={defaultClassroomId} onChange={(event) => setDefaultClassroomId(event.target.value)}>
+                      <option value="">미지정</option>
+                      {classrooms.filter((row) => row.active).map((row) => (
+                        <option key={row.id} value={row.id}>{row.name}</option>
+                      ))}
+                    </SelectBox>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Button type="submit" className="w-full">
                       <Plus className="mr-2 h-4 w-4" />
@@ -926,6 +989,63 @@ export function ClassesPage() {
                     </Button>
                   </div>
                 </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{editingClassroomId ? '강의실 수정' : '강의실 추가'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={submitClassroom} className="space-y-3">
+                  <div>
+                    <Label>강의실명</Label>
+                    <Input value={classroomName} onChange={(event) => setClassroomName(event.target.value)} placeholder="1강의실" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>정원</Label>
+                      <Input type="number" min="0" value={classroomCapacity} onChange={(event) => setClassroomCapacity(event.target.value)} />
+                    </div>
+                    <div>
+                      <Label>색상</Label>
+                      <Input type="color" value={classroomColor} onChange={(event) => setClassroomColor(event.target.value)} className="h-10 p-1" />
+                    </div>
+                  </div>
+                  {editingClassroomId && (
+                    <div>
+                      <Label>상태</Label>
+                      <SelectBox value={classroomActive ? 'active' : 'inactive'} onChange={(event) => setClassroomActive(event.target.value === 'active')}>
+                        <option value="active">운영</option>
+                        <option value="inactive">중지</option>
+                      </SelectBox>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="submit" className="w-full">{editingClassroomId ? '강의실 수정' : '강의실 추가'}</Button>
+                    <Button type="button" variant="outline" className="w-full" onClick={resetClassroomForm}>새 입력</Button>
+                  </div>
+                </form>
+                <div className="mt-4 space-y-2">
+                  {classrooms.map((room) => (
+                    <div key={room.id} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3 text-sm">
+                      <div>
+                        <div className="flex items-center gap-2 font-medium">
+                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: room.color || '#94a3b8' }} />
+                          {room.name}
+                        </div>
+                        <div className="text-xs text-slate-500">정원 {room.capacity ?? '-'}명</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusBadge status={room.active ? 'active' : 'inactive'} />
+                        <Button type="button" variant="outline" size="sm" onClick={() => editClassroom(room)}>수정</Button>
+                      </div>
+                    </div>
+                  ))}
+                  {classrooms.length === 0 && (
+                    <p className="rounded-lg border bg-white p-3 text-sm text-slate-400">등록된 강의실이 없습니다.</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
 

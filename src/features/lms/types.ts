@@ -96,6 +96,14 @@ export interface StaffSummary {
   hourlyRate: number | null;
 }
 
+export interface ClassroomSummary {
+  id: string;
+  name: string;
+  capacity: number | null;
+  color: string | null;
+  active: boolean;
+}
+
 export interface ScheduleItem {
   id: string;
   actualId: string | null;
@@ -258,6 +266,16 @@ export interface CreateClassInput {
   color?: string | null;
   defaultInstructorId?: string | null;
   defaultClassroomId?: string | null;
+}
+
+export interface CreateClassroomInput {
+  name: string;
+  capacity?: number | null;
+  color?: string | null;
+}
+
+export interface UpdateClassroomInput extends CreateClassroomInput {
+  active: boolean;
 }
 
 export interface UpdateClassInput extends CreateClassInput {
