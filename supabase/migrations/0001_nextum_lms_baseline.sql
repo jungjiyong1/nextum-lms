@@ -414,8 +414,7 @@ create table lms.lesson_occurrences (
   metadata              jsonb not null default '{}'::jsonb,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now(),
-  check (end_time > start_time),
-  unique (class_id, occurrence_date, start_time, coalesce(rule_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  check (end_time > start_time)
 );
 
 create table lms.attendance_records (
@@ -699,6 +698,8 @@ create index lms_class_profiles_academy_idx on lms.class_profiles (academy_id, s
 create index lms_rules_class_idx on lms.class_schedule_rules (class_id, active);
 create index lms_occurrences_class_date_idx on lms.lesson_occurrences (class_id, occurrence_date);
 create index lms_occurrences_academy_date_idx on lms.lesson_occurrences (academy_id, occurrence_date);
+create unique index lms_occurrences_class_rule_time_key
+  on lms.lesson_occurrences (class_id, occurrence_date, start_time, coalesce(rule_id, '00000000-0000-0000-0000-000000000000'::uuid));
 create index lms_attendance_student_idx on lms.attendance_records (student_id, created_at desc);
 create index lms_contracts_student_idx on lms.student_billing_contracts (student_id, status);
 create index lms_invoices_student_month_idx on lms.invoices (student_id, service_month);
