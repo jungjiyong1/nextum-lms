@@ -16,8 +16,10 @@ import type {
     PayrollStatus,
     RecordAttendanceInput,
     RecordPaymentInput,
+    StudentStatus,
     StudentClassBillingInput,
     StudentInvitationResult,
+    UpdateStudentInput,
     WithholdingType,
 } from '@/features/lms/types';
 
@@ -186,6 +188,17 @@ function normalizeBillingMode(value: BillingMode): BillingMode {
     return 'monthly_plus_classes';
 }
 
+function normalizeStudentStatus(value: StudentStatus): StudentStatus {
+    if (value === 'active' || value === 'inactive' || value === 'on_leave' || value === 'graduated' || value === 'dropped') {
+        return value;
+    }
+    return 'active';
+}
+
+function isBillableStudentStatus(status: StudentStatus) {
+    return status === 'active';
+}
+
 function normalizePaymentStatus(value: PaymentStatus | undefined): PaymentStatus {
     if (value === 'pending' || value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'refunded') {
         return value;
@@ -323,6 +336,191 @@ export async function createStudentForAcademy(academyId: string, input: CreateSt
         await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
         throw error;
     }
+}
+
+async function syncStudentClassAssignments(
+    core: SchemaClient,
+    academyId: string,
+    studentId: string,
+    desiredClassIds: string[],
+    assignmentStatus: 'active' | 'on_leave' | null,
+) {
+    const classIds = assignmentStatus ? uniqueClassIds(desiredClassIds) : [];
+    await assertClassesBelongToAcademy(core, academyId, classIds);
+
+    const { data: academyClasses, error: classesError } = await core
+        .from('classes')
+        .select('id')
+        .eq('academy_id', academyId);
+    ensureNoError(classesError, 'Failed to load academy classes');
+
+    const academyClassIds = (academyClasses || []).map((row: Row) => row.id);
+    if (academyClassIds.length > 0) {
+        const toDrop = academyClassIds.filter((classId: string) => !classIds.includes(classId));
+        if (toDrop.length > 0) {
+            const { error } = await core
+                .from('class_students')
+                .update({ status: 'dropped', primary_class: false, ended_at: new Date().toISOString() })
+                .eq('student_id', studentId)
+                .in('class_id', toDrop)
+                .in('status', ['active', 'on_leave', 'pending']);
+            ensureNoError(error, 'Failed to archive removed class assignments');
+        }
+    }
+
+    const rows = classIds.map((classId, index) => ({
+        class_id: classId,
+        student_id: studentId,
+        status: assignmentStatus,
+        primary_class: index === 0,
+        ended_at: null,
+    }));
+
+    if (rows.length > 0) {
+        const { error } = await core
+            .from('class_students')
+            .upsert(rows, { onConflict: 'class_id,student_id' });
+        ensureNoError(error, 'Failed to update student class assignments');
+    }
+}
+
+async function updateStudentBillingContract(
+    lms: SchemaClient,
+    academyId: string,
+    studentId: string,
+    status: StudentStatus,
+    input: UpdateStudentInput,
+) {
+    const { data: currentContract, error: currentError } = await lms
+        .from('student_billing_contracts')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('student_id', studentId)
+        .eq('status', 'active')
+        .is('effective_to', null)
+        .maybeSingle();
+    ensureNoError(currentError, 'Failed to load billing contract');
+
+    if (!isBillableStudentStatus(status)) {
+        if (currentContract?.id) {
+            const { error } = await lms
+                .from('student_billing_contracts')
+                .update({ status: 'inactive', effective_to: dateString(new Date()) })
+                .eq('academy_id', academyId)
+                .eq('id', currentContract.id);
+            ensureNoError(error, 'Failed to close billing contract');
+        }
+        return;
+    }
+
+    let contractId = currentContract?.id as string | undefined;
+    if (contractId) {
+        const { error } = await lms
+            .from('student_billing_contracts')
+            .update({
+                billing_mode: normalizeBillingMode(input.billingMode),
+                base_monthly_fee: input.baseMonthlyFee || 0,
+                hourly_rate: input.hourlyRate ?? null,
+                status: 'active',
+                effective_to: null,
+            })
+            .eq('academy_id', academyId)
+            .eq('id', contractId);
+        ensureNoError(error, 'Failed to update billing contract');
+    } else {
+        const { data: contract, error } = await lms
+            .from('student_billing_contracts')
+            .insert({
+                academy_id: academyId,
+                student_id: studentId,
+                billing_mode: normalizeBillingMode(input.billingMode),
+                base_monthly_fee: input.baseMonthlyFee || 0,
+                hourly_rate: input.hourlyRate ?? null,
+                status: 'active',
+            })
+            .select('id')
+            .single();
+        ensureNoError(error, 'Failed to create billing contract');
+        contractId = (contract as Row).id;
+    }
+
+    const { error: deleteError } = await lms
+        .from('billing_class_rules')
+        .delete()
+        .eq('academy_id', academyId)
+        .eq('contract_id', contractId);
+    ensureNoError(deleteError, 'Failed to reset billing class rules');
+
+    const billingRules = defaultBillingRules(input).map((rule) => ({
+        academy_id: academyId,
+        contract_id: contractId,
+        class_id: rule.classId,
+        rule_type: rule.ruleType,
+        amount: rule.amount || 0,
+    }));
+
+    if (billingRules.length > 0) {
+        const { error } = await lms.from('billing_class_rules').insert(billingRules);
+        ensureNoError(error, 'Failed to update billing class rules');
+    }
+}
+
+export async function updateStudentForAcademy(academyId: string, studentId: string, input: UpdateStudentInput) {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const name = input.name.trim();
+    if (!studentId) throw new Error('학생을 선택하세요.');
+    if (!name) throw new Error('학생 이름을 입력하세요.');
+
+    const { data: student, error: studentError } = await core
+        .from('students')
+        .select('id,person_id')
+        .eq('academy_id', academyId)
+        .eq('id', studentId)
+        .maybeSingle();
+    ensureNoError(studentError, 'Failed to load student');
+    if (!student?.id) throw new Error('Selected student does not belong to this academy.');
+
+    const studentStatus = normalizeStudentStatus(input.status);
+    const classIds = uniqueClassIds(input.classIds);
+    await assertClassesBelongToAcademy(core, academyId, classIds);
+
+    const { error: personError } = await core
+        .from('people')
+        .update({
+            full_name: name,
+            display_name: name,
+            phone: input.phone || null,
+            parent_name: input.parentName || null,
+            parent_phone: input.parentPhone || null,
+        })
+        .eq('id', (student as Row).person_id)
+        .eq('primary_academy_id', academyId)
+        .select('id')
+        .single();
+    ensureNoError(personError, 'Failed to update student person');
+
+    const { error: updateError } = await core
+        .from('students')
+        .update({
+            status: studentStatus,
+            school_type: input.schoolType || null,
+            grade: input.grade || null,
+        })
+        .eq('academy_id', academyId)
+        .eq('id', studentId)
+        .select('id')
+        .single();
+    ensureNoError(updateError, 'Failed to update student');
+
+    const assignmentStatus = studentStatus === 'active'
+        ? 'active'
+        : studentStatus === 'on_leave'
+            ? 'on_leave'
+            : null;
+    await syncStudentClassAssignments(core, academyId, studentId, classIds, assignmentStatus);
+    await updateStudentBillingContract(lms, academyId, studentId, studentStatus, input);
 }
 
 export async function createStaffForAcademy(academyId: string, input: CreateStaffInput) {

@@ -53,6 +53,7 @@ import {
   recordPayment,
   resetAdminData,
   setClassBook,
+  updateStudent,
   updateTaxSettings,
   createExpense,
   createInstructorPayment,
@@ -74,6 +75,7 @@ import type {
   PaymentRow,
   ScheduleItem,
   StaffSummary,
+  StudentStatus,
   StudentSummary,
   WithholdingType,
 } from './types';
@@ -262,6 +264,9 @@ function StatusBadge({ status }: { status: string }) {
   const label: Record<string, string> = {
     active: '운영',
     inactive: '중지',
+    on_leave: '휴원',
+    graduated: '졸업',
+    dropped: '퇴원',
     archived: '보관',
     weak: '취약',
     watch: '관찰',
@@ -289,10 +294,10 @@ function StatusBadge({ status }: { status: string }) {
     <span
       className={cn(
         'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
-        ['weak', 'overdue', 'cancelled', 'absent', 'failed'].includes(status) && 'bg-red-50 text-red-700',
+        ['weak', 'overdue', 'cancelled', 'absent', 'failed', 'dropped'].includes(status) && 'bg-red-50 text-red-700',
         ['watch', 'partial', 'issued', 'late', 'makeup'].includes(status) && 'bg-amber-50 text-amber-700',
         ['active', 'paid', 'ok', 'completed', 'scheduled', 'present'].includes(status) && 'bg-emerald-50 text-emerald-700',
-        ['not_issued', 'inactive', 'archived', 'insufficient', 'excused', 'pending', 'refunded'].includes(status) && 'bg-slate-100 text-slate-600',
+        ['not_issued', 'inactive', 'archived', 'insufficient', 'excused', 'pending', 'refunded', 'on_leave', 'graduated'].includes(status) && 'bg-slate-100 text-slate-600',
       )}
     >
       {label[status] || status}
@@ -876,10 +881,12 @@ export function StudentsOperationsPage() {
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingStudentId, setEditingStudentId] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [grade, setGrade] = useState('');
+  const [studentStatus, setStudentStatus] = useState<StudentStatus>('active');
   const [billingMode, setBillingMode] = useState<BillingMode>('monthly_plus_classes');
   const [baseFee, setBaseFee] = useState('0');
   const [hourlyRate, setHourlyRate] = useState('');
@@ -907,6 +914,34 @@ export function StudentsOperationsPage() {
 
   if (!academyId) return <MissingAcademy />;
 
+  const resetStudentForm = () => {
+    setEditingStudentId('');
+    setName('');
+    setPhone('');
+    setParentPhone('');
+    setGrade('');
+    setStudentStatus('active');
+    setBillingMode('monthly_plus_classes');
+    setBaseFee('0');
+    setHourlyRate('');
+    setExtraClassFee('0');
+    setSelectedClassIds(new Set());
+  };
+
+  const editStudent = (student: StudentSummary) => {
+    setEditingStudentId(student.id);
+    setName(student.name);
+    setPhone(student.phone || '');
+    setParentPhone(student.parentPhone || '');
+    setGrade(student.grade || '');
+    setStudentStatus(student.status);
+    setBillingMode(student.billingMode || 'monthly_plus_classes');
+    setBaseFee(String(student.baseMonthlyFee || 0));
+    setHourlyRate(student.hourlyRate === null ? '' : String(student.hourlyRate));
+    setExtraClassFee(String(student.extraClassFee || 0));
+    setSelectedClassIds(new Set(student.classIds));
+  };
+
   const toggleClass = (classId: string) => {
     setSelectedClassIds((prev) => {
       const next = new Set(prev);
@@ -931,7 +966,7 @@ export function StudentsOperationsPage() {
     });
 
     try {
-      await createStudent(academyId, {
+      const payload = {
         name,
         phone,
         parentPhone,
@@ -941,16 +976,18 @@ export function StudentsOperationsPage() {
         billingMode,
         baseMonthlyFee: Number(baseFee) || 0,
         hourlyRate: hourlyRate ? Number(hourlyRate) : null,
-      });
-      setName('');
-      setPhone('');
-      setParentPhone('');
-      setGrade('');
-      setSelectedClassIds(new Set());
-      toast.success('학생을 등록했습니다.');
+      };
+      if (editingStudentId) {
+        await updateStudent(academyId, editingStudentId, { ...payload, status: studentStatus });
+        toast.success('학생 정보를 수정했습니다.');
+      } else {
+        await createStudent(academyId, payload);
+        toast.success('학생을 등록했습니다.');
+      }
+      resetStudentForm();
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '학생 등록 실패');
+      toast.error(err instanceof Error ? err.message : '학생 저장 실패');
     }
   };
 
@@ -976,16 +1013,18 @@ export function StudentsOperationsPage() {
                 <thead className="bg-slate-50 text-left text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-medium">학생</th>
+                    <th className="px-4 py-3 font-medium">상태</th>
                     <th className="px-4 py-3 font-medium">반</th>
                     <th className="px-4 py-3 font-medium">청구</th>
                     <th className="px-4 py-3 font-medium">연락처</th>
-                    <th className="px-4 py-3 font-medium">가입</th>
+                    <th className="px-4 py-3 font-medium">작업</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y bg-white">
                   {students.map((student) => (
                     <tr key={student.id}>
                       <td className="px-4 py-3 font-medium">{student.name}<div className="text-xs text-slate-400">{student.grade || '-'}</div></td>
+                      <td className="px-4 py-3"><StatusBadge status={student.status} /></td>
                       <td className="px-4 py-3 text-slate-600">{student.classNames.join(', ') || '-'}</td>
                       <td className="px-4 py-3 text-slate-600">
                         {student.billingMode === 'usage_based' ? `시간제 ${currency(student.hourlyRate)}` : currency(student.baseMonthlyFee)}
@@ -993,24 +1032,29 @@ export function StudentsOperationsPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-500">{student.phone || '-'}<div className="text-xs">{student.parentPhone || '-'}</div></td>
                       <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" size="sm" onClick={() => editStudent(student)}>
+                            수정
+                          </Button>
                         {inviteCodes[student.id] ? (
                           <code className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">{inviteCodes[student.id]}</code>
                         ) : (
-                          <Button type="button" variant="outline" size="sm" onClick={() => issueInvite(student.id)}>
+                          <Button type="button" variant="outline" size="sm" onClick={() => issueInvite(student.id)} disabled={student.status !== 'active'}>
                             초대코드
                           </Button>
                         )}
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {students.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">등록된 학생이 없습니다.</td></tr>}
+                  {students.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">등록된 학생이 없습니다.</td></tr>}
                 </tbody>
               </table>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>학생 등록</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{editingStudentId ? '학생 수정' : '학생 등록'}</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={submit} className="space-y-3">
                 <div><Label>이름</Label><Input value={name} onChange={(event) => setName(event.target.value)} /></div>
@@ -1019,6 +1063,18 @@ export function StudentsOperationsPage() {
                   <div><Label>보호자 연락처</Label><Input value={parentPhone} onChange={(event) => setParentPhone(event.target.value)} /></div>
                 </div>
                 <div><Label>학년/메모</Label><Input value={grade} onChange={(event) => setGrade(event.target.value)} placeholder="중1" /></div>
+                {editingStudentId && (
+                  <div>
+                    <Label>상태</Label>
+                    <SelectBox value={studentStatus} onChange={(event) => setStudentStatus(event.target.value as StudentStatus)}>
+                      <option value="active">재원</option>
+                      <option value="on_leave">휴원</option>
+                      <option value="inactive">비활성</option>
+                      <option value="graduated">졸업</option>
+                      <option value="dropped">퇴원</option>
+                    </SelectBox>
+                  </div>
+                )}
                 <div>
                   <Label>반 배정</Label>
                   <div className="mt-2 grid gap-2">
@@ -1043,7 +1099,10 @@ export function StudentsOperationsPage() {
                   <div><Label>시간당 금액</Label><Input type="number" value={hourlyRate} onChange={(event) => setHourlyRate(event.target.value)} /></div>
                   <div><Label>추가반 금액</Label><Input type="number" value={extraClassFee} onChange={(event) => setExtraClassFee(event.target.value)} /></div>
                 </div>
-                <Button type="submit" className="w-full">학생 등록</Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="submit" className="w-full">{editingStudentId ? '학생 수정' : '학생 등록'}</Button>
+                  <Button type="button" variant="outline" className="w-full" onClick={resetStudentForm}>새 입력</Button>
+                </div>
               </form>
             </CardContent>
           </Card>

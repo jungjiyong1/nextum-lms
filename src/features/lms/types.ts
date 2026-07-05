@@ -4,6 +4,7 @@ export type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'make
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'cancelled' | 'refunded';
 export type PayrollStatus = 'pending' | 'paid' | 'cancelled';
 export type WithholdingType = 'none' | 'freelance_3.3' | 'custom';
+export type StudentStatus = 'active' | 'inactive' | 'on_leave' | 'graduated' | 'dropped';
 export type AdminExportType = 'tax' | 'payroll';
 export type AdminResetTarget =
   | 'classrooms'
@@ -57,11 +58,13 @@ export interface StudentSummary {
   parentPhone: string | null;
   schoolType: string | null;
   grade: string | null;
-  status: string;
+  status: StudentStatus;
+  classIds: string[];
   classNames: string[];
   billingMode: BillingMode | null;
   baseMonthlyFee: number;
   hourlyRate: number | null;
+  extraClassFee: number;
 }
 
 export interface StudentClassBillingInput {
@@ -236,6 +239,10 @@ export interface CreateStudentInput {
   billingMode: BillingMode;
   baseMonthlyFee: number;
   hourlyRate?: number | null;
+}
+
+export interface UpdateStudentInput extends CreateStudentInput {
+  status: StudentStatus;
 }
 
 export interface CreateStaffInput {

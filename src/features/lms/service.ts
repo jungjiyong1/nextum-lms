@@ -29,6 +29,7 @@ import type {
   StaffSummary,
   StudentInvitationResult,
   StudentSummary,
+  UpdateStudentInput,
   WeakTypeRow,
 } from './types';
 
@@ -293,7 +294,21 @@ export async function listStudents(academyId: string): Promise<StudentSummary[]>
 
   const people = await fetchPeople(students.map((row) => row.person_id));
   const contractMap = new Map((contracts || []).map((row: Row) => [row.student_id, row]));
+  const contractIds = (contracts || []).map((row: Row) => row.id);
+  const rulesByContract = new Map<string, Row[]>();
+  if (contractIds.length > 0) {
+    const { data: rules, error: rulesError } = await lmsDb
+      .from('billing_class_rules')
+      .select('contract_id,class_id,rule_type,amount')
+      .eq('academy_id', academyId)
+      .in('contract_id', contractIds);
+    if (rulesError) throw new Error(rulesError.message);
+    for (const rule of rules || []) {
+      rulesByContract.set(rule.contract_id, [...(rulesByContract.get(rule.contract_id) || []), rule]);
+    }
+  }
   const classNames = new Map<string, string[]>();
+  const classIdsByStudent = new Map<string, string[]>();
 
   for (const row of classRows || []) {
     if (row.status !== 'active') continue;
@@ -301,11 +316,13 @@ export async function listStudents(academyId: string): Promise<StudentSummary[]>
     const names = classNames.get(row.student_id) || [];
     if (cls?.name) names.push(cls.name);
     classNames.set(row.student_id, names);
+    classIdsByStudent.set(row.student_id, [...(classIdsByStudent.get(row.student_id) || []), row.class_id]);
   }
 
   return students.map((row) => {
     const person = people.get(row.person_id);
     const contract = contractMap.get(row.id);
+    const extraClassFee = (rulesByContract.get(contract?.id) || []).find((rule) => rule.rule_type === 'extra_flat')?.amount;
     return {
       id: row.id,
       personId: row.person_id,
@@ -316,16 +333,22 @@ export async function listStudents(academyId: string): Promise<StudentSummary[]>
       schoolType: row.school_type ?? null,
       grade: row.grade ?? null,
       status: row.status,
+      classIds: classIdsByStudent.get(row.id) || [],
       classNames: classNames.get(row.id) || [],
       billingMode: (contract?.billing_mode as BillingMode | undefined) ?? null,
       baseMonthlyFee: toNumber(contract?.base_monthly_fee),
       hourlyRate: contract?.hourly_rate === null || contract?.hourly_rate === undefined ? null : Number(contract.hourly_rate),
+      extraClassFee: toNumber(extraClassFee),
     };
   });
 }
 
 export async function createStudent(academyId: string, input: CreateStudentInput): Promise<void> {
   await postLmsMutation('/api/lms/students', { academyId, input });
+}
+
+export async function updateStudent(academyId: string, studentId: string, input: UpdateStudentInput): Promise<void> {
+  await postLmsMutation('/api/lms/students', { academyId, studentId, input });
 }
 
 export async function createStudentInvitation(academyId: string, studentId: string): Promise<StudentInvitationResult> {

@@ -6,6 +6,10 @@
 - Added development-only admin seeding through `npm run seed:dev-admin`; the script now requires `LMS_DEV_SEED_ALLOW=true`.
 - Added a new `src/features/lms` service/UI layer using the class-centered schema.
 - Added class book assignment, class attendance recording, and monthly billing draft calculation from base fee, class rules, and billable attendance minutes.
+- Added student roster maintenance after registration:
+  - edit student/contact/grade/status
+  - update class assignments without hard-deleting history
+  - update or close billing contracts based on student status
 - Added student invitation-code signup:
   - LMS issues codes from the student list.
   - `/signup` accepts the code and creates the Supabase Auth account with a normal login ID.
