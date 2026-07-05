@@ -1,12 +1,12 @@
 'use client';
 
-import { InstructorList } from '@/components/people/InstructorList';
+import { StaffOperationsPage } from '@/features/lms/pages';
 import { RouteScroll } from './RouteScroll';
 
 export function InstructorsRoute() {
     return (
         <RouteScroll>
-            <InstructorList />
+            <StaffOperationsPage />
         </RouteScroll>
     );
 }

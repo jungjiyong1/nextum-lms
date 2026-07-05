@@ -28,6 +28,8 @@ export const lmsDb = db.lms;
 export const contentDb = db.content;
 export const learningDb = db.learning;
 export const reportingDb = db.reporting;
+export const aiDb = db.ai;
+export const dataDb = db.data;
 export const auditDb = db.audit;
 
 export function schemaDb(schema: AppSchema) {

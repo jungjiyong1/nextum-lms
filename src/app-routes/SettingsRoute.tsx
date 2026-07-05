@@ -1,12 +1,12 @@
 'use client';
 
-import { SettingsPanel } from '@/components/settings/SettingsPanel';
+import { SettingsOperationsPage } from '@/features/lms/pages';
 import { RouteScroll } from './RouteScroll';
 
 export function SettingsRoute() {
     return (
         <RouteScroll>
-            <SettingsPanel />
+            <SettingsOperationsPage />
         </RouteScroll>
     );
 }

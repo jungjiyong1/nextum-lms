@@ -1,12 +1,12 @@
 'use client';
 
-import { AccountingMain } from '@/components/accounting/AccountingMain';
+import { AccountingOperationsPage } from '@/features/lms/pages';
 import { RouteScroll } from './RouteScroll';
 
 export function AccountingRoute() {
     return (
         <RouteScroll>
-            <AccountingMain />
+            <AccountingOperationsPage />
         </RouteScroll>
     );
 }

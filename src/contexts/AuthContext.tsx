@@ -104,12 +104,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     setUser(currentSession.user);
                     logger.debug('Auth', 'User set:', currentSession.user.email);
 
-                    // 프로필 로딩은 비동기로 진행하되, 실패해도 앱은 동작하게 함
-                    loadProfile(currentSession.user).then(userProfile => {
-                        if (isMounted) {
-                            setProfile(userProfile);
-                        }
-                    });
+                    const userProfile = await loadProfile(currentSession.user);
+                    if (isMounted) {
+                        setProfile(userProfile);
+                    }
                 }
             } catch (error) {
                 console.error('[Auth] Session initialization error:', error);
@@ -135,16 +133,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 setUser(newSession?.user ?? null);
 
                 if (newSession?.user) {
-                    // 프로필 로딩은 비동기로 진행
+                    setLoading(true);
                     loadProfile(newSession.user).then(userProfile => {
                         if (isMounted) {
                             setProfile(userProfile);
+                        }
+                    }).finally(() => {
+                        if (isMounted) {
+                            setLoading(false);
                         }
                     });
                 } else {
                     setProfile(null);
                     setHasPin(false);
                     setIsLocked(false);
+                    setLoading(false);
                 }
             }
         );

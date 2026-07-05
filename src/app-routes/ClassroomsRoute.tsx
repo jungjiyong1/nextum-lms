@@ -1,7 +1,7 @@
 'use client';
 
-import { ClassroomsPage } from '@/screens/ClassroomsPage';
+import { ClassesPage } from '@/features/lms/pages';
 
 export function ClassroomsRoute() {
-    return <ClassroomsPage />;
+    return <ClassesPage />;
 }

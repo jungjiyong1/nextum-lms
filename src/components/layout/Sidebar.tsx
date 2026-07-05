@@ -22,7 +22,7 @@ interface SidebarProps {
 
 const navItems = [
     { id: 'home', label: '홈', href: '/', icon: Home },
-    { id: 'classrooms', label: '강의실', href: '/classrooms', icon: LayoutGrid },
+    { id: 'classrooms', label: '반/시간표', href: '/classrooms', icon: LayoutGrid },
     { id: 'instructors', label: '강사', href: '/instructors', icon: Users },
     { id: 'students', label: '학생', href: '/students', icon: GraduationCap },
     { id: 'accounting', label: '회계', href: '/accounting', icon: Calculator },

@@ -1,12 +1,12 @@
 'use client';
 
-import { StudentList } from '@/components/people/StudentList';
+import { StudentsOperationsPage } from '@/features/lms/pages';
 import { RouteScroll } from './RouteScroll';
 
 export function StudentsRoute() {
     return (
         <RouteScroll>
-            <StudentList />
+            <StudentsOperationsPage />
         </RouteScroll>
     );
 }

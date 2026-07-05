@@ -9,8 +9,10 @@ import { Label } from '../components/ui/label';
 function resolveLoginEmail(identifier: string): string {
     const value = identifier.trim();
     if (value.includes('@')) return value;
-    if (value.toLowerCase() === 'admin') return 'admin@nextum.com';
-    return `${value}@nextum.com`;
+    const domain = process.env.NEXT_PUBLIC_LMS_LOGIN_EMAIL_DOMAIN
+        || process.env.LMS_LOGIN_EMAIL_DOMAIN
+        || 'nextum.local';
+    return `${value}@${domain}`;
 }
 
 export function LoginPage() {
