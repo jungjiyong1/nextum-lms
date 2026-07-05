@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { supabase, User, Session } from '../core/supabaseClient';
-import { pinApi } from '../core/api';
+import { pinApi } from '../core/api/pin';
 import { loadAuthProfile } from '../core/api/identity';
 import type { AuthProfile } from '../core/api/identity';
 import { logger } from '../core/logger';

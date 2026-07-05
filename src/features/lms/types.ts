@@ -1,4 +1,6 @@
 export type BillingMode = 'monthly_plus_classes' | 'usage_based' | 'manual';
+export type BillingClassRuleType = 'included' | 'extra_flat' | 'discount' | 'usage_based';
+export type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'makeup';
 
 export interface ClassSummary {
   id: string;
@@ -31,6 +33,18 @@ export interface StudentSummary {
   billingMode: BillingMode | null;
   baseMonthlyFee: number;
   hourlyRate: number | null;
+}
+
+export interface StudentClassBillingInput {
+  classId: string;
+  ruleType: BillingClassRuleType;
+  amount: number;
+}
+
+export interface StudentInvitationResult {
+  code: string;
+  expiresAt: string;
+  loginHint: string | null;
 }
 
 export interface StaffSummary {
@@ -83,6 +97,42 @@ export interface BillingRow {
   invoiceId: string | null;
 }
 
+export interface BookSummary {
+  id: string;
+  bookKey: string;
+  title: string;
+  subject: string | null;
+  grade: string | null;
+}
+
+export interface ClassBookSummary extends BookSummary {
+  assignedAt: string;
+  active: boolean;
+}
+
+export interface ClassStudentSummary {
+  id: string;
+  personId: string;
+  name: string;
+  status: string;
+}
+
+export interface AttendanceRow {
+  id: string;
+  occurrenceId: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: AttendanceStatus;
+  attendedMinutes: number | null;
+  billableMinutes: number | null;
+  notes: string | null;
+}
+
 export interface DashboardData {
   classes: ClassSummary[];
   students: StudentSummary[];
@@ -108,6 +158,7 @@ export interface CreateStudentInput {
   schoolType?: string | null;
   grade?: string | null;
   classIds?: string[];
+  classBillingRules?: StudentClassBillingInput[];
   billingMode: BillingMode;
   baseMonthlyFee: number;
   hourlyRate?: number | null;
@@ -130,4 +181,18 @@ export interface CreateScheduleRuleInput {
   endDate?: string | null;
   classroomId?: string | null;
   instructorId?: string | null;
+}
+
+export interface RecordAttendanceInput {
+  occurrenceId?: string | null;
+  classId: string;
+  ruleId?: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  studentId: string;
+  status: AttendanceStatus;
+  attendedMinutes?: number | null;
+  billableMinutes?: number | null;
+  notes?: string | null;
 }
