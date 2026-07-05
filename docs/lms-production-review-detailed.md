@@ -134,6 +134,13 @@ Fix:
 - reset은 2단계 confirm token과 audit log를 남긴다.
 - export는 no-store header, scope/date/row limit를 둔다.
 
+Implementation status:
+- 2026-07-06 기준 reset/export/tax-settings route는 same-origin 검사와 owner/admin membership 검사를 수행한다.
+- 클라이언트 API는 현재 사용자의 `current_academy_id`를 body에 포함하도록 수정했다.
+- `/api/lms/admin/reauth`가 현재 세션 사용자와 입력 비밀번호를 서버에서 검증한 뒤 5분짜리 httpOnly reauth 쿠키를 발급한다.
+- reset/export/tax-settings는 reauth 쿠키의 user/academy scope가 현재 요청과 맞지 않으면 403을 반환한다.
+- 아직 남은 작업: reset 2단계 confirm token, audit log row, export row limit/scope 제한.
+
 Acceptance:
 - reauth token 없이 reset/tax settings가 401/403.
 - 외부 origin POST가 403.

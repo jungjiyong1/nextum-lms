@@ -1,4 +1,5 @@
-import { assertRecentAuth, assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertReauthCookie } from '@/lib/lms/reauth';
 import { updateTaxSettingsForAcademy } from '@/lib/lms/admin-operations';
 
 export async function POST(request: Request) {
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
         }
 
         const admin = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
-        assertRecentAuth(admin);
+        await assertReauthCookie({ userId: admin.userId, academyId: body.academyId });
         await updateTaxSettingsForAcademy(body.settings, body.academyId);
 
         return Response.json({ success: true });

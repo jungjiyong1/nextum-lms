@@ -2,6 +2,7 @@
 // service-role key and destructive operations stay on the server.
 import { ok, err } from './shared/result';
 import type { Result } from './shared/types';
+import { requireCurrentAcademyId } from './currentAcademy';
 
 type ResetTarget =
     | 'classrooms'
@@ -16,10 +17,11 @@ type ResetTarget =
 
 async function runAdminReset(target: ResetTarget): Promise<Result<void>> {
     try {
+        const academyId = await requireCurrentAcademyId();
         const response = await fetch('/api/lms/admin/reset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target }),
+            body: JSON.stringify({ academyId, target }),
         });
 
         if (!response.ok) {

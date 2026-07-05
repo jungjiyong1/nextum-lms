@@ -1,4 +1,5 @@
-import { assertRecentAuth, assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertReauthCookie } from '@/lib/lms/reauth';
 import {
     buildPayrollExport,
     buildTaxReportExport,
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
         }
 
         const admin = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
-        assertRecentAuth(admin);
+        await assertReauthCookie({ userId: admin.userId, academyId: body.academyId });
 
         const output = body.type === 'tax'
             ? await buildTaxReportExport(body.options as TaxReportExportOptions, body.academyId)

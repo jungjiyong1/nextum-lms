@@ -74,6 +74,14 @@ LMS에서 학생을 삭제하거나 reset하면 core 학생 데이터, grade-app
 - 개인정보 완전 삭제는 별도 승인 flow
 - 학습/리포트 데이터 보존 정책 명시
 
+### 6-1. Admin 민감 작업은 서버 재인증이 필요함
+
+상태:
+- 2026-07-06 기준 reset/export/tax-settings는 same-origin 검사와 owner/admin 권한 검사를 수행한다.
+- 클라이언트 요청에는 현재 `academyId`를 포함하도록 수정했다.
+- 비밀번호 확인은 `/api/lms/admin/reauth`에서 서버가 검증하고, 5분짜리 httpOnly reauth 쿠키를 발급한다.
+- reset/export/tax-settings는 해당 reauth 쿠키가 없거나 사용자/학원이 다르면 거부한다.
+
 ### 7. 회계/급여 로직에 실제 금액 오류 가능성이 있음
 
 급여 UI는 gross/tax/net을 기대하지만 API는 net 값을 제대로 받지 못하고 `amount`만 저장한다. 학생 결제는 `completed`로 저장되는데 일부 세금/손익 보고서는 `paid`만 집계한다.

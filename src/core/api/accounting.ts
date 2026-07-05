@@ -4,6 +4,7 @@ import type { ExpenseData, StudentPaymentData, Result } from './shared/types';
 import { ok, err } from './shared/result';
 import { calculateInstructorMonthlySalary } from './instructors';
 import { resetAccounting as resetAccountingViaAdmin } from './reset';
+import { requireCurrentAcademyId } from './currentAcademy';
 import { calculateWithholding, type WithholdingType } from '../../modules/accounting/utils/taxCalculations';
 
 const COMPLETED_PAYMENT_STATUSES = ['paid', 'completed'] as const;
@@ -157,10 +158,11 @@ async function downloadAdminCsv(
     options: TaxReportExportOptions | ExportDateRange,
     fallbackFilename: string,
 ): Promise<string> {
+    const academyId = await requireCurrentAcademyId();
     const response = await fetch('/api/lms/admin/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, options }),
+        body: JSON.stringify({ academyId, type, options }),
     });
 
     if (!response.ok) {
@@ -692,10 +694,11 @@ export const accountingApi = {
     // 세금 설정 저장
     updateTaxSettings: async (newSettings: Record<string, string>): Promise<Result<void>> => {
         try {
+            const academyId = await requireCurrentAcademyId();
             const response = await fetch('/api/lms/admin/tax-settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ settings: newSettings }),
+                body: JSON.stringify({ academyId, settings: newSettings }),
             });
 
             if (!response.ok) {

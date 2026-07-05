@@ -4,7 +4,6 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { AlertTriangle } from 'lucide-react';
-import { supabase } from '../../core/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface PasswordConfirmDialogProps {
@@ -28,7 +27,7 @@ export function PasswordConfirmDialog({
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
-    const { user } = useAuth();
+    const { profile } = useAuth();
 
     // 다이얼로그 열릴 때 포커스 및 초기화
     useEffect(() => {
@@ -47,8 +46,9 @@ export function PasswordConfirmDialog({
             return;
         }
 
-        if (!user?.email) {
-            setError('사용자 정보를 찾을 수 없습니다.');
+        const academyId = profile?.current_academy_id;
+        if (academyId === null || academyId === undefined || academyId === '') {
+            setError('현재 학원 정보를 찾을 수 없습니다.');
             return;
         }
 
@@ -56,20 +56,20 @@ export function PasswordConfirmDialog({
         setError('');
 
         try {
-            // Supabase로 비밀번호 재인증
-            const { error: authError } = await supabase.auth.signInWithPassword({
-                email: user.email,
-                password: password
+            const response = await fetch('/api/lms/admin/reauth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ academyId: String(academyId), password })
             });
+            const result = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
 
-            if (authError) {
-                setError('비밀번호가 올바르지 않습니다.');
+            if (!response.ok || !result?.success) {
+                setError(result?.error || '비밀번호가 올바르지 않습니다.');
                 setPassword('');
                 inputRef.current?.focus();
                 return;
             }
 
-            // 비밀번호 확인 성공 - 콜백 실행
             await onConfirm();
             onOpenChange(false);
         } catch (err) {
