@@ -12,6 +12,11 @@ Nextum LMS is the operator-facing web app for academy management. The current ap
   - `core.class_books` controls grade-app book access.
 - LMS-specific operations live in `lms`:
   - class profile, schedule rules, lesson occurrences, attendance, billing contracts, invoices, payments, expenses, payroll.
+- Student accounts are invitation-based:
+  - LMS registers the student first.
+  - LMS issues a one-time invite code.
+  - The student signs up at `/signup` with a normal login ID and password.
+  - The normal login ID is mapped internally to `login_id@LMS_LOGIN_EMAIL_DOMAIN`.
 - Learning and AI data are shared:
   - `learning.attempts` remains append-only.
   - `ai.conversations` and `ai.messages` store grade-app AI tutor conversations.
@@ -33,10 +38,11 @@ Nextum LMS is the operator-facing web app for academy management. The current ap
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SECRET_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 NEXT_PUBLIC_LMS_LOGIN_EMAIL_DOMAIN=nextum.local
 ```
 
-`SUPABASE_SECRET_KEY` is server-only. Never expose it with a `NEXT_PUBLIC_` prefix.
+`SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` is server-only. Never expose either with a `NEXT_PUBLIC_` prefix.
 
 ## Development Admin
 
@@ -68,6 +74,7 @@ npm run seed:dev-admin
 - `/accounting` monthly billing overview
 - `/settings` operational configuration notes
 - `/login` Supabase Auth login
+- `/signup` student invite-code signup
 
 ## Database
 
@@ -79,7 +86,13 @@ supabase/migrations/0001_nextum_lms_baseline.sql
 
 This baseline is intended for the new shared database. It replaces the previous incremental LMS/grade-app compatibility migrations.
 
-For an already-populated remote database, do not apply this baseline destructively without an explicit backup/export and cutover plan.
+The intended production target is the existing `nextum-data` Supabase project, but do not apply this baseline destructively without an explicit backup/export and cutover plan. Old LMS schema tables can be removed during cutover, but imported grade-app book/problem data must be preserved.
+
+Local Supabase API schema exposure is recorded in:
+
+```text
+supabase/config.toml
+```
 
 ## Verification Used In This Branch
 

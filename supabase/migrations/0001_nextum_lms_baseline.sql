@@ -680,10 +680,13 @@ create table audit.admin_actions (
 create index core_people_academy_idx on core.people (primary_academy_id);
 create index core_students_academy_idx on core.students (academy_id, status);
 create index core_students_person_idx on core.students (person_id);
+create unique index core_students_id_academy_key on core.students (id, academy_id);
 create index core_staff_academy_idx on core.staff_members (academy_id, status);
+create unique index core_staff_id_academy_key on core.staff_members (id, academy_id);
 create index core_members_account_idx on core.academy_members (user_account_id);
 create index core_members_person_idx on core.academy_members (person_id);
 create index core_classes_academy_idx on core.classes (academy_id, active);
+create unique index core_classes_id_academy_key on core.classes (id, academy_id);
 create index core_class_students_student_idx on core.class_students (student_id, status);
 create index core_class_books_book_idx on core.class_books (book_id);
 
@@ -695,16 +698,80 @@ create index content_problems_type_idx on content.problems (problem_type_id) whe
 create index content_assets_problem_idx on content.assets (problem_id);
 
 create index lms_class_profiles_academy_idx on lms.class_profiles (academy_id, status);
+create unique index lms_classrooms_id_academy_key on lms.classrooms (id, academy_id);
+create unique index lms_rules_id_academy_key on lms.class_schedule_rules (id, academy_id);
 create index lms_rules_class_idx on lms.class_schedule_rules (class_id, active);
 create index lms_occurrences_class_date_idx on lms.lesson_occurrences (class_id, occurrence_date);
 create index lms_occurrences_academy_date_idx on lms.lesson_occurrences (academy_id, occurrence_date);
+create unique index lms_occurrences_id_academy_key on lms.lesson_occurrences (id, academy_id);
 create unique index lms_occurrences_class_rule_time_key
   on lms.lesson_occurrences (class_id, occurrence_date, start_time, coalesce(rule_id, '00000000-0000-0000-0000-000000000000'::uuid));
 create index lms_attendance_student_idx on lms.attendance_records (student_id, created_at desc);
 create index lms_contracts_student_idx on lms.student_billing_contracts (student_id, status);
+create unique index lms_active_contract_one_per_student_idx
+  on lms.student_billing_contracts (student_id)
+  where status = 'active' and effective_to is null;
+create unique index lms_contracts_id_academy_key on lms.student_billing_contracts (id, academy_id);
+create unique index lms_billing_class_rules_contract_class_key on lms.billing_class_rules (contract_id, class_id);
 create index lms_invoices_student_month_idx on lms.invoices (student_id, service_month);
+create unique index lms_invoices_id_academy_key on lms.invoices (id, academy_id);
 create index lms_payments_student_date_idx on lms.payments (student_id, payment_date desc);
 create index lms_payroll_instructor_month_idx on lms.instructor_payments (instructor_id, service_month);
+
+alter table lms.class_profiles
+  add constraint lms_class_profiles_class_same_academy
+  foreign key (class_id, academy_id) references core.classes (id, academy_id);
+
+alter table lms.class_schedule_rules
+  add constraint lms_rules_class_same_academy
+  foreign key (class_id, academy_id) references core.classes (id, academy_id),
+  add constraint lms_rules_classroom_same_academy
+  foreign key (classroom_id, academy_id) references lms.classrooms (id, academy_id),
+  add constraint lms_rules_instructor_same_academy
+  foreign key (instructor_staff_id, academy_id) references core.staff_members (id, academy_id),
+  add constraint lms_rules_date_order check (end_date is null or end_date >= start_date);
+
+alter table lms.lesson_occurrences
+  add constraint lms_occurrences_class_same_academy
+  foreign key (class_id, academy_id) references core.classes (id, academy_id),
+  add constraint lms_occurrences_rule_same_academy
+  foreign key (rule_id, academy_id) references lms.class_schedule_rules (id, academy_id),
+  add constraint lms_occurrences_classroom_same_academy
+  foreign key (classroom_id, academy_id) references lms.classrooms (id, academy_id),
+  add constraint lms_occurrences_instructor_same_academy
+  foreign key (instructor_staff_id, academy_id) references core.staff_members (id, academy_id),
+  add constraint lms_occurrences_substitute_same_academy
+  foreign key (substitute_staff_id, academy_id) references core.staff_members (id, academy_id);
+
+alter table lms.attendance_records
+  add constraint lms_attendance_occurrence_same_academy
+  foreign key (occurrence_id, academy_id) references lms.lesson_occurrences (id, academy_id),
+  add constraint lms_attendance_student_same_academy
+  foreign key (student_id, academy_id) references core.students (id, academy_id);
+
+alter table lms.student_billing_contracts
+  add constraint lms_contracts_student_same_academy
+  foreign key (student_id, academy_id) references core.students (id, academy_id);
+
+alter table lms.billing_class_rules
+  add constraint lms_billing_rules_contract_same_academy
+  foreign key (contract_id, academy_id) references lms.student_billing_contracts (id, academy_id),
+  add constraint lms_billing_rules_class_same_academy
+  foreign key (class_id, academy_id) references core.classes (id, academy_id);
+
+alter table lms.invoices
+  add constraint lms_invoices_student_same_academy
+  foreign key (student_id, academy_id) references core.students (id, academy_id),
+  add constraint lms_invoices_amounts_valid check (subtotal_amount >= 0 and discount_amount >= 0 and total_amount >= 0 and paid_amount >= 0);
+
+alter table lms.invoice_lines
+  add constraint lms_invoice_lines_amount_valid check (quantity >= 0);
+
+alter table lms.payments
+  add constraint lms_payments_invoice_same_academy
+  foreign key (invoice_id, academy_id) references lms.invoices (id, academy_id),
+  add constraint lms_payments_student_same_academy
+  foreign key (student_id, academy_id) references core.students (id, academy_id);
 
 create index learning_sessions_student_idx on learning.sessions (core_student_id, started_at desc);
 create index learning_attempts_student_problem_idx on learning.attempts (core_student_id, problem_id);
@@ -914,6 +981,28 @@ group by c.academy_id, c.id, c.name;
 -- ---------------------------------------------------------------------------
 -- Triggers
 
+create or replace function lms.ensure_attendance_student_in_class()
+returns trigger
+language plpgsql
+as $$
+begin
+  if not exists (
+    select 1
+    from lms.lesson_occurrences lo
+    join core.class_students cs
+      on cs.class_id = lo.class_id
+     and cs.student_id = new.student_id
+     and cs.status = 'active'
+    where lo.id = new.occurrence_id
+      and lo.academy_id = new.academy_id
+  ) then
+    raise exception 'Attendance student must be actively enrolled in the occurrence class.';
+  end if;
+
+  return new;
+end;
+$$;
+
 create trigger set_academies_updated_at before update on core.academies for each row execute function core.set_updated_at();
 create trigger set_people_updated_at before update on core.people for each row execute function core.set_updated_at();
 create trigger set_user_accounts_updated_at before update on core.user_accounts for each row execute function core.set_updated_at();
@@ -935,6 +1024,10 @@ create trigger set_payments_updated_at before update on lms.payments for each ro
 create trigger set_expenses_updated_at before update on lms.expenses for each row execute function core.set_updated_at();
 create trigger set_instructor_payments_updated_at before update on lms.instructor_payments for each row execute function core.set_updated_at();
 create trigger set_ai_conversations_updated_at before update on ai.conversations for each row execute function core.set_updated_at();
+
+create trigger ensure_attendance_student_in_class
+  before insert or update on lms.attendance_records
+  for each row execute function lms.ensure_attendance_student_in_class();
 
 -- ---------------------------------------------------------------------------
 -- RLS
@@ -1090,10 +1183,10 @@ create policy class_books_access on core.class_books for select to authenticated
 
 create policy class_books_staff_write on core.class_books for all to authenticated
   using (
-    exists (select 1 from core.classes c where c.id = class_books.class_id and core.has_academy_role(c.academy_id, array['owner','admin','staff','teacher','instructor']))
+    exists (select 1 from core.classes c where c.id = class_books.class_id and core.has_academy_role(c.academy_id, array['owner','admin','staff']))
   )
   with check (
-    exists (select 1 from core.classes c where c.id = class_books.class_id and core.has_academy_role(c.academy_id, array['owner','admin','staff','teacher','instructor']))
+    exists (select 1 from core.classes c where c.id = class_books.class_id and core.has_academy_role(c.academy_id, array['owner','admin','staff']))
   );
 
 create policy content_books_select on content.books for select to authenticated
@@ -1113,24 +1206,48 @@ create policy content_staff_write_books on content.books for all to authenticate
   using (academy_id is not null and core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (academy_id is not null and core.has_academy_role(academy_id, array['owner','admin','staff']));
 
-create policy lms_courses_staff on lms.courses for all to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
+create policy lms_courses_select on lms.courses for select to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_courses_write on lms.courses for all to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
-create policy lms_classrooms_staff on lms.classrooms for all to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
+create policy lms_classrooms_select on lms.classrooms for select to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_classrooms_write on lms.classrooms for all to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
-create policy lms_class_profiles_staff on lms.class_profiles for all to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
+create policy lms_class_profiles_select on lms.class_profiles for select to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_class_profiles_write on lms.class_profiles for all to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
-create policy lms_rules_staff on lms.class_schedule_rules for all to authenticated
+create policy lms_rules_select on lms.class_schedule_rules for select to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_rules_insert on lms.class_schedule_rules for insert to authenticated
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_rules_update on lms.class_schedule_rules for update to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
-create policy lms_occurrences_staff on lms.lesson_occurrences for all to authenticated
+create policy lms_rules_delete on lms.class_schedule_rules for delete to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']));
+create policy lms_occurrences_select on lms.lesson_occurrences for select to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_occurrences_insert on lms.lesson_occurrences for insert to authenticated
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_occurrences_update on lms.lesson_occurrences for update to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
-create policy lms_attendance_staff on lms.attendance_records for all to authenticated
+create policy lms_occurrences_delete on lms.lesson_occurrences for delete to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']));
+create policy lms_attendance_select on lms.attendance_records for select to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_attendance_insert on lms.attendance_records for insert to authenticated
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_attendance_update on lms.attendance_records for update to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+create policy lms_attendance_delete on lms.attendance_records for delete to authenticated
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_billing_staff on lms.student_billing_contracts for all to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
