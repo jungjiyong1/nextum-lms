@@ -63,6 +63,7 @@ npm run build
 npm run lint
 npm run typecheck
 npm run db:check
+npm run db:backup-content -- --dry-run
 npm test -- --run
 $env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin
 ```
@@ -98,6 +99,15 @@ npm run db:check
 ```
 
 This check is read-only. It fails when required LMS tables, views, exposed schemas, grants, or columns are missing from the target database.
+
+Before applying the clean baseline to `nextum-data`, export grade-app content data:
+
+```bash
+npm run db:backup-content -- --dry-run
+npm run db:backup-content
+```
+
+The backup command is read-only against Supabase. It writes `content.books`, `content.units`, `content.concepts`, `content.problem_types`, `content.problems`, and available optional content tables to `backups/`, which is intentionally ignored by git.
 
 Local Supabase API schema exposure is recorded in:
 

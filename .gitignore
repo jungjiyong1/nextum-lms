@@ -9,6 +9,7 @@ out/
 .next/
 coverage/
 output/
+backups/
 .playwright-cli/
 .playwright-mcp/
 renderer/bundle.js

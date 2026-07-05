@@ -5,6 +5,7 @@
 - Replaced accumulated Supabase migrations with a clean baseline owned by the LMS repo.
 - Added development-only admin seeding through `npm run seed:dev-admin`; the script now requires `LMS_DEV_SEED_ALLOW=true`.
 - Added a read-only database contract check through `npm run db:check` so the LMS can verify the Supabase Data API baseline before authenticated screens are used.
+- Added a read-only grade-app content backup command through `npm run db:backup-content` before `nextum-data` cutover.
 - Added a new `src/features/lms` service/UI layer using the class-centered schema.
 - Added class book assignment, class attendance recording, and monthly billing draft calculation from base fee, class rules, and billable attendance minutes.
 - Added LMS book maintenance on top of the grade-app content contract:
@@ -77,7 +78,7 @@
 ## Cutover Requirements Before Production Use
 
 1. Backup/export any existing remote data that must be kept.
-2. Preserve grade-app book/problem data before removing old schema tables.
+2. Preserve grade-app book/problem data with `npm run db:backup-content` before removing old schema tables.
 3. Apply the clean baseline to a fresh Supabase database, a Supabase branch, or a confirmed disposable database.
 4. Run `$env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin` only for local/development access.
 5. Verify admin login, student invite signup, class book assignment, attendance, and billing generation.
