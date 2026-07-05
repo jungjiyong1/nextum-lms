@@ -4,6 +4,13 @@ import type { ExpenseData, StudentPaymentData, Result } from './shared/types';
 import { ok, err } from './shared/result';
 import { calculateInstructorMonthlySalary } from './instructors';
 import { resetAccounting as resetAccountingViaAdmin } from './reset';
+import { calculateWithholding, type WithholdingType } from '../../modules/accounting/utils/taxCalculations';
+
+const COMPLETED_PAYMENT_STATUSES = ['paid', 'completed'] as const;
+
+function isCompletedPaymentStatus(status: string | null | undefined): boolean {
+    return status === 'paid' || status === 'completed';
+}
 
 interface DashboardData {
     monthlyRevenue: number;
@@ -35,13 +42,7 @@ interface InstructorEstimate {
     paid_date?: string;
 }
 
-interface TaxSettings {
-    withholdingType: string;
-    withholdingRate: number;
-    localTaxRate: number;
-    businessNumber: string;
-    taxReportEmail: string;
-}
+type TaxSettings = Record<string, string | number>;
 
 interface IncomeTaxEstimate {
     grossIncome: number;
@@ -86,8 +87,24 @@ interface IncomeStatement {
 
 interface PayrollRecord {
     id: number;
+    instructor_id: number | null;
+    recipient_name: string;
+    year_month: string;
+    payment_date: string;
     payroll_date: string;
     instructor_name: string;
+    gross_amount: number;
+    withholding_type: WithholdingType;
+    withholding_rate: number;
+    withholding_tax: number;
+    local_tax: number;
+    net_amount: number;
+    hours_worked: number | null;
+    hourly_rate: number | null;
+    payment_method: string | null;
+    bank_name: string | null;
+    account_number: string | null;
+    notes: string | null;
     total_amount: number;
     status: string;
 }
@@ -170,7 +187,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .eq('status', 'completed');
+            .in('status', COMPLETED_PAYMENT_STATUSES);
 
         if (paymentsError) return err(new Error(paymentsError.message));
 
@@ -329,14 +346,15 @@ export const accountingApi = {
         return ok(filteredStudents.map(s => {
             const payment = paymentMap.get(s.id);
             const studentName = s.name || '이름없음';
+            const isPaid = isCompletedPaymentStatus(payment?.status);
             return {
                 student_id: s.id,
                 student_name: studentName,
                 monthly_tuition: s.monthly_tuition || 0,
                 payment_cycle_day: s.payment_cycle_day || 1,
-                is_paid: payment?.status === 'completed',
-                paid_amount: payment?.amount || 0,
-                payment_date: payment?.payment_date || null,
+                is_paid: isPaid,
+                paid_amount: isPaid ? payment?.amount || 0 : 0,
+                payment_date: isPaid ? payment?.payment_date || null : null,
             };
         }));
     },
@@ -505,29 +523,47 @@ export const accountingApi = {
 
     // 급여 생성
     createPayroll: async (data: {
-        instructor_id: number;
+        instructor_id: number | null;
+        recipient_name?: string | null;
         year_month: string;
         payment_date: string;
         gross_amount: number;
-        withholding_type?: string;
+        withholding_type?: WithholdingType;
         withholding_rate?: number;
         withholding_tax?: number;
         local_tax?: number;
-        net_amount: number;
-        hours_worked?: number;
-        hourly_rate?: number;
-        payment_method?: string;
-        notes?: string;
+        net_amount?: number;
+        hours_worked?: number | null;
+        hourly_rate?: number | null;
+        payment_method?: string | null;
+        notes?: string | null;
     }): Promise<Result<unknown>> => {
+        const grossAmount = Number(data.gross_amount || 0);
+        const withholdingType = data.withholding_type ?? 'none';
+        const preview = calculateWithholding(grossAmount, withholdingType);
+        const withholdingTax = data.withholding_tax ?? preview.incomeTax;
+        const localTax = data.local_tax ?? preview.localTax;
+        const netAmount = data.net_amount ?? Math.max(0, grossAmount - withholdingTax - localTax);
+        const [year, month] = data.year_month.split('-').map(Number);
+        const periodEndDay = new Date(year, month, 0).getDate();
+
         const { data: created, error } = await supabase
             .from('instructor_payments')
             .insert({
                 instructor_id: data.instructor_id,
                 payment_date: data.payment_date,
-                amount: data.net_amount,
+                recipient_name: data.recipient_name || null,
+                gross_amount: grossAmount,
+                withholding_type: withholdingType,
+                withholding_rate: data.withholding_rate ?? preview.taxRate,
+                withholding_tax: withholdingTax,
+                local_tax: localTax,
+                net_amount: netAmount,
+                amount: netAmount,
                 work_hours: data.hours_worked || null,
                 period_start: `${data.year_month}-01`,
-                period_end: `${data.year_month}-${new Date(parseInt(data.year_month.split('-')[0]), parseInt(data.year_month.split('-')[1]), 0).getDate()}`,
+                period_end: `${data.year_month}-${String(periodEndDay).padStart(2, '0')}`,
+                payment_method: data.payment_method || null,
                 status: 'paid',
                 notes: data.notes || null,
             })
@@ -545,14 +581,22 @@ export const accountingApi = {
             .select(`
         id,
         instructor_id,
+        recipient_name,
         payment_date,
         amount,
+        gross_amount,
+        withholding_type,
+        withholding_rate,
+        withholding_tax,
+        local_tax,
+        net_amount,
         work_hours,
         period_start,
         period_end,
+        payment_method,
         status,
         notes,
-        instructors!inner(name)
+        instructors(name)
       `)
             .order('payment_date', { ascending: false });
 
@@ -568,11 +612,32 @@ export const accountingApi = {
 
         return ok((data || []).map((p) => {
             const instructor = Array.isArray(p.instructors) ? p.instructors[0] : p.instructors;
+            const grossAmount = Number(p.gross_amount ?? p.amount ?? 0);
+            const withholdingTax = Number(p.withholding_tax ?? 0);
+            const localTax = Number(p.local_tax ?? 0);
+            const netAmount = Number(p.net_amount ?? p.amount ?? Math.max(0, grossAmount - withholdingTax - localTax));
+            const recipientName = p.recipient_name || instructor?.name || '이름없음';
             return {
                 id: p.id,
+                instructor_id: p.instructor_id ?? null,
+                recipient_name: recipientName,
+                year_month: p.period_start?.slice(0, 7) || p.payment_date?.slice(0, 7) || '',
+                payment_date: p.payment_date,
                 payroll_date: p.payment_date,
-                instructor_name: instructor?.name || '이름없음',
-                total_amount: p.amount,
+                instructor_name: instructor?.name || recipientName,
+                gross_amount: grossAmount,
+                withholding_type: (p.withholding_type || 'none') as WithholdingType,
+                withholding_rate: Number(p.withholding_rate ?? 0),
+                withholding_tax: withholdingTax,
+                local_tax: localTax,
+                net_amount: netAmount,
+                hours_worked: p.work_hours === null || p.work_hours === undefined ? null : Number(p.work_hours),
+                hourly_rate: null,
+                payment_method: p.payment_method ?? null,
+                bank_name: null,
+                account_number: null,
+                notes: p.notes ?? null,
+                total_amount: netAmount,
                 status: p.status,
             };
         }));
@@ -599,25 +664,28 @@ export const accountingApi = {
 
         if (error) {
             return ok({
-                withholdingType: 'fixed',
-                withholdingRate: 3.3,
-                localTaxRate: 10,
-                businessNumber: '',
-                taxReportEmail: '',
+                business_type: 'sole_proprietor',
+                tax_type: 'exempt',
+                default_withholding: 'freelance_3.3',
+                vat_rate: '10',
             });
         }
 
         const settings = (data || []).reduce((acc: Record<string, string>, row) => {
-            acc[row.key] = row.value;
+            acc[row.key.replace(/^tax_/, '')] = row.value;
             return acc;
         }, {});
 
         return ok({
-            withholdingType: settings['tax_withholding_type'] || 'fixed',
-            withholdingRate: parseFloat(settings['tax_withholding_rate']) || 3.3,
-            localTaxRate: parseFloat(settings['tax_local_rate']) || 10,
-            businessNumber: settings['tax_business_number'] || '',
-            taxReportEmail: settings['tax_report_email'] || '',
+            business_type: settings.business_type || 'sole_proprietor',
+            tax_type: settings.tax_type || 'exempt',
+            default_withholding: settings.default_withholding || 'freelance_3.3',
+            vat_rate: settings.vat_rate || '10',
+            withholdingType: settings.withholding_type || 'fixed',
+            withholdingRate: parseFloat(settings.withholding_rate) || 3.3,
+            localTaxRate: parseFloat(settings.local_rate) || 10,
+            businessNumber: settings.business_number || '',
+            taxReportEmail: settings.report_email || '',
         });
     },
 
@@ -650,7 +718,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .eq('status', 'paid');
+            .in('status', COMPLETED_PAYMENT_STATUSES);
 
         if (incomeError) return err(new Error(incomeError.message));
 
@@ -670,7 +738,7 @@ export const accountingApi = {
 
         const { data: payrollData, error: payrollError } = await supabase
             .from('instructor_payments')
-            .select('amount')
+            .select('amount, withholding_tax, local_tax')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate);
 
@@ -690,7 +758,10 @@ export const accountingApi = {
 
         const localTax = Math.round(calculatedTax * 0.1);
         const totalTax = Math.round(calculatedTax + localTax);
-        const withholdingPaid = Math.round(instructorCosts * 0.033);
+        const withholdingPaid = (payrollData || []).reduce(
+            (sum, p) => sum + Number(p.withholding_tax || 0) + Number(p.local_tax || 0),
+            0,
+        );
 
         return ok({
             grossIncome,
@@ -702,7 +773,7 @@ export const accountingApi = {
             withholdingPaid,
             additionalTax: Math.max(0, totalTax - withholdingPaid),
             refundAmount: Math.max(0, withholdingPaid - totalTax),
-            effectiveRate: grossIncome > 0 ? (totalTax / grossIncome) : 0,
+            effectiveRate: grossIncome > 0 ? (totalTax / grossIncome) * 100 : 0,
         });
     },
 
@@ -713,28 +784,34 @@ export const accountingApi = {
 
         const { data, error } = await supabase
             .from('instructor_payments')
-            .select('payment_date, amount')
+            .select('payment_date, amount, withholding_tax, local_tax')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate);
 
         if (error) return err(new Error(error.message));
 
         const byMonth: Array<{ month: string; incomeTax: number; localTax: number; total: number }> = [];
-        const monthMap = new Map<string, number>();
+        const monthMap = new Map<string, { incomeTax: number; localTax: number }>();
 
         (data || []).forEach(p => {
             const month = p.payment_date?.substring(0, 7) || '';
-            monthMap.set(month, (monthMap.get(month) || 0) + (p.amount || 0));
+            const savedIncomeTax = Number(p.withholding_tax || 0);
+            const savedLocalTax = Number(p.local_tax || 0);
+            const fallbackIncomeTax = Math.round(Number(p.amount || 0) * 0.03);
+            const fallbackLocalTax = Math.round(fallbackIncomeTax * 0.1);
+            const current = monthMap.get(month) || { incomeTax: 0, localTax: 0 };
+            monthMap.set(month, {
+                incomeTax: current.incomeTax + (savedIncomeTax > 0 ? savedIncomeTax : fallbackIncomeTax),
+                localTax: current.localTax + (savedLocalTax > 0 ? savedLocalTax : fallbackLocalTax),
+            });
         });
 
-        Array.from(monthMap.entries()).sort().forEach(([month, amount]) => {
-            const incomeTax = Math.round(amount * 0.03);
-            const localTax = Math.round(incomeTax * 0.1);
+        Array.from(monthMap.entries()).sort().forEach(([month, values]) => {
             byMonth.push({
                 month,
-                incomeTax,
-                localTax,
-                total: incomeTax + localTax,
+                incomeTax: values.incomeTax,
+                localTax: values.localTax,
+                total: values.incomeTax + values.localTax,
             });
         });
 
@@ -753,7 +830,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .eq('status', 'paid');
+            .in('status', COMPLETED_PAYMENT_STATUSES);
 
         if (error) return err(new Error(error.message));
 
@@ -776,7 +853,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .eq('status', 'paid');
+            .in('status', COMPLETED_PAYMENT_STATUSES);
 
         if (tuitionError) return err(new Error(tuitionError.message));
 

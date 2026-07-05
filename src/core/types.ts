@@ -51,7 +51,7 @@ export interface ScheduleLesson {
   date: string;
   startTime: string;
   endTime: string;
-  status?: 'scheduled' | 'completed' | 'cancelled' | 'makeup';
+  status?: 'scheduled' | 'completed' | 'cancelled' | 'makeup' | 'substitute';
   color?: string;
   // Feature 3: 대타/휴강 관련 필드
   substituteInstructorId?: number | null;
@@ -76,7 +76,7 @@ export interface TodayLessonWithStudents {
   startTime: string;
   endTime: string;
   classroomName: string;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'makeup';
+  status: 'scheduled' | 'completed' | 'cancelled' | 'makeup' | 'substitute';
   students: EnrolledStudentInfo[];
 }
 
@@ -399,7 +399,7 @@ export interface WindowApi {
     cancelPeriod: (lessonId: number, startDate: string, endDate: string, reason?: string) => Promise<{ success: boolean; count: number; error?: string }>;
     setSubstitute: (id: number, substituteInstructorId: number, substituteInstructorName: string) => Promise<{ success: boolean; error?: string }>;
     clearSubstitute: (id: number) => Promise<{ success: boolean; error?: string }>;
-    createMakeup: (originalScheduleId: number, date: string, startTime: string, endTime: string, classroomId?: number) => Promise<{ success: boolean; schedule?: ScheduleLesson; error?: string }>;
+    createMakeup: (originalScheduleId: number, date: string, startTime: string, endTime: string, classroomId?: number, instructorId?: number, instructorName?: string, notes?: string) => Promise<{ success: boolean; schedule?: ScheduleLesson; error?: string }>;
     restore: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
 

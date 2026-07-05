@@ -852,7 +852,7 @@ export function TimetableGrid({ onLessonClick, onSelectionComplete, onStudentMan
                     <PeriodCancelDialog
                         open={periodCancelDialogOpen}
                         onOpenChange={setPeriodCancelDialogOpen}
-                        lessonId={periodCancelDialogLesson.ruleId || periodCancelDialogLesson.id}
+                        lessonId={periodCancelDialogLesson.lessonId}
                         lessonTitle={periodCancelDialogLesson.title}
                         instructor={periodCancelDialogLesson.instructor}
                         dayOfWeek={ALL_DAYS.find(d => d.index === periodCancelDialogLesson.day)?.label || ''}

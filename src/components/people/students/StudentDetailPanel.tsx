@@ -31,6 +31,10 @@ export function StudentDetailPanel({
     onAssign,
     onUnassign
 }: StudentDetailPanelProps) {
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [isUnassignDialogOpen, setIsUnassignDialogOpen] = useState(false);
+    const [pendingUnassignId, setPendingUnassignId] = useState<number | null>(null);
+
     if (!student) {
         return (
             <div className="flex-1 overflow-y-auto bg-background p-6">
@@ -43,10 +47,6 @@ export function StudentDetailPanel({
             </div>
         );
     }
-
-    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-    const [isUnassignDialogOpen, setIsUnassignDialogOpen] = useState(false);
-    const [pendingUnassignId, setPendingUnassignId] = useState<number | null>(null);
 
     const handleUnassignClick = (enrollmentId: number) => {
         setPendingUnassignId(enrollmentId);

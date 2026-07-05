@@ -16,7 +16,6 @@ interface AuthContextType {
     loading: boolean;
     signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
     signOut: () => Promise<void>;
-    signUp: (email: string, password: string, metadata?: { full_name?: string; role?: string }) => Promise<{ error: Error | null }>;
     // PIN Lock related
     isLocked: boolean;
     hasPin: boolean;
@@ -179,26 +178,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setIsLocked(false);
     };
 
-    // 회원가입
-    const signUp = async (
-        email: string,
-        password: string,
-        metadata?: { full_name?: string; role?: string }
-    ) => {
-        try {
-            const { error } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: metadata,
-                },
-            });
-            return { error };
-        } catch (error) {
-            return { error: error as Error };
-        }
-    };
-
     const value: AuthContextType = {
         user,
         session,
@@ -206,7 +185,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         loading,
         signIn,
         signOut,
-        signUp,
         // PIN Lock
         isLocked,
         hasPin,

@@ -61,9 +61,13 @@ export function MakeupDialog({
 
     const loadInstructors = async () => {
         try {
-            // API는 Instructor[] 배열을 직접 반환
-            const data = await window.api.instructors.list({ status: 'active' });
-            setInstructors(data.map((inst: { id: number; name?: string }) => ({
+            const result = await window.api.instructors.list({ status: 'active' });
+            if (!result.success) {
+                toast.error('강사 목록을 불러오지 못했습니다.');
+                return;
+            }
+
+            setInstructors(result.data.map((inst: { id: number; name?: string }) => ({
                 id: inst.id,
                 name: inst.name || ''
             })));
@@ -96,12 +100,16 @@ export function MakeupDialog({
 
         setIsSubmitting(true);
         try {
+            const selectedInstructor = instructors.find((inst) => inst.id === instructorId);
             const result = await window.api.schedules.createMakeup(
                 originalScheduleId,
                 date,
                 startTime,
                 endTime,
-                classroomId
+                classroomId,
+                instructorId || undefined,
+                selectedInstructor?.name || originalInstructor,
+                notes || undefined
             );
             if (result.success) {
                 toast.success('보강 수업이 생성되었습니다.');

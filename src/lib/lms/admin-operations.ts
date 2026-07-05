@@ -145,7 +145,8 @@ async function resetAccountingData(client: LmsAdminClient, academyId: number) {
 }
 
 function csvEscape(value: CsvValue): string {
-    const text = value === null || value === undefined ? '' : String(value);
+    const rawText = value === null || value === undefined ? '' : String(value);
+    const text = /^[=+\-@\t\r]/.test(rawText) ? `'${rawText}` : rawText;
     if (!/[",\r\n]/.test(text)) return text;
     return `"${text.replace(/"/g, '""')}"`;
 }
@@ -228,20 +229,60 @@ export async function buildPayrollExport(options: ExportDateRange, academyId: nu
 async function buildPayrollSection(client: LmsAdminClient, options: ExportDateRange, academyId: number) {
     const { data, error } = await client
         .from('instructor_payments')
-        .select('payment_date, amount, work_hours, period_start, period_end, status, notes, instructors(name)')
+        .select(`
+            payment_date,
+            amount,
+            recipient_name,
+            gross_amount,
+            withholding_type,
+            withholding_rate,
+            withholding_tax,
+            local_tax,
+            net_amount,
+            work_hours,
+            payment_method,
+            period_start,
+            period_end,
+            status,
+            notes,
+            instructors(name)
+        `)
         .eq('academy_id', academyId)
         .gte('payment_date', options.startDate)
         .lte('payment_date', options.endDate)
         .order('payment_date', { ascending: true });
 
     ensureNoError(error, 'Failed to export payroll');
-    return csvSection('Payroll', ['Date', 'Instructor', 'Amount', 'Hours', 'Period Start', 'Period End', 'Status', 'Notes'], (data || []).map((row) => {
+    return csvSection('Payroll', [
+        'Date',
+        'Recipient',
+        'Gross Amount',
+        'Income Tax',
+        'Local Tax',
+        'Net Amount',
+        'Withholding Type',
+        'Withholding Rate',
+        'Hours',
+        'Payment Method',
+        'Period Start',
+        'Period End',
+        'Status',
+        'Notes',
+    ], (data || []).map((row) => {
         const instructor = Array.isArray(row.instructors) ? row.instructors[0] : row.instructors;
+        const grossAmount = row.gross_amount ?? row.amount;
+        const netAmount = row.net_amount ?? row.amount;
         return [
             row.payment_date,
-            instructor?.name,
-            row.amount,
+            row.recipient_name ?? instructor?.name,
+            grossAmount,
+            row.withholding_tax ?? 0,
+            row.local_tax ?? 0,
+            netAmount,
+            row.withholding_type ?? 'none',
+            row.withholding_rate ?? 0,
             row.work_hours,
+            row.payment_method,
             row.period_start,
             row.period_end,
             row.status,
@@ -304,7 +345,7 @@ export async function updateTaxSettingsForAcademy(settings: Record<string, unkno
     for (const entry of entries) {
         const { error } = await client
             .from('settings')
-            .upsert(entry, { onConflict: 'key' });
+            .upsert(entry, { onConflict: 'academy_id,key' });
 
         ensureNoError(error, `Failed to save setting ${entry.key}`);
     }

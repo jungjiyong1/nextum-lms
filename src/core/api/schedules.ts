@@ -1,6 +1,6 @@
 // Schedule APIs - Result Pattern
 import { lmsDb as supabase } from '../supabaseClient';
-import { timeToSlot } from '../utils/time';
+import { slotToTime, timeToSlot } from '../utils/time';
 import type { Result } from './shared/types';
 import { ok, err } from './shared/result';
 import { resetSchedules as resetSchedulesViaAdmin } from './reset';
@@ -13,6 +13,7 @@ interface ScheduleData {
     end_time: string;
     status: string;
     notes?: string | null;
+    classroom_id?: number | null;
 }
 
 export async function createSchedule(data: {
@@ -108,7 +109,7 @@ export async function setSubstituteInstructor(
         .update({
             substitute_instructor_id: substituteInstructorId,
             substitute_instructor_name: substituteInstructorName,
-            status: 'substituted'
+            status: 'substitute'
         })
         .eq('id', scheduleId);
 
@@ -123,19 +124,99 @@ export async function cancelSchedulesByDateRange(
     endDate: string,
     reason?: string
 ): Promise<Result<{ count: number }>> {
-    const { data, error } = await supabase
-        .from('lesson_schedules')
-        .update({
-            status: 'cancelled',
-            cancel_reason: reason ?? null
-        })
+    const { data: rules, error: rulesError } = await supabase
+        .from('lesson_rules')
+        .select('id, day, start_slot, end_slot, start_date, end_date, active')
         .eq('lesson_id', lessonId)
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .select();
+        .eq('active', 1);
 
-    if (error) return err(new Error(error.message));
-    return ok({ count: data?.length ?? 0 });
+    if (rulesError) return err(new Error(rulesError.message));
+
+    const targetOccurrences: Array<{
+        lesson_id: number;
+        rule_id: number;
+        date: string;
+        start_time: string;
+        end_time: string;
+        duration_minutes: number;
+        status: 'cancelled';
+        cancel_reason: string | null;
+    }> = [];
+    const targetDates = new Set<string>();
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+
+    for (const rule of rules || []) {
+        const ruleStart = rule.start_date ? new Date(`${rule.start_date}T00:00:00`) : null;
+        const ruleEnd = rule.end_date ? new Date(`${rule.end_date}T00:00:00`) : null;
+        const current = new Date(start);
+
+        while (current <= end) {
+            const dayOfWeek = (current.getDay() + 6) % 7;
+            if (
+                dayOfWeek === rule.day
+                && (!ruleStart || current >= ruleStart)
+                && (!ruleEnd || current <= ruleEnd)
+            ) {
+                const date = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                targetDates.add(date);
+                targetOccurrences.push({
+                    lesson_id: lessonId,
+                    rule_id: rule.id,
+                    date,
+                    start_time: slotToTime(rule.start_slot),
+                    end_time: slotToTime(rule.end_slot),
+                    duration_minutes: (rule.end_slot - rule.start_slot) * 30,
+                    status: 'cancelled',
+                    cancel_reason: reason ?? null,
+                });
+            }
+            current.setDate(current.getDate() + 1);
+        }
+    }
+
+    if (targetOccurrences.length === 0) {
+        return ok({ count: 0 });
+    }
+
+    const { data: existing, error: existingError } = await supabase
+        .from('lesson_schedules')
+        .select('id, date, start_time, end_time')
+        .eq('lesson_id', lessonId)
+        .in('date', Array.from(targetDates));
+
+    if (existingError) return err(new Error(existingError.message));
+
+    const existingKeys = new Set((existing || []).map((row) => `${row.date}-${row.start_time}-${row.end_time}`));
+    const rowsToCreate = targetOccurrences.filter((row) => !existingKeys.has(`${row.date}-${row.start_time}-${row.end_time}`));
+
+    if (rowsToCreate.length > 0) {
+        const { error: insertError } = await supabase
+            .from('lesson_schedules')
+            .insert(rowsToCreate);
+
+        if (insertError) return err(new Error(insertError.message));
+    }
+
+    let count = 0;
+    for (const occurrence of targetOccurrences) {
+        const { data, error } = await supabase
+            .from('lesson_schedules')
+            .update({
+                status: 'cancelled',
+                cancel_reason: reason ?? null
+            })
+            .eq('lesson_id', lessonId)
+            .eq('date', occurrence.date)
+            .eq('start_time', occurrence.start_time)
+            .eq('end_time', occurrence.end_time)
+            .select();
+
+        if (error) return err(new Error(error.message));
+        count += data?.length ?? 0;
+    }
+
+    return ok({ count });
 }
 
 // Restore a cancelled schedule
@@ -213,17 +294,9 @@ export const schedulesApi = {
         return ok(undefined);
     },
     cancelPeriod: async (lessonId: number, startDate: string, endDate: string, reason?: string): Promise<Result<{ count: number }>> => {
-        const { data, error } = await supabase
-            .from('lesson_schedules')
-            .update({ status: 'cancelled', cancel_reason: reason })
-            .eq('lesson_id', lessonId)
-            .gte('date', startDate)
-            .lte('date', endDate)
-            .select();
-        if (error) return err(new Error(error.message));
-        return ok({ count: data?.length ?? 0 });
+        return cancelSchedulesByDateRange(lessonId, startDate, endDate, reason);
     },
-    createMakeup: async (originalScheduleId: number, newDate: string, startTime: string, endTime: string, _classroomId: number, instructorId?: number, instructorName?: string): Promise<Result<{ schedule: ScheduleData }>> => {
+    createMakeup: async (originalScheduleId: number, newDate: string, startTime: string, endTime: string, classroomId: number, instructorId?: number, instructorName?: string, notes?: string): Promise<Result<{ schedule: ScheduleData }>> => {
         // 원래 스케줄 정보 가져오기
         const { data: orig, error: origError } = await supabase
             .from('lesson_schedules')
@@ -240,9 +313,12 @@ export const schedulesApi = {
                 date: newDate,
                 start_time: startTime,
                 end_time: endTime,
+                duration_minutes: (timeToSlot(endTime) - timeToSlot(startTime)) * 30,
                 status: 'makeup',
+                classroom_id: classroomId,
                 substitute_instructor_id: instructorId,
                 substitute_instructor_name: instructorName,
+                notes: notes ?? null,
             })
             .select()
             .single();

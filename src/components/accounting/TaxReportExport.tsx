@@ -7,6 +7,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
+import { PasswordConfirmDialog } from '../security/PasswordConfirmDialog';
 
 export function TaxReportExport() {
     const exportStart = useAccountingStore((state) => state.exportStart);
@@ -21,6 +22,7 @@ export function TaxReportExport() {
     });
 
     const [isExporting, setIsExporting] = useState(false);
+    const [pendingExport, setPendingExport] = useState<'tax' | 'payroll' | null>(null);
 
     const handleDateChange = (field: 'start' | 'end', value: string) => {
         if (field === 'start') {
@@ -133,13 +135,13 @@ export function TaxReportExport() {
                     <div className="flex gap-3 w-full justify-end">
                         <Button
                             variant="outline"
-                            onClick={handleExportPayroll}
+                            onClick={() => setPendingExport('payroll')}
                             disabled={isExporting}
                         >
                             급여 내역만 내보내기
                         </Button>
                         <Button
-                            onClick={handleExportTax}
+                            onClick={() => setPendingExport('tax')}
                             disabled={isExporting}
                         >
                             {isExporting ? '처리 중...' : '세무 자료 내보내기'}
@@ -150,6 +152,24 @@ export function TaxReportExport() {
                     </p>
                 </CardFooter>
             </Card>
+
+            <PasswordConfirmDialog
+                open={pendingExport !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPendingExport(null);
+                }}
+                title="자료 내보내기"
+                description="세무·급여 자료에는 개인정보와 금액 정보가 포함됩니다. 내보내려면 비밀번호를 다시 확인하세요."
+                confirmLabel="내보내기"
+                onConfirm={async () => {
+                    if (pendingExport === 'tax') {
+                        await handleExportTax();
+                    } else if (pendingExport === 'payroll') {
+                        await handleExportPayroll();
+                    }
+                    setPendingExport(null);
+                }}
+            />
         </div>
     );
 }

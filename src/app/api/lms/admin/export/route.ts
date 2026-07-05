@@ -1,4 +1,4 @@
-import { authErrorResponse, assertLmsAdmin } from '@/lib/lms/auth';
+import { authErrorResponse, assertLmsAdminRequest } from '@/lib/lms/auth';
 import {
     buildPayrollExport,
     buildTaxReportExport,
@@ -12,12 +12,14 @@ function csvResponse(filename: string, csv: string) {
         headers: {
             'Content-Type': 'text/csv; charset=utf-8',
             'Content-Disposition': `attachment; filename="${filename}"`,
+            'Cache-Control': 'no-store',
         },
     });
 }
 
 export async function POST(request: Request) {
     try {
+        const admin = await assertLmsAdminRequest(request, { requireRecentAuth: true });
         const body = await request.json() as {
             type?: 'tax' | 'payroll';
             options?: TaxReportExportOptions | ExportDateRange;
@@ -27,7 +29,6 @@ export async function POST(request: Request) {
             return Response.json({ success: false, error: 'Invalid export request.' }, { status: 400 });
         }
 
-        const admin = await assertLmsAdmin();
         const output = body.type === 'tax'
             ? await buildTaxReportExport(body.options as TaxReportExportOptions, admin.academyId)
             : await buildPayrollExport(body.options as ExportDateRange, admin.academyId);

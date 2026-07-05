@@ -79,12 +79,6 @@ export function PayrollManager() {
             // 예상 급여 데이터 가공
             if (estimateDataResult.success && Array.isArray(estimateDataResult.data)) {
                 const estimateData = estimateDataResult.data;
-                const paidInstructorIds = new Set(
-                    payrolls
-                        .filter(p => p.instructor_id && p.year_month === yearMonth)
-                        .map(p => p.instructor_id)
-                );
-
                 const processedEstimates: InstructorEstimate[] = estimateData.map((est: any) => {
                     const instructorId = est.instructor_id || est.id;
                     const paidRecord = data.find(
@@ -342,27 +336,34 @@ function QuickPayDialog({
 
     const handleSave = async () => {
         setSaving(true);
-        const result = await window.api.accounting.createPayroll({
-            instructor_id: instructor.id,
-            recipient_name: instructor.name,
-            year_month: yearMonth,
-            payment_date: date,
-            gross_amount: gross,
-            withholding_type: withholdingType,
-            hours_worked: instructor.total_hours,
-            hourly_rate: instructor.hourly_rate,
-            payment_method: 'bank_transfer',
-            notes: `${yearMonth} 급여 간편 지급`,
-        });
+        try {
+            const result = await window.api.accounting.createPayroll({
+                instructor_id: instructor.id,
+                recipient_name: instructor.name,
+                year_month: yearMonth,
+                payment_date: date,
+                gross_amount: gross,
+                withholding_type: withholdingType,
+                withholding_rate: preview.taxRate,
+                withholding_tax: preview.incomeTax,
+                local_tax: preview.localTax,
+                net_amount: preview.netAmount,
+                hours_worked: instructor.total_hours,
+                hourly_rate: instructor.hourly_rate,
+                payment_method: 'bank_transfer',
+                notes: `${yearMonth} 급여 간편 지급`,
+            });
 
-        if (result.success) {
-            toast.success(`${instructor.name} 강사 급여가 지급되었습니다.`);
-            onSuccess();
-        } else {
-            console.error(result.error);
-            toast.error('급여 지급에 실패했습니다.');
+            if (result.success) {
+                toast.success(`${instructor.name} 강사 급여가 지급되었습니다.`);
+                onSuccess();
+            } else {
+                console.error(result.error);
+                toast.error('급여 지급에 실패했습니다.');
+            }
+        } finally {
+            setSaving(false);
         }
-        setSaving(false);
     };
 
     return (
@@ -541,6 +542,10 @@ function PayrollDialog({ open, onOpenChange, onSuccess }: { open: boolean; onOpe
             payment_date: date,
             gross_amount: grossVal,
             withholding_type: withholdingType,
+            withholding_rate: preview.taxRate,
+            withholding_tax: preview.incomeTax,
+            local_tax: preview.localTax,
+            net_amount: preview.netAmount,
             hours_worked: parseFloat(hours) || null,
             hourly_rate: parseFloat(rate) || null,
             payment_method: method,

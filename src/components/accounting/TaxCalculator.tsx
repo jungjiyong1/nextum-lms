@@ -9,6 +9,7 @@ import { Label } from '../ui/label';
 import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import { Button } from '../ui/button';
+import { PasswordConfirmDialog } from '../security/PasswordConfirmDialog';
 
 interface IncomeTaxResult {
     grossIncome: number;
@@ -64,6 +65,7 @@ export function TaxCalculator() {
     const [incomeStatement, setIncomeStatement] = useState<IncomeStatement | null>(null);
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
+    const [confirmSaveOpen, setConfirmSaveOpen] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -332,7 +334,7 @@ export function TaxCalculator() {
                                     />
                                 </div>
                                 <div className="pt-2">
-                                    <Button className="w-full" onClick={handleSaveSettings}>설정 저장</Button>
+                                    <Button className="w-full" onClick={() => setConfirmSaveOpen(true)}>설정 저장</Button>
                                 </div>
                             </CardContent>
                         </Card>
@@ -439,6 +441,15 @@ export function TaxCalculator() {
                     </div>
                 </TabsContent>
             </Tabs>
+
+            <PasswordConfirmDialog
+                open={confirmSaveOpen}
+                onOpenChange={setConfirmSaveOpen}
+                title="세금 설정 저장"
+                description="세금 설정은 민감한 관리자 설정입니다. 저장하려면 비밀번호를 다시 확인하세요."
+                confirmLabel="저장"
+                onConfirm={handleSaveSettings}
+            />
         </div>
     );
 }

@@ -116,6 +116,7 @@ export interface ScheduleWithLessonRow {
     end_time: string;
     status: string;
     notes: string | null;
+    classroom_id: number | null;
     substitute_instructor_id: number | null;
     substitute_instructor_name: string | null;
     cancel_reason: string | null;
@@ -225,4 +226,3 @@ export interface PaymentRow {
     status: string;
     notes: string | null;
 }
-

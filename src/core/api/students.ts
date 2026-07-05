@@ -6,6 +6,8 @@ import { ok, err } from './shared/result';
 import { listStudentsFromCoreProjection, mapLegacyStudent } from './directoryAdapters';
 import { resetStudents as resetStudentsViaAdmin } from './reset';
 
+const COMPLETED_PAYMENT_STATUSES = ['paid', 'completed'] as const;
+
 async function tryListStudentsFromCore(filter?: { status?: string; search?: string }): Promise<Student[] | null> {
     try {
         return await listStudentsFromCoreProjection(filter);
@@ -228,7 +230,7 @@ export const studentsApi = {
             .select('student_id')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .eq('status', 'completed');
+            .in('status', COMPLETED_PAYMENT_STATUSES);
 
         if (paymentsError) return err(new Error(paymentsError.message));
 
