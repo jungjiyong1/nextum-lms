@@ -3,9 +3,12 @@ import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
+type SchemaClient = ReturnType<LmsAdminClient['schema']>;
+type Row = Record<string, any>;
 
 export type ResetTarget =
     | 'classrooms'
+    | 'classes'
     | 'lessons'
     | 'schedules'
     | 'students'
@@ -35,22 +38,12 @@ function ensureNoError(error: { message?: string } | null, context: string) {
     }
 }
 
-async function selectIds(
-    client: LmsAdminClient,
-    table: string,
-    academyId: number,
-): Promise<number[]> {
-    const { data, error } = await client
-        .from(table)
-        .select('id')
-        .eq('academy_id', academyId);
-
-    ensureNoError(error, `Failed to select ${table}`);
-    return (data || []).map((row) => Number(row.id)).filter(Number.isFinite);
+function schema(client: LmsAdminClient, name: 'core' | 'lms') {
+    return client.schema(name);
 }
 
-async function deleteByAcademy(client: LmsAdminClient, table: string, academyId: number) {
-    const { error } = await client
+async function deleteByAcademy(db: SchemaClient, table: string, academyId: string) {
+    const { error } = await db
         .from(table)
         .delete()
         .eq('academy_id', academyId);
@@ -58,90 +51,75 @@ async function deleteByAcademy(client: LmsAdminClient, table: string, academyId:
     ensureNoError(error, `Failed to reset ${table}`);
 }
 
-async function deleteByIds(client: LmsAdminClient, table: string, column: string, ids: number[]) {
-    if (ids.length === 0) return;
-
-    const { error } = await client
-        .from(table)
-        .delete()
-        .in(column, ids);
-
-    ensureNoError(error, `Failed to reset ${table}`);
+async function resetSchedules(client: LmsAdminClient, academyId: string) {
+    const lms = schema(client, 'lms');
+    await deleteByAcademy(lms, 'attendance_records', academyId);
+    await deleteByAcademy(lms, 'lesson_occurrences', academyId);
+    await deleteByAcademy(lms, 'class_schedule_rules', academyId);
 }
 
-async function lessonIds(client: LmsAdminClient, academyId: number) {
-    return selectIds(client, 'lessons', academyId);
+async function resetClasses(client: LmsAdminClient, academyId: string) {
+    await resetSchedules(client, academyId);
+    await deleteByAcademy(schema(client, 'lms'), 'class_profiles', academyId);
+    await deleteByAcademy(schema(client, 'core'), 'classes', academyId);
 }
 
-async function transactionIds(client: LmsAdminClient, academyId: number) {
-    return selectIds(client, 'transactions', academyId);
+async function resetStudents(client: LmsAdminClient, academyId: string) {
+    const lms = schema(client, 'lms');
+    const core = schema(client, 'core');
+    await deleteByAcademy(lms, 'payments', academyId);
+    await deleteByAcademy(lms, 'invoices', academyId);
+    await deleteByAcademy(lms, 'student_billing_contracts', academyId);
+    await deleteByAcademy(core, 'students', academyId);
 }
 
-async function resetSchedulesForAcademy(client: LmsAdminClient, academyId: number) {
-    await deleteByIds(client, 'lesson_schedules', 'lesson_id', await lessonIds(client, academyId));
+async function resetAccountingData(client: LmsAdminClient, academyId: string) {
+    const lms = schema(client, 'lms');
+    await deleteByAcademy(lms, 'payments', academyId);
+    await deleteByAcademy(lms, 'invoices', academyId);
+    await deleteByAcademy(lms, 'expenses', academyId);
+    await deleteByAcademy(lms, 'instructor_payments', academyId);
 }
 
-async function resetLessonRulesForAcademy(client: LmsAdminClient, academyId: number) {
-    await deleteByIds(client, 'lesson_rules', 'lesson_id', await lessonIds(client, academyId));
-}
-
-export async function resetLmsData(target: ResetTarget, academyId: number) {
+export async function resetLmsData(target: ResetTarget, academyId: string) {
     const client = createAdminClient();
 
     switch (target) {
         case 'classrooms':
-            await deleteByAcademy(client, 'classrooms', academyId);
+            await deleteByAcademy(schema(client, 'lms'), 'classrooms', academyId);
             return;
+        case 'classes':
         case 'lessons':
-            await resetSchedulesForAcademy(client, academyId);
-            await resetLessonRulesForAcademy(client, academyId);
-            await deleteByAcademy(client, 'enrollments', academyId);
-            await deleteByAcademy(client, 'lessons', academyId);
+        case 'enrollments':
+            await resetClasses(client, academyId);
             return;
         case 'schedules':
-            await resetSchedulesForAcademy(client, academyId);
+            await resetSchedules(client, academyId);
             return;
         case 'students':
-            await deleteByAcademy(client, 'student_payments', academyId);
-            await deleteByAcademy(client, 'enrollments', academyId);
-            await deleteByAcademy(client, 'students', academyId);
+            await resetStudents(client, academyId);
             return;
         case 'instructors':
-            await deleteByAcademy(client, 'instructors', academyId);
+            await deleteByAcademy(schema(client, 'core'), 'staff_members', academyId);
             return;
         case 'courses':
-            await deleteByAcademy(client, 'courses', academyId);
-            return;
-        case 'enrollments':
-            await deleteByAcademy(client, 'enrollments', academyId);
+            await deleteByAcademy(schema(client, 'lms'), 'courses', academyId);
             return;
         case 'accounting':
             await resetAccountingData(client, academyId);
             return;
         case 'all':
             await resetAccountingData(client, academyId);
-            await deleteByAcademy(client, 'enrollments', academyId);
-            await resetSchedulesForAcademy(client, academyId);
-            await resetLessonRulesForAcademy(client, academyId);
-            await deleteByAcademy(client, 'lessons', academyId);
-            await deleteByAcademy(client, 'classrooms', academyId);
-            await deleteByAcademy(client, 'students', academyId);
-            await deleteByAcademy(client, 'instructors', academyId);
-            await deleteByAcademy(client, 'courses', academyId);
+            await resetClasses(client, academyId);
+            await resetStudents(client, academyId);
+            await deleteByAcademy(schema(client, 'core'), 'staff_members', academyId);
+            await deleteByAcademy(schema(client, 'lms'), 'classrooms', academyId);
+            await deleteByAcademy(schema(client, 'lms'), 'courses', academyId);
             return;
         default:
             target satisfies never;
             throw new Error('Unsupported reset target.');
     }
-}
-
-async function resetAccountingData(client: LmsAdminClient, academyId: number) {
-    await deleteByIds(client, 'transaction_lines', 'transaction_id', await transactionIds(client, academyId));
-    await deleteByAcademy(client, 'transactions', academyId);
-    await deleteByAcademy(client, 'student_payments', academyId);
-    await deleteByAcademy(client, 'instructor_payments', academyId);
-    await deleteByAcademy(client, 'expenses', academyId);
-    await deleteByAcademy(client, 'other_income', academyId);
 }
 
 function csvEscape(value: CsvValue): string {
@@ -163,24 +141,66 @@ function dateRangeLabel({ startDate, endDate }: ExportDateRange): string {
     return `${startDate}_${endDate}`.replace(/[^0-9_-]/g, '');
 }
 
-export async function buildTaxReportExport(options: TaxReportExportOptions, academyId: number) {
+async function peopleNames(core: SchemaClient, peopleIds: string[]) {
+    const ids = [...new Set(peopleIds.filter(Boolean))];
+    if (ids.length === 0) return new Map<string, string>();
+
+    const { data, error } = await core
+        .from('people')
+        .select('id,full_name,display_name')
+        .in('id', ids);
+    ensureNoError(error, 'Failed to load people names');
+
+    return new Map((data || []).map((row: Row) => [row.id, row.display_name || row.full_name || '']));
+}
+
+async function studentNameMap(client: LmsAdminClient, academyId: string) {
+    const core = schema(client, 'core');
+    const { data, error } = await core
+        .from('students')
+        .select('id,person_id')
+        .eq('academy_id', academyId);
+    ensureNoError(error, 'Failed to load students');
+
+    const names = await peopleNames(core, (data || []).map((row: Row) => row.person_id));
+    return new Map((data || []).map((row: Row) => [row.id, names.get(row.person_id) || '']));
+}
+
+async function staffNameMap(client: LmsAdminClient, academyId: string) {
+    const core = schema(client, 'core');
+    const { data, error } = await core
+        .from('staff_members')
+        .select('id,person_id')
+        .eq('academy_id', academyId);
+    ensureNoError(error, 'Failed to load staff');
+
+    const names = await peopleNames(core, (data || []).map((row: Row) => row.person_id));
+    return new Map((data || []).map((row: Row) => [row.id, names.get(row.person_id) || '']));
+}
+
+export async function buildTaxReportExport(options: TaxReportExportOptions, academyId: string) {
     const client = createAdminClient();
     const sections: string[] = [];
 
     if (options.includeRevenue) {
-        const { data, error } = await client
-            .from('student_payments')
-            .select('payment_date, amount, payment_method, status, notes, students(name)')
+        const { data, error } = await schema(client, 'lms')
+            .from('payments')
+            .select('payment_date, student_id, amount, payment_method, status, notes')
             .eq('academy_id', academyId)
             .gte('payment_date', options.startDate)
             .lte('payment_date', options.endDate)
             .order('payment_date', { ascending: true });
 
         ensureNoError(error, 'Failed to export revenue');
-        sections.push(csvSection('Revenue', ['Date', 'Student', 'Amount', 'Method', 'Status', 'Notes'], (data || []).map((row) => {
-            const student = Array.isArray(row.students) ? row.students[0] : row.students;
-            return [row.payment_date, student?.name, row.amount, row.payment_method, row.status, row.notes];
-        })));
+        const names = await studentNameMap(client, academyId);
+        sections.push(csvSection('Revenue', ['Date', 'Student', 'Amount', 'Method', 'Status', 'Notes'], (data || []).map((row: Row) => [
+            row.payment_date,
+            names.get(row.student_id),
+            row.amount,
+            row.payment_method,
+            row.status,
+            row.notes,
+        ])));
     }
 
     if (options.includePayroll) {
@@ -188,7 +208,7 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
     }
 
     if (options.includeExpenses) {
-        const { data, error } = await client
+        const { data, error } = await schema(client, 'lms')
             .from('expenses')
             .select('expense_date, category, amount, payment_method, recipient, description, notes')
             .eq('academy_id', academyId)
@@ -197,7 +217,7 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
             .order('expense_date', { ascending: true });
 
         ensureNoError(error, 'Failed to export expenses');
-        sections.push(csvSection('Expenses', ['Date', 'Category', 'Amount', 'Method', 'Recipient', 'Description', 'Notes'], (data || []).map((row) => [
+        sections.push(csvSection('Expenses', ['Date', 'Category', 'Amount', 'Method', 'Recipient', 'Description', 'Notes'], (data || []).map((row: Row) => [
             row.expense_date,
             row.category,
             row.amount,
@@ -218,7 +238,7 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
     };
 }
 
-export async function buildPayrollExport(options: ExportDateRange, academyId: number) {
+export async function buildPayrollExport(options: ExportDateRange, academyId: string) {
     const client = createAdminClient();
     return {
         filename: `nextum-lms-payroll-${dateRangeLabel(options)}.csv`,
@@ -226,12 +246,12 @@ export async function buildPayrollExport(options: ExportDateRange, academyId: nu
     };
 }
 
-async function buildPayrollSection(client: LmsAdminClient, options: ExportDateRange, academyId: number) {
-    const { data, error } = await client
+async function buildPayrollSection(client: LmsAdminClient, options: ExportDateRange, academyId: string) {
+    const { data, error } = await schema(client, 'lms')
         .from('instructor_payments')
         .select(`
             payment_date,
-            amount,
+            instructor_id,
             recipient_name,
             gross_amount,
             withholding_type,
@@ -239,13 +259,11 @@ async function buildPayrollSection(client: LmsAdminClient, options: ExportDateRa
             withholding_tax,
             local_tax,
             net_amount,
-            work_hours,
+            hours_worked,
             payment_method,
-            period_start,
-            period_end,
+            service_month,
             status,
-            notes,
-            instructors(name)
+            notes
         `)
         .eq('academy_id', academyId)
         .gte('payment_date', options.startDate)
@@ -253,6 +271,7 @@ async function buildPayrollSection(client: LmsAdminClient, options: ExportDateRa
         .order('payment_date', { ascending: true });
 
     ensureNoError(error, 'Failed to export payroll');
+    const names = await staffNameMap(client, academyId);
     return csvSection('Payroll', [
         'Date',
         'Recipient',
@@ -264,77 +283,72 @@ async function buildPayrollSection(client: LmsAdminClient, options: ExportDateRa
         'Withholding Rate',
         'Hours',
         'Payment Method',
-        'Period Start',
-        'Period End',
+        'Service Month',
         'Status',
         'Notes',
-    ], (data || []).map((row) => {
-        const instructor = Array.isArray(row.instructors) ? row.instructors[0] : row.instructors;
-        const grossAmount = row.gross_amount ?? row.amount;
-        const netAmount = row.net_amount ?? row.amount;
-        return [
-            row.payment_date,
-            row.recipient_name ?? instructor?.name,
-            grossAmount,
-            row.withholding_tax ?? 0,
-            row.local_tax ?? 0,
-            netAmount,
-            row.withholding_type ?? 'none',
-            row.withholding_rate ?? 0,
-            row.work_hours,
-            row.payment_method,
-            row.period_start,
-            row.period_end,
-            row.status,
-            row.notes,
-        ];
-    }));
+    ], (data || []).map((row: Row) => [
+        row.payment_date,
+        row.recipient_name ?? names.get(row.instructor_id),
+        row.gross_amount,
+        row.withholding_tax ?? 0,
+        row.local_tax ?? 0,
+        row.net_amount,
+        row.withholding_type ?? 'none',
+        row.withholding_rate ?? 0,
+        row.hours_worked,
+        row.payment_method,
+        row.service_month,
+        row.status,
+        row.notes,
+    ]));
 }
 
-async function buildProfitLossSection(client: LmsAdminClient, options: ExportDateRange, academyId: number) {
-    const [tuition, expenses, payroll] = await Promise.all([
-        client
-            .from('student_payments')
+async function buildProfitLossSection(client: LmsAdminClient, options: ExportDateRange, academyId: string) {
+    const lms = schema(client, 'lms');
+    const [payments, expenses, payroll] = await Promise.all([
+        lms
+            .from('payments')
             .select('amount')
             .eq('academy_id', academyId)
             .gte('payment_date', options.startDate)
             .lte('payment_date', options.endDate)
-            .in('status', ['paid', 'completed']),
-        client
+            .eq('status', 'completed'),
+        lms
             .from('expenses')
             .select('amount')
             .eq('academy_id', academyId)
             .gte('expense_date', options.startDate)
             .lte('expense_date', options.endDate),
-        client
+        lms
             .from('instructor_payments')
-            .select('amount')
+            .select('gross_amount')
             .eq('academy_id', academyId)
             .gte('payment_date', options.startDate)
-            .lte('payment_date', options.endDate),
+            .lte('payment_date', options.endDate)
+            .eq('status', 'paid'),
     ]);
 
-    ensureNoError(tuition.error, 'Failed to export tuition summary');
+    ensureNoError(payments.error, 'Failed to export tuition summary');
     ensureNoError(expenses.error, 'Failed to export expense summary');
     ensureNoError(payroll.error, 'Failed to export payroll summary');
 
-    const tuitionIncome = (tuition.data || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    const otherExpenses = (expenses.data || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    const instructorSalary = (payroll.data || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const tuitionIncome = (payments.data || []).reduce((sum: number, row: Row) => sum + Number(row.amount || 0), 0);
+    const otherExpenses = (expenses.data || []).reduce((sum: number, row: Row) => sum + Number(row.amount || 0), 0);
+    const instructorSalary = (payroll.data || []).reduce((sum: number, row: Row) => sum + Number(row.gross_amount || 0), 0);
     const totalExpenses = otherExpenses + instructorSalary;
 
     return csvSection('Profit And Loss', ['Metric', 'Amount'], [
         ['Tuition income', tuitionIncome],
         ['Other income', 0],
         ['Total income', tuitionIncome],
-        ['Instructor salary', instructorSalary],
+        ['Instructor salary gross', instructorSalary],
         ['Other expenses', otherExpenses],
         ['Total expenses', totalExpenses],
         ['Net income', tuitionIncome - totalExpenses],
     ]);
 }
 
-export async function updateTaxSettingsForAcademy(settings: Record<string, unknown>, academyId: number) {
+export async function updateTaxSettingsForAcademy(settings: Record<string, unknown>, academyId: string) {
     const client = createAdminClient();
     const entries = Object.entries(settings).map(([key, value]) => ({
         key: `tax_${key}`,
@@ -343,7 +357,7 @@ export async function updateTaxSettingsForAcademy(settings: Record<string, unkno
     }));
 
     for (const entry of entries) {
-        const { error } = await client
+        const { error } = await schema(client, 'lms')
             .from('settings')
             .upsert(entry, { onConflict: 'academy_id,key' });
 

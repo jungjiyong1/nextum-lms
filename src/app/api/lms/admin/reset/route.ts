@@ -3,6 +3,7 @@ import { resetLmsData, type ResetTarget } from '@/lib/lms/admin-operations';
 
 const resetTargets = new Set<ResetTarget>([
     'classrooms',
+    'classes',
     'lessons',
     'schedules',
     'students',

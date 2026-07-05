@@ -15,19 +15,12 @@ export class LmsAuthError extends Error {
 
 export interface LmsAdminContext {
     userId: string;
-    academyId: number;
+    academyId: string;
     role: 'admin' | 'owner';
     authIssuedAt: number | null;
 }
 
-function normalizeAcademyId(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string' && value.trim() !== '') {
-        const parsed = Number(value);
-        if (Number.isFinite(parsed)) return parsed;
-    }
-    return null;
-}
+type Row = Record<string, any>;
 
 function isAdminRole(value: unknown): value is 'admin' | 'owner' {
     return value === 'admin' || value === 'owner';
@@ -54,58 +47,54 @@ export async function assertLmsAdmin(): Promise<LmsAdminContext> {
     }
 
     const admin = createAdminClient();
+    const core = admin.schema('core');
 
-    const { data: profile, error: profileError } = await admin
-        .from('profiles')
-        .select('current_academy_id')
-        .eq('id', userId)
+    const { data: account, error: accountError } = await core
+        .from('user_accounts')
+        .select('id,person_id,status')
+        .eq('auth_user_id', userId)
         .maybeSingle();
 
-    if (profileError) {
-        throw profileError;
+    if (accountError) throw accountError;
+    if (!account || account.status !== 'active') {
+        throw new LmsAuthError('Active LMS account is required.', 403);
     }
 
-    const profileAcademyId = normalizeAcademyId(profile?.current_academy_id);
-
-    let memberQuery = admin
+    const accountRow = account as Row;
+    const { data: member, error: memberError } = await core
         .from('academy_members')
-        .select('academy_id, role, active')
-        .eq('user_id', userId)
+        .select('academy_id,role,active')
+        .eq('user_account_id', accountRow.id)
         .eq('active', true)
         .in('role', ['owner', 'admin'])
-        .limit(1);
-
-    if (profileAcademyId) {
-        memberQuery = memberQuery.eq('academy_id', profileAcademyId);
-    }
-
-    let { data: member, error: memberError } = await memberQuery
+        .limit(1)
         .maybeSingle();
 
-    if (memberError) {
-        throw memberError;
-    }
-
-    if (!member && profileAcademyId) {
-        const fallback = await admin
-            .from('academy_members')
-            .select('academy_id, role, active')
-            .eq('user_id', userId)
-            .eq('active', true)
-            .in('role', ['owner', 'admin'])
-            .limit(1)
-            .maybeSingle();
-
-        if (fallback.error) throw fallback.error;
-        member = fallback.data;
-    }
-
-    const memberAcademyId = normalizeAcademyId(member?.academy_id);
-    if (memberAcademyId && isAdminRole(member?.role)) {
+    if (memberError) throw memberError;
+    if (member?.academy_id && isAdminRole(member.role)) {
         return {
             userId,
-            academyId: memberAcademyId,
+            academyId: member.academy_id,
             role: member.role,
+            authIssuedAt: getNumberClaim(claims, 'iat'),
+        };
+    }
+
+    const { data: personMember, error: personMemberError } = await core
+        .from('academy_members')
+        .select('academy_id,role,active')
+        .eq('person_id', accountRow.person_id)
+        .eq('active', true)
+        .in('role', ['owner', 'admin'])
+        .limit(1)
+        .maybeSingle();
+
+    if (personMemberError) throw personMemberError;
+    if (personMember?.academy_id && isAdminRole(personMember.role)) {
+        return {
+            userId,
+            academyId: personMember.academy_id,
+            role: personMember.role,
             authIssuedAt: getNumberClaim(claims, 'iat'),
         };
     }
