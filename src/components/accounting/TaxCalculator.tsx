@@ -52,6 +52,27 @@ interface IncomeStatement {
     withReceiptExpenses: number;
 }
 
+type TaxSettingValue = string | number;
+
+function categoryRows(value: unknown): Array<{ category: string; amount: number }> {
+    if (!Array.isArray(value)) return [];
+
+    return value.flatMap((row) => {
+        if (!row || typeof row !== 'object') return [];
+        const item = row as { category?: unknown; amount?: unknown };
+        return [{
+            category: typeof item.category === 'string' ? item.category : 'other',
+            amount: Number(item.amount || 0),
+        }];
+    });
+}
+
+function stringSettings(values: Record<string, TaxSettingValue>): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [key, String(value ?? '')]),
+    );
+}
+
 export function TaxCalculator() {
     const yearMonth = useAccountingStore((state) => state.yearMonth);
     const taxYear = useAccountingStore((state) => state.taxYear);
@@ -63,13 +84,12 @@ export function TaxCalculator() {
     const [withholdingSummary, setWithholdingSummary] = useState<WithholdingSummary | null>(null);
     const [vatSummary, setVatSummary] = useState<VatSummary | null>(null);
     const [incomeStatement, setIncomeStatement] = useState<IncomeStatement | null>(null);
-    const [settings, setSettings] = useState<Record<string, string>>({});
+    const [settings, setSettings] = useState<Record<string, TaxSettingValue>>({});
     const [loading, setLoading] = useState(false);
     const [confirmSaveOpen, setConfirmSaveOpen] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
-        // @ts-ignore
         const api = window.api;
 
         // Date calculations for Monthly Income Statement
@@ -95,8 +115,8 @@ export function TaxCalculator() {
             const stmt = incomeStmtResult.data || {};
             setIncomeStatement({
                 ...stmt,
-                otherIncomeByCategory: stmt.otherIncomeByCategory || [],
-                expensesByCategory: stmt.expensesByCategory || [],
+                otherIncomeByCategory: categoryRows(stmt.otherIncomeByCategory),
+                expensesByCategory: categoryRows(stmt.expensesByCategory),
             });
         }
 
@@ -117,8 +137,7 @@ export function TaxCalculator() {
     }, [loadData]);
 
     const handleSaveSettings = async () => {
-        // @ts-ignore
-        const result = await window.api.accounting.updateTaxSettings(settings);
+        const result = await window.api.accounting.updateTaxSettings(stringSettings(settings));
         if (result.success) {
             toast.success('설정이 저장되었습니다.');
             emitDataChange('accounting');
@@ -286,7 +305,7 @@ export function TaxCalculator() {
                                 <div className="space-y-2">
                                     <Label>사업자 유형</Label>
                                     <Select
-                                        value={settings.business_type}
+                                        value={String(settings.business_type || 'sole_proprietor')}
                                         onValueChange={v => setSettings({ ...settings, business_type: v })}
                                     >
                                         <SelectTrigger><SelectValue /></SelectTrigger>
@@ -299,7 +318,7 @@ export function TaxCalculator() {
                                 <div className="space-y-2">
                                     <Label>과세 유형</Label>
                                     <Select
-                                        value={settings.tax_type}
+                                        value={String(settings.tax_type || 'exempt')}
                                         onValueChange={v => setSettings({ ...settings, tax_type: v })}
                                     >
                                         <SelectTrigger><SelectValue /></SelectTrigger>
@@ -313,7 +332,7 @@ export function TaxCalculator() {
                                 <div className="space-y-2">
                                     <Label>기본 원천징수</Label>
                                     <Select
-                                        value={settings.default_withholding}
+                                        value={String(settings.default_withholding || 'freelance_3.3')}
                                         onValueChange={v => setSettings({ ...settings, default_withholding: v })}
                                     >
                                         <SelectTrigger><SelectValue /></SelectTrigger>

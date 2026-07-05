@@ -96,7 +96,15 @@ function ExpenseTrackerWrapper({ yearMonth }: { yearMonth: string }) {
             expenses={expenses}
             yearMonth={yearMonth}
             onAddExpense={async (data) => {
-                const result = await window.api.accounting.createExpense(data);
+                const result = await window.api.accounting.createExpense({
+                    expense_date: data.expense_date,
+                    category: data.category,
+                    amount: data.amount,
+                    payment_method: data.payment_method ?? undefined,
+                    recipient: data.recipient ?? undefined,
+                    description: data.description ?? undefined,
+                    notes: data.notes ?? undefined,
+                });
                 if ((result as any).success) {
                     loadExpenses();
                     emitDataChange('accounting');

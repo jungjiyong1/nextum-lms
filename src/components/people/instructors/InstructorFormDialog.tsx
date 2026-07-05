@@ -69,7 +69,7 @@ export function InstructorFormDialog({ open, onOpenChange, instructor, onSuccess
                 onSuccess();
                 emitDataChange('instructors');
             } else {
-                toast.error(res.error || '실패');
+                toast.error(res.error instanceof Error ? res.error.message : '실패');
             }
         } catch (error) {
             toast.error('오류 발생');

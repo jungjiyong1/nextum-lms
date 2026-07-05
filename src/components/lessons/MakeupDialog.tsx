@@ -116,7 +116,7 @@ export function MakeupDialog({
                 onOpenChange(false);
                 onSuccess?.();
             } else {
-                toast.error(result.error || '보강 생성에 실패했습니다.');
+                toast.error(result.error instanceof Error ? result.error.message : '보강 생성에 실패했습니다.');
             }
         } catch (error) {
             console.error('Failed to create makeup:', error);

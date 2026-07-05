@@ -4,6 +4,12 @@ import { emitDataChange, onDataChange } from '../../../core/events';
 import * as api from '../../../core/api';
 import type { Student, Enrollment, StudentPayment as Payment, IrregularLessonSchedule } from '../../../core/types';
 
+function apiErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string' && error) return error;
+    return fallback;
+}
+
 // State Interfaces
 interface StudentsState {
     students: Student[];
@@ -75,8 +81,8 @@ export function useStudents(options: UseStudentsOptions = {}) {
             api.listIrregularLessonsByStudent(studentId)
         ]);
 
-        const enrollmentsData = enrollmentsResult.success ? enrollmentsResult.data : [];
-        const paymentsData = paymentsResult.success ? paymentsResult.data : [];
+        const enrollmentsData = enrollmentsResult.success ? enrollmentsResult.data as Enrollment[] : [];
+        const paymentsData = paymentsResult.success ? paymentsResult.data as Payment[] : [];
         const irregularData = irregularResult.success ? irregularResult.data : [];
 
         setExtras({
@@ -95,7 +101,7 @@ export function useStudents(options: UseStudentsOptions = {}) {
                 emitDataChange('students');
                 return true;
             } else {
-                toast.error(res.error || '추가 실패');
+                toast.error(apiErrorMessage(res.error, '추가 실패'));
                 return false;
             }
         } catch (e) {
@@ -117,7 +123,7 @@ export function useStudents(options: UseStudentsOptions = {}) {
                 }
                 return true;
             } else {
-                toast.error(res.error || '수정 실패');
+                toast.error(apiErrorMessage(res.error, '수정 실패'));
                 return false;
             }
         } catch (e) {
@@ -136,7 +142,7 @@ export function useStudents(options: UseStudentsOptions = {}) {
                 if (selectedStudent?.id === id) setSelectedStudent(null);
                 return true;
             } else {
-                toast.error(res.error || '삭제 실패');
+                toast.error(apiErrorMessage(res.error, '삭제 실패'));
                 return false;
             }
         } catch (e) {
@@ -154,7 +160,7 @@ export function useStudents(options: UseStudentsOptions = {}) {
                 emitDataChange('enrollments');
                 if (selectedStudent) loadStudentExtras(selectedStudent.id);
             } else {
-                toast.error(res.error);
+                toast.error(apiErrorMessage(res.error, '수강 해제 실패'));
             }
         } catch (e) {
             toast.error('오류 발생');

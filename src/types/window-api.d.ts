@@ -1,6 +1,8 @@
+import type { supabaseApi } from '../core/api';
+
 declare global {
     interface Window {
-        api: any;
+        api: typeof supabaseApi;
     }
 }
 
