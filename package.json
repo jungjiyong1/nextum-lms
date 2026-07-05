@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "db:check": "node scripts/check-lms-db-health.mjs",
     "db:backup-content": "node scripts/backup-grade-content.mjs",
+    "db:backup-preservation": "node scripts/backup-nextum-data-preservation.mjs",
     "seed:dev-admin": "node scripts/seed-lms-dev-admin.mjs"
   },
   "dependencies": {

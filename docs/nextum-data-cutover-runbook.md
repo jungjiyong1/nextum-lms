@@ -41,17 +41,21 @@
 | 파일 | `storage.objects` | 1594 | 반드시 보존 |
 | 인증 | `auth.users` | 4 | 운영 계정/학생 계정 여부 확인 후 보존 또는 재생성 |
 | 핵심 | `core.academies` | 2 | 반드시 검토 후 보존 |
+| 핵심 | `core.user_accounts` | 4 | Auth 계정 연결 보존 후보 |
+| 핵심 | `core.academy_members` | 6 | 학원별 권한 연결 보존 후보 |
 | 핵심 | `core.people` | 8 | 반드시 보존 후보 |
 | 핵심 | `core.students` | 4 | 반드시 보존 후보 |
 | 핵심 | `core.staff_members` | 4 | 반드시 보존 후보 |
 | 핵심 | `core.classes` | 1 | 반드시 보존 후보 |
 | 핵심 | `core.class_students` | 2 | 반드시 보존 후보 |
 | 핵심 | `core.class_books` | 3 | 반드시 보존 후보 |
+| 핵심 | `core.user_security_settings` | 2 | PIN/세션 설정 보존 후보 |
 | 학습 | `learning.sessions` | 10 | grade-app 채점 흐름 보존 후보 |
 | 학습 | `learning.attempts` | 105 | 반드시 보존 후보 |
 | 학습 | `learning.wrong_notes` | 0 | 현재 보존 부담 낮음 |
 | AI | `ai.conversations` | 0 | 현재 보존 부담 낮음 |
 | AI | `ai.messages` | 0 | 현재 보존 부담 낮음 |
+| AI | `ai.attachments` | 0 | 현재 비어 있음. REST grant가 없어 백업 스크립트에서는 경고 발생 |
 | 이벤트 | `data.events` | 0 | 현재 보존 부담 낮음 |
 | 구 LMS | `lms.academies` | 1 | seed/호환 데이터로 보임, 이관 또는 재생성 |
 | 구 LMS | `lms.academy_members` | 1 | seed/호환 데이터로 보임, 이관 또는 재생성 |
@@ -103,12 +107,21 @@
 ```bash
 npm run db:backup-content -- --dry-run
 npm run db:backup-content
+npm run db:backup-preservation -- --dry-run
+npm run db:backup-preservation
 npm run db:check
 npm run typecheck
 npm test -- --run
 npm run lint
 npm run build
 ```
+
+`db:backup-preservation` exports the broader cutover payload: `core`, `content`, `learning`, `ai`, `data`, legacy `lms` tables, and a Storage manifest. Use `--include-storage-files` when the actual Storage object contents also need to be copied to `backups/`.
+
+현재 `db:backup-preservation -- --dry-run`에서 확인된 경고:
+
+- `content.import_batches`: 현재 원격 DB에 없는 선택 테이블이다.
+- `ai.attachments`: 현재 0행이지만 REST/Data API grant가 없어 선택 백업에서 permission 경고가 난다. baseline 적용 시 `service_role` grant를 포함해야 한다.
 
 `db:check`는 현재 원격 `nextum-data`에서 실패하는 것이 정상이다. 이 명령이 통과하기 전까지는 DB 전환이 끝난 것이 아니다.
 

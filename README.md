@@ -64,6 +64,7 @@ npm run lint
 npm run typecheck
 npm run db:check
 npm run db:backup-content -- --dry-run
+npm run db:backup-preservation -- --dry-run
 npm test -- --run
 $env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin
 ```
@@ -105,9 +106,13 @@ Before applying the clean baseline to `nextum-data`, export grade-app content da
 ```bash
 npm run db:backup-content -- --dry-run
 npm run db:backup-content
+npm run db:backup-preservation -- --dry-run
+npm run db:backup-preservation
 ```
 
 The backup command is read-only against Supabase. It writes `content.books`, `content.units`, `content.concepts`, `content.problem_types`, `content.problems`, and available optional content tables to `backups/`, which is intentionally ignored by git.
+
+`db:backup-preservation` is the broader cutover backup. It exports `core`, `content`, `learning`, `ai`, `data`, legacy `lms` tables, and a Supabase Storage manifest. Add `--include-storage-files` only when you also want to download Storage object contents into `backups/`.
 
 The current `nextum-data` cutover status, preservation inventory, schema gaps, and execution order are tracked in:
 
