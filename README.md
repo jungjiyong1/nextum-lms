@@ -49,10 +49,11 @@ NEXT_PUBLIC_LMS_LOGIN_EMAIL_DOMAIN=nextum.local
 The `admin / 1234` account is development-only. It is not created by the production migration.
 
 ```bash
+$env:LMS_DEV_SEED_ALLOW = "true"
 npm run seed:dev-admin
 ```
 
-The seed script uses Supabase Admin API and requires `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`.
+The seed script uses Supabase Admin API and requires `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`. It refuses to run unless `LMS_DEV_SEED_ALLOW=true` is set for the current shell.
 
 ## Scripts
 
@@ -62,7 +63,7 @@ npm run build
 npm run lint
 npm run typecheck
 npm test -- --run
-npm run seed:dev-admin
+$env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin
 ```
 
 ## Routes
@@ -72,10 +73,10 @@ npm run seed:dev-admin
 - `/students` student roster and billing contract setup
 - `/instructors` staff/instructor roster
 - `/accounting` monthly billing overview
-- `/settings` operational configuration notes
+- `/settings` operational settings, CSV export, tax defaults, and guarded reset actions
 - `/login` Supabase Auth login
 - `/signup` student invite-code signup
-- `/api/lms/classes`, `/api/lms/students`, `/api/lms/staff`, `/api/lms/schedule-rules`, `/api/lms/class-books`, `/api/lms/attendance`, `/api/lms/invitations/issue`, `/api/lms/billing/generate` server-side LMS mutations
+- `/api/lms/classes`, `/api/lms/students`, `/api/lms/staff`, `/api/lms/schedule-rules`, `/api/lms/class-books`, `/api/lms/attendance`, `/api/lms/invitations/issue`, `/api/lms/billing/generate`, `/api/lms/admin/export`, `/api/lms/admin/reset`, `/api/lms/admin/tax-settings` server-side LMS mutations and admin operations
 
 ## Database
 

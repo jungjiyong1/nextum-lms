@@ -9,10 +9,14 @@ import {
   CalendarDays,
   CheckCircle2,
   CreditCard,
+  Download,
   GraduationCap,
   Plus,
   RefreshCw,
+  Save,
   Settings,
+  ShieldCheck,
+  Trash2,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -28,6 +32,7 @@ import {
   createStaff,
   createStudent,
   createStudentInvitation,
+  exportAdminCsv,
   generateMonthlyInvoices,
   getDashboardData,
   listAttendance,
@@ -41,9 +46,13 @@ import {
   listStudents,
   listWeakTypes,
   recordAttendance,
+  resetAdminData,
   setClassBook,
+  updateTaxSettings,
 } from './service';
 import type {
+  AdminExportType,
+  AdminResetTarget,
   AttendanceRow,
   AttendanceStatus,
   BillingMode,
@@ -65,6 +74,15 @@ const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 function currentMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function currentMonthRange(): { startDate: string; endDate: string } {
+  const month = currentMonth();
+  const [year, monthNumber] = month.split('-').map(Number);
+  return {
+    startDate: `${month}-01`,
+    endDate: `${year}-${String(monthNumber).padStart(2, '0')}-${String(new Date(year, monthNumber, 0).getDate()).padStart(2, '0')}`,
+  };
 }
 
 function today(): string {
@@ -114,6 +132,18 @@ function attendanceStatusLabel(status: AttendanceStatus): string {
     makeup: '보강',
   };
   return labels[status];
+}
+
+function downloadCsv(filename: string, csv: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function PageShell({
@@ -1181,35 +1211,227 @@ export function AccountingOperationsPage() {
   );
 }
 
+const resetTargets: Array<{ value: AdminResetTarget; label: string; description: string }> = [
+  { value: 'schedules', label: '일정/출결', description: '수업 발생 일정과 출결 기록을 삭제합니다.' },
+  { value: 'classes', label: '반/수업', description: '반, 반 프로필, 일정, 출결을 삭제합니다.' },
+  { value: 'students', label: '학생/청구 계약', description: '학생 원장과 청구 계약, 청구서, 납부 기록을 삭제합니다.' },
+  { value: 'instructors', label: '강사/직원', description: '강사와 직원 원장을 삭제합니다.' },
+  { value: 'accounting', label: '회계', description: '청구서, 납부, 지출, 강사 지급 기록을 삭제합니다.' },
+  { value: 'classrooms', label: '강의실', description: '강의실 원장을 삭제합니다.' },
+  { value: 'courses', label: '과목', description: 'LMS 과목 원장을 삭제합니다.' },
+  { value: 'all', label: '전체 LMS 운영 데이터', description: 'LMS 운영 데이터 전체를 삭제합니다. 교재/문제 데이터는 포함하지 않습니다.' },
+];
+
 export function SettingsOperationsPage() {
   const academyId = useAcademyId();
+  const defaultRange = useMemo(() => currentMonthRange(), []);
+  const [taxIncomeRate, setTaxIncomeRate] = useState('3');
+  const [taxLocalRate, setTaxLocalRate] = useState('0.3');
+  const [vatRate, setVatRate] = useState('0');
+  const [savingTax, setSavingTax] = useState(false);
+  const [exportType, setExportType] = useState<AdminExportType>('tax');
+  const [exportStartDate, setExportStartDate] = useState(defaultRange.startDate);
+  const [exportEndDate, setExportEndDate] = useState(defaultRange.endDate);
+  const [includeRevenue, setIncludeRevenue] = useState(true);
+  const [includePayroll, setIncludePayroll] = useState(true);
+  const [includeExpenses, setIncludeExpenses] = useState(true);
+  const [includeProfitLoss, setIncludeProfitLoss] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [resetTarget, setResetTarget] = useState<AdminResetTarget>('schedules');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetting, setResetting] = useState(false);
+
+  if (!academyId) return <MissingAcademy />;
+
+  const selectedResetTarget = resetTargets.find((target) => target.value === resetTarget) || resetTargets[0];
+  const canReset = resetConfirm.trim() === '초기화' && !resetting;
+
+  const saveTaxSettings = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSavingTax(true);
+    try {
+      await updateTaxSettings(academyId, {
+        payroll_income_tax_rate: taxIncomeRate,
+        payroll_local_tax_rate: taxLocalRate,
+        sales_vat_rate: vatRate,
+      });
+      toast.success('세금 기준을 저장했습니다.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '세금 기준 저장에 실패했습니다.');
+    } finally {
+      setSavingTax(false);
+    }
+  };
+
+  const runExport = async () => {
+    setExporting(true);
+    try {
+      const output = await exportAdminCsv(academyId, exportType, {
+        startDate: exportStartDate,
+        endDate: exportEndDate,
+        includeRevenue,
+        includePayroll,
+        includeExpenses,
+        includeProfitLoss,
+      });
+      downloadCsv(output.filename, output.csv);
+      toast.success('CSV 파일을 생성했습니다.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'CSV 내보내기에 실패했습니다.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const runReset = async () => {
+    if (!canReset) return;
+    setResetting(true);
+    try {
+      await resetAdminData(academyId, resetTarget);
+      setResetConfirm('');
+      toast.success(`${selectedResetTarget.label} 데이터를 초기화했습니다.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '초기화에 실패했습니다.');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
-    <PageShell title="설정" description="현재 연결 상태와 개발용 초기화 기준을 확인합니다." icon={Settings}>
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>현재 연결</CardTitle></CardHeader>
-          <CardContent className="space-y-3 text-sm text-slate-600">
-            <div className="flex justify-between rounded-lg bg-slate-50 p-3">
-              <span>Academy ID</span>
-              <code className="text-xs">{academyId || '-'}</code>
-            </div>
-            <div className="flex justify-between rounded-lg bg-slate-50 p-3">
-              <span>학생/반 기준</span>
-              <strong>core.students / core.classes</strong>
-            </div>
-            <div className="flex justify-between rounded-lg bg-slate-50 p-3">
-              <span>교재 권한</span>
-              <strong>core.class_books</strong>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>개발용 관리자</CardTitle></CardHeader>
-          <CardContent className="space-y-3 text-sm text-slate-600">
-            <p>개발 DB에서만 아래 스크립트로 `admin / 1234` 계정을 생성합니다.</p>
-            <pre className="overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">npm run seed:dev-admin</pre>
-          </CardContent>
-        </Card>
+    <PageShell title="설정" description="학원 연결, 세금 기준, 운영 데이터 내보내기와 초기화를 관리합니다." icon={Settings}>
+      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-5">
+          <Card>
+            <CardHeader><CardTitle>현재 연결</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-sm text-slate-600">
+              <div className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 p-3">
+                <span>Academy ID</span>
+                <code className="break-all text-right text-xs">{academyId}</code>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+                <span>학생/반 기준</span>
+                <strong>core.students / core.classes</strong>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+                <span>교재 권한</span>
+                <strong>core.class_books</strong>
+              </div>
+              <div className="flex items-start gap-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-emerald-800">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>민감한 관리 작업은 서버에서 같은 academy 권한과 최근 로그인 여부를 다시 확인합니다.</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>세금/급여 기준</CardTitle></CardHeader>
+            <CardContent>
+              <form onSubmit={saveTaxSettings} className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <Label>원천세율 (%)</Label>
+                    <Input type="number" step="0.1" min="0" value={taxIncomeRate} onChange={(event) => setTaxIncomeRate(event.target.value)} />
+                  </div>
+                  <div>
+                    <Label>지방세율 (%)</Label>
+                    <Input type="number" step="0.1" min="0" value={taxLocalRate} onChange={(event) => setTaxLocalRate(event.target.value)} />
+                  </div>
+                  <div>
+                    <Label>부가세율 (%)</Label>
+                    <Input type="number" step="0.1" min="0" value={vatRate} onChange={(event) => setVatRate(event.target.value)} />
+                  </div>
+                </div>
+                <Button type="submit" disabled={savingTax}>
+                  {savingTax ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  기준 저장
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-5">
+          <Card>
+            <CardHeader><CardTitle>CSV 내보내기</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div>
+                  <Label>유형</Label>
+                  <SelectBox value={exportType} onChange={(event) => setExportType(event.target.value as AdminExportType)}>
+                    <option value="tax">세무 리포트</option>
+                    <option value="payroll">강사 급여</option>
+                  </SelectBox>
+                </div>
+                <div>
+                  <Label>시작일</Label>
+                  <Input type="date" value={exportStartDate} onChange={(event) => setExportStartDate(event.target.value)} />
+                </div>
+                <div>
+                  <Label>종료일</Label>
+                  <Input type="date" value={exportEndDate} onChange={(event) => setExportEndDate(event.target.value)} />
+                </div>
+              </div>
+              {exportType === 'tax' && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
+                    <input type="checkbox" checked={includeRevenue} onChange={(event) => setIncludeRevenue(event.target.checked)} />
+                    매출 포함
+                  </label>
+                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
+                    <input type="checkbox" checked={includePayroll} onChange={(event) => setIncludePayroll(event.target.checked)} />
+                    급여 포함
+                  </label>
+                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
+                    <input type="checkbox" checked={includeExpenses} onChange={(event) => setIncludeExpenses(event.target.checked)} />
+                    비용 포함
+                  </label>
+                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
+                    <input type="checkbox" checked={includeProfitLoss} onChange={(event) => setIncludeProfitLoss(event.target.checked)} />
+                    손익 요약 포함
+                  </label>
+                </div>
+              )}
+              <Button type="button" onClick={runExport} disabled={exporting}>
+                {exporting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                CSV 생성
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="border-red-200">
+            <CardHeader><CardTitle>운영 데이터 초기화</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                초기화는 되돌릴 수 없습니다. 원격 `nextum-data` 전환 전에는 교재/문제 데이터 백업과 범위를 먼저 확정해야 합니다.
+              </div>
+              <div>
+                <Label>초기화 범위</Label>
+                <SelectBox value={resetTarget} onChange={(event) => setResetTarget(event.target.value as AdminResetTarget)}>
+                  {resetTargets.map((target) => (
+                    <option key={target.value} value={target.value}>{target.label}</option>
+                  ))}
+                </SelectBox>
+                <p className="mt-2 text-sm text-slate-500">{selectedResetTarget.description}</p>
+              </div>
+              <div>
+                <Label>확인 문구</Label>
+                <Input value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} placeholder="초기화" />
+              </div>
+              <Button type="button" variant="destructive" onClick={runReset} disabled={!canReset}>
+                {resetting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                선택 범위 초기화
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>개발용 관리자</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-sm text-slate-600">
+              <p>개발 DB에서만 `admin / 1234` 계정을 생성합니다. 실수 방지를 위해 명시 플래그가 필요합니다.</p>
+              <pre className="overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">$env:LMS_DEV_SEED_ALLOW='true'; npm run seed:dev-admin</pre>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </PageShell>
   );

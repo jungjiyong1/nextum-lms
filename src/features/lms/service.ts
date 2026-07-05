@@ -1,6 +1,10 @@
 import { aiDb, contentDb, coreDb, lmsDb, reportingDb } from '@/core/supabaseClient';
 import { calculateInvoiceDraft } from './billing';
 import type {
+  AdminCsvExport,
+  AdminExportOptions,
+  AdminExportType,
+  AdminResetTarget,
   AttendanceRow,
   BillingClassRuleType,
   BillingMode,
@@ -118,6 +122,39 @@ async function postLmsMutation<T = undefined>(path: string, payload: Record<stri
     throw new Error(result?.error || '요청 처리에 실패했습니다.');
   }
   return result as T;
+}
+
+function filenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].trim());
+  }
+
+  const quotedMatch = disposition.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+
+  const plainMatch = disposition.match(/filename=([^;]+)/i);
+  return plainMatch?.[1]?.trim() || fallback;
+}
+
+async function postLmsCsvExport(path: string, payload: Record<string, unknown>): Promise<AdminCsvExport> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const result = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(result?.error || 'CSV 내보내기에 실패했습니다.');
+  }
+
+  return {
+    filename: filenameFromDisposition(response.headers.get('Content-Disposition'), 'nextum-lms-export.csv'),
+    csv: await response.text(),
+  };
 }
 
 export async function getAcademyName(academyId: string): Promise<string | null> {
@@ -684,6 +721,22 @@ export async function listBilling(academyId: string, serviceMonth: string): Prom
 
 export async function generateMonthlyInvoices(academyId: string, serviceMonth: string): Promise<void> {
   await postLmsMutation('/api/lms/billing/generate', { academyId, serviceMonth });
+}
+
+export async function updateTaxSettings(academyId: string, settings: Record<string, unknown>): Promise<void> {
+  await postLmsMutation('/api/lms/admin/tax-settings', { academyId, settings });
+}
+
+export async function exportAdminCsv(
+  academyId: string,
+  type: AdminExportType,
+  options: AdminExportOptions,
+): Promise<AdminCsvExport> {
+  return postLmsCsvExport('/api/lms/admin/export', { academyId, type, options });
+}
+
+export async function resetAdminData(academyId: string, target: AdminResetTarget): Promise<void> {
+  await postLmsMutation('/api/lms/admin/reset', { academyId, target });
 }
 
 export async function getDashboardData(academyId: string, serviceMonth: string): Promise<DashboardData> {

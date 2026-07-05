@@ -8,6 +8,12 @@ const academyName = process.env.LMS_DEV_ACADEMY_NAME || 'NEXTUM Academy';
 const emailDomain = process.env.LMS_LOGIN_EMAIL_DOMAIN || 'nextum.local';
 const email = `${loginId}@${emailDomain}`;
 
+if (process.env.LMS_DEV_SEED_ALLOW !== 'true') {
+  console.error('Refusing to seed a development admin account without LMS_DEV_SEED_ALLOW=true.');
+  console.error('PowerShell: $env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin');
+  process.exit(1);
+}
+
 if (!url || !serviceKey) {
   console.error('Missing NEXT_PUBLIC_SUPABASE_URL/SUPABASE_URL or SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY.');
   process.exit(1);

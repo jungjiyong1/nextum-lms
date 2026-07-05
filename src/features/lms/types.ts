@@ -1,6 +1,32 @@
 export type BillingMode = 'monthly_plus_classes' | 'usage_based' | 'manual';
 export type BillingClassRuleType = 'included' | 'extra_flat' | 'discount' | 'usage_based';
 export type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'makeup';
+export type AdminExportType = 'tax' | 'payroll';
+export type AdminResetTarget =
+  | 'classrooms'
+  | 'classes'
+  | 'lessons'
+  | 'schedules'
+  | 'students'
+  | 'instructors'
+  | 'courses'
+  | 'enrollments'
+  | 'accounting'
+  | 'all';
+
+export interface AdminExportOptions {
+  startDate: string;
+  endDate: string;
+  includeRevenue?: boolean;
+  includePayroll?: boolean;
+  includeExpenses?: boolean;
+  includeProfitLoss?: boolean;
+}
+
+export interface AdminCsvExport {
+  filename: string;
+  csv: string;
+}
 
 export interface ClassSummary {
   id: string;

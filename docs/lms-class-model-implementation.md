@@ -3,7 +3,7 @@
 ## Implemented In LMS
 
 - Replaced accumulated Supabase migrations with a clean baseline owned by the LMS repo.
-- Added development-only admin seeding through `npm run seed:dev-admin`.
+- Added development-only admin seeding through `npm run seed:dev-admin`; the script now requires `LMS_DEV_SEED_ALLOW=true`.
 - Added a new `src/features/lms` service/UI layer using the class-centered schema.
 - Added class book assignment, class attendance recording, and monthly billing draft calculation from base fee, class rules, and billable attendance minutes.
 - Added student invitation-code signup:
@@ -21,6 +21,7 @@
   - `/api/lms/billing/generate`
   - These routes authorize the exact academy before using the server-only Supabase secret key.
 - Admin export/reset/tax-settings APIs now require the caller to provide the exact `academyId`; the server authorizes that academy instead of choosing the first admin membership.
+- Wired the settings screen to the admin APIs for tax defaults, CSV export, and guarded reset actions.
 - Switched existing LMS routes to the new workflows:
   - learning dashboard
   - class/time schedule
@@ -45,7 +46,7 @@
 1. Backup/export any existing remote data that must be kept.
 2. Preserve grade-app book/problem data before removing old schema tables.
 3. Apply the clean baseline to a fresh Supabase database, a Supabase branch, or a confirmed disposable database.
-4. Run `npm run seed:dev-admin` only for local/development access.
+4. Run `$env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin` only for local/development access.
 5. Verify admin login, student invite signup, class book assignment, attendance, and billing generation.
 6. Modify grade-app to use `core.students`, `core.class_students`, `core.class_books`, `learning.*`, and `ai.*` from the same baseline.
 7. Only then switch both apps to the same Supabase project.
