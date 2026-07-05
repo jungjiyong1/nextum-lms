@@ -19,7 +19,14 @@
   - `/api/lms/attendance`
   - `/api/lms/invitations/issue`
   - `/api/lms/billing/generate`
+  - `/api/lms/payments`
+  - `/api/lms/expenses`
+  - `/api/lms/payroll`
   - These routes authorize the exact academy before using the server-only Supabase secret key.
+- Expanded accounting operations beyond invoice generation:
+  - record student payments and recompute invoice paid/status
+  - record operating expenses
+  - record instructor payroll with withholding calculation
 - Admin export/reset/tax-settings APIs now require the caller to provide the exact `academyId`; the server authorizes that academy instead of choosing the first admin membership.
 - Wired the settings screen to the admin APIs for tax defaults, CSV export, and guarded reset actions.
 - Switched existing LMS routes to the new workflows:

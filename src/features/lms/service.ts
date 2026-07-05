@@ -14,11 +14,17 @@ import type {
   ClassStudentSummary,
   ClassSummary,
   CreateClassInput,
+  CreateExpenseInput,
+  CreateInstructorPaymentInput,
   CreateScheduleRuleInput,
   CreateStaffInput,
   CreateStudentInput,
   DashboardData,
+  ExpenseRow,
+  InstructorPaymentRow,
+  PaymentRow,
   RecordAttendanceInput,
+  RecordPaymentInput,
   ScheduleItem,
   StaffSummary,
   StudentInvitationResult,
@@ -703,24 +709,163 @@ export async function listBilling(academyId: string, serviceMonth: string): Prom
   if (invoicesError) throw new Error(invoicesError.message);
 
   const invoices = new Map((invoicesData || []).map((row: Row) => [row.student_id, row]));
+  const invoiceIds = (invoicesData || []).map((row: Row) => row.id).filter(Boolean);
+  const paidByInvoice = new Map<string, number>();
+  if (invoiceIds.length > 0) {
+    const { data: paymentsData, error: paymentsError } = await lmsDb
+      .from('payments')
+      .select('invoice_id,amount')
+      .eq('academy_id', academyId)
+      .eq('status', 'completed')
+      .in('invoice_id', invoiceIds);
+    if (paymentsError) throw new Error(paymentsError.message);
+    for (const payment of paymentsData || []) {
+      paidByInvoice.set(payment.invoice_id, (paidByInvoice.get(payment.invoice_id) || 0) + toNumber(payment.amount));
+    }
+  }
+
   return drafts.map(({ student, draft }) => {
     const invoice = invoices.get(student.id);
     const expectedAmount = draft?.totalAmount ?? 0;
+    const actualPaidAmount = invoice?.id ? paidByInvoice.get(invoice.id) : undefined;
     return {
       studentId: student.id,
       studentName: student.name,
       billingMode: student.billingMode,
       expectedAmount,
       invoicedAmount: toNumber(invoice?.total_amount, expectedAmount),
-      paidAmount: toNumber(invoice?.paid_amount),
+      paidAmount: actualPaidAmount ?? toNumber(invoice?.paid_amount),
       status: invoice?.status || 'not_issued',
       invoiceId: invoice?.id ?? null,
     };
   });
 }
 
+export async function listPayments(academyId: string, startDate: string, endDate: string): Promise<PaymentRow[]> {
+  const { data, error } = await lmsDb
+    .from('payments')
+    .select('id,invoice_id,student_id,payment_date,amount,payment_method,status,notes')
+    .eq('academy_id', academyId)
+    .gte('payment_date', startDate)
+    .lte('payment_date', endDate)
+    .order('payment_date', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+
+  const payments = (data || []) as Row[];
+  if (payments.length === 0) return [];
+
+  const { data: students, error: studentsError } = await coreDb
+    .from('students')
+    .select('id,person_id')
+    .eq('academy_id', academyId)
+    .in('id', [...new Set(payments.map((row) => row.student_id))]);
+  if (studentsError) throw new Error(studentsError.message);
+
+  const studentMap = new Map((students || []).map((row: Row) => [row.id, row]));
+  const people = await fetchPeople((students || []).map((row: Row) => row.person_id));
+
+  return payments.map((row) => {
+    const student = studentMap.get(row.student_id);
+    const person = student ? people.get(student.person_id) : null;
+    return {
+      id: row.id,
+      invoiceId: row.invoice_id ?? null,
+      studentId: row.student_id,
+      studentName: person?.display_name || person?.full_name || '이름 없음',
+      paymentDate: row.payment_date,
+      amount: toNumber(row.amount),
+      paymentMethod: row.payment_method ?? null,
+      status: row.status,
+      notes: row.notes ?? null,
+    };
+  });
+}
+
+export async function listExpenses(academyId: string, startDate: string, endDate: string): Promise<ExpenseRow[]> {
+  const { data, error } = await lmsDb
+    .from('expenses')
+    .select('id,expense_date,category,amount,payment_method,recipient,description,tax_deductible,has_receipt,notes')
+    .eq('academy_id', academyId)
+    .gte('expense_date', startDate)
+    .lte('expense_date', endDate)
+    .order('expense_date', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((row: Row) => ({
+    id: row.id,
+    expenseDate: row.expense_date,
+    category: row.category,
+    amount: toNumber(row.amount),
+    paymentMethod: row.payment_method ?? null,
+    recipient: row.recipient ?? null,
+    description: row.description ?? null,
+    taxDeductible: Boolean(row.tax_deductible),
+    hasReceipt: Boolean(row.has_receipt),
+    notes: row.notes ?? null,
+  }));
+}
+
+export async function listInstructorPayments(academyId: string, serviceMonth: string): Promise<InstructorPaymentRow[]> {
+  const { data, error } = await lmsDb
+    .from('instructor_payments')
+    .select('id,instructor_id,recipient_name,service_month,payment_date,gross_amount,withholding_type,withholding_rate,withholding_tax,local_tax,net_amount,hours_worked,hourly_rate,payment_method,status,notes')
+    .eq('academy_id', academyId)
+    .eq('service_month', serviceMonth)
+    .order('payment_date', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+
+  const rows = (data || []) as Row[];
+  const staffIds = [...new Set(rows.map((row) => row.instructor_id).filter(Boolean))];
+  const { data: staffRows, error: staffError } = staffIds.length > 0
+    ? await coreDb.from('staff_members').select('id,person_id').eq('academy_id', academyId).in('id', staffIds)
+    : { data: [], error: null };
+  if (staffError) throw new Error(staffError.message);
+
+  const staffMap = new Map((staffRows || []).map((row: Row) => [row.id, row]));
+  const people = await fetchPeople((staffRows || []).map((row: Row) => row.person_id));
+
+  return rows.map((row) => {
+    const staff = row.instructor_id ? staffMap.get(row.instructor_id) : null;
+    const person = staff ? people.get(staff.person_id) : null;
+    return {
+      id: row.id,
+      instructorId: row.instructor_id ?? null,
+      instructorName: person?.display_name || person?.full_name || null,
+      recipientName: row.recipient_name ?? null,
+      serviceMonth: row.service_month,
+      paymentDate: row.payment_date,
+      grossAmount: toNumber(row.gross_amount),
+      withholdingType: row.withholding_type,
+      withholdingRate: toNumber(row.withholding_rate),
+      withholdingTax: toNumber(row.withholding_tax),
+      localTax: toNumber(row.local_tax),
+      netAmount: toNumber(row.net_amount),
+      hoursWorked: row.hours_worked === null || row.hours_worked === undefined ? null : Number(row.hours_worked),
+      hourlyRate: row.hourly_rate === null || row.hourly_rate === undefined ? null : Number(row.hourly_rate),
+      paymentMethod: row.payment_method ?? null,
+      status: row.status,
+      notes: row.notes ?? null,
+    };
+  });
+}
+
 export async function generateMonthlyInvoices(academyId: string, serviceMonth: string): Promise<void> {
   await postLmsMutation('/api/lms/billing/generate', { academyId, serviceMonth });
+}
+
+export async function recordPayment(academyId: string, input: RecordPaymentInput): Promise<void> {
+  await postLmsMutation('/api/lms/payments', { academyId, input });
+}
+
+export async function createExpense(academyId: string, input: CreateExpenseInput): Promise<void> {
+  await postLmsMutation('/api/lms/expenses', { academyId, input });
+}
+
+export async function createInstructorPayment(academyId: string, input: CreateInstructorPaymentInput): Promise<void> {
+  await postLmsMutation('/api/lms/payroll', { academyId, input });
 }
 
 export async function updateTaxSettings(academyId: string, settings: Record<string, unknown>): Promise<void> {

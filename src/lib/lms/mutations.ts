@@ -6,13 +6,19 @@ import { calculateInvoiceDraft } from '@/features/lms/billing';
 import type {
     BillingClassRuleType,
     BillingMode,
+    CreateExpenseInput,
+    CreateInstructorPaymentInput,
     CreateClassInput,
     CreateScheduleRuleInput,
     CreateStaffInput,
     CreateStudentInput,
+    PaymentStatus,
+    PayrollStatus,
     RecordAttendanceInput,
+    RecordPaymentInput,
     StudentClassBillingInput,
     StudentInvitationResult,
+    WithholdingType,
 } from '@/features/lms/types';
 
 type Row = Record<string, any>;
@@ -32,6 +38,10 @@ function dateString(date: Date): string {
 function toNumber(value: unknown, fallback = 0): number {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function roundCurrency(value: number): number {
+    return Math.round(value);
 }
 
 function monthRange(serviceMonth: string): { start: string; end: string } {
@@ -111,6 +121,28 @@ async function assertClassesBelongToAcademy(core: SchemaClient, academyId: strin
     }
 }
 
+async function assertStudentBelongsToAcademy(core: SchemaClient, academyId: string, studentId: string) {
+    const { data, error } = await core
+        .from('students')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('id', studentId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to verify student');
+    if (!data?.id) throw new Error('Selected student does not belong to this academy.');
+}
+
+async function assertStaffBelongsToAcademy(core: SchemaClient, academyId: string, staffId: string) {
+    const { data, error } = await core
+        .from('staff_members')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('id', staffId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to verify staff member');
+    if (!data?.id) throw new Error('Selected staff member does not belong to this academy.');
+}
+
 async function fetchClassNames(core: SchemaClient, classIds: string[]) {
     const ids = [...new Set(classIds.filter(Boolean))];
     if (ids.length === 0) return new Map<string, string>();
@@ -152,6 +184,23 @@ async function loadClassProfile(lms: SchemaClient, academyId: string, classId: s
 function normalizeBillingMode(value: BillingMode): BillingMode {
     if (value === 'monthly_plus_classes' || value === 'usage_based' || value === 'manual') return value;
     return 'monthly_plus_classes';
+}
+
+function normalizePaymentStatus(value: PaymentStatus | undefined): PaymentStatus {
+    if (value === 'pending' || value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'refunded') {
+        return value;
+    }
+    return 'completed';
+}
+
+function normalizePayrollStatus(value: PayrollStatus | undefined): PayrollStatus {
+    if (value === 'pending' || value === 'paid' || value === 'cancelled') return value;
+    return 'paid';
+}
+
+function normalizeWithholdingType(value: WithholdingType | undefined): WithholdingType {
+    if (value === 'none' || value === 'freelance_3.3' || value === 'custom') return value;
+    return 'none';
 }
 
 export async function createClassForAcademy(academyId: string, input: CreateClassInput) {
@@ -475,6 +524,194 @@ export async function recordAttendanceForAcademy(academyId: string, input: Recor
         notes: input.notes || null,
     }, { onConflict: 'occurrence_id,student_id' });
     ensureNoError(error, 'Failed to record attendance');
+}
+
+async function recomputeInvoicePaymentStatus(lms: SchemaClient, academyId: string, invoiceId: string) {
+    const { data: invoice, error: invoiceError } = await lms
+        .from('invoices')
+        .select('id,total_amount')
+        .eq('academy_id', academyId)
+        .eq('id', invoiceId)
+        .single();
+    ensureNoError(invoiceError, 'Failed to load invoice');
+
+    const { data: payments, error: paymentsError } = await lms
+        .from('payments')
+        .select('amount')
+        .eq('academy_id', academyId)
+        .eq('invoice_id', invoiceId)
+        .eq('status', 'completed');
+    ensureNoError(paymentsError, 'Failed to load invoice payments');
+
+    const paidAmount = (payments || []).reduce((sum: number, row: Row) => sum + toNumber(row.amount), 0);
+    const totalAmount = toNumber((invoice as Row).total_amount);
+    const status = totalAmount <= 0
+        ? 'draft'
+        : paidAmount >= totalAmount
+            ? 'paid'
+            : paidAmount > 0
+                ? 'partial'
+                : 'issued';
+
+    const { error: updateError } = await lms
+        .from('invoices')
+        .update({ paid_amount: paidAmount, status })
+        .eq('academy_id', academyId)
+        .eq('id', invoiceId);
+    ensureNoError(updateError, 'Failed to update invoice payment status');
+}
+
+export async function recordPaymentForAcademy(academyId: string, input: RecordPaymentInput) {
+    const amount = toNumber(input.amount);
+    if (!input.studentId) throw new Error('학생을 선택하세요.');
+    if (!input.paymentDate) throw new Error('납부일을 입력하세요.');
+    if (amount <= 0) throw new Error('납부 금액은 0보다 커야 합니다.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    await assertStudentBelongsToAcademy(core, academyId, input.studentId);
+
+    if (input.invoiceId) {
+        const { data: invoice, error: invoiceError } = await lms
+            .from('invoices')
+            .select('id,student_id')
+            .eq('academy_id', academyId)
+            .eq('id', input.invoiceId)
+            .maybeSingle();
+        ensureNoError(invoiceError, 'Failed to verify invoice');
+        if (!invoice?.id || (invoice as Row).student_id !== input.studentId) {
+            throw new Error('Selected invoice does not match the student.');
+        }
+    }
+
+    const { data: payment, error } = await lms
+        .from('payments')
+        .insert({
+            academy_id: academyId,
+            invoice_id: input.invoiceId || null,
+            student_id: input.studentId,
+            payment_date: input.paymentDate,
+            amount,
+            payment_method: input.paymentMethod || null,
+            status: normalizePaymentStatus(input.status),
+            notes: input.notes || null,
+        })
+        .select('id')
+        .single();
+    ensureNoError(error, 'Failed to record payment');
+
+    if (input.invoiceId) {
+        try {
+            await recomputeInvoicePaymentStatus(lms, academyId, input.invoiceId);
+        } catch (updateError) {
+            await lms.from('payments').delete().eq('academy_id', academyId).eq('id', (payment as Row).id);
+            throw updateError;
+        }
+    }
+}
+
+export async function createExpenseForAcademy(academyId: string, input: CreateExpenseInput) {
+    const amount = toNumber(input.amount);
+    const category = input.category.trim();
+    if (!input.expenseDate) throw new Error('지출일을 입력하세요.');
+    if (!category) throw new Error('지출 분류를 입력하세요.');
+    if (amount <= 0) throw new Error('지출 금액은 0보다 커야 합니다.');
+
+    const client = createAdminClient();
+    const { error } = await client.schema('lms').from('expenses').insert({
+        academy_id: academyId,
+        expense_date: input.expenseDate,
+        category,
+        amount,
+        payment_method: input.paymentMethod || null,
+        recipient: input.recipient || null,
+        description: input.description || null,
+        tax_deductible: input.taxDeductible ?? true,
+        has_receipt: input.hasReceipt ?? false,
+        notes: input.notes || null,
+    });
+    ensureNoError(error, 'Failed to create expense');
+}
+
+function calculatePayrollAmounts(input: CreateInstructorPaymentInput) {
+    const grossAmount = Math.max(0, toNumber(input.grossAmount));
+    const withholdingType = normalizeWithholdingType(input.withholdingType);
+    if (withholdingType === 'none') {
+        return {
+            withholdingType,
+            withholdingRate: 0,
+            withholdingTax: 0,
+            localTax: 0,
+            netAmount: grossAmount,
+        };
+    }
+
+    if (withholdingType === 'freelance_3.3') {
+        const withholdingTax = roundCurrency(grossAmount * 0.03);
+        const localTax = roundCurrency(withholdingTax * 0.1);
+        return {
+            withholdingType,
+            withholdingRate: 3.3,
+            withholdingTax,
+            localTax,
+            netAmount: Math.max(0, grossAmount - withholdingTax - localTax),
+        };
+    }
+
+    const withholdingRate = Math.max(0, toNumber(input.withholdingRate));
+    const withholdingTax = input.withholdingTax === undefined
+        ? roundCurrency(grossAmount * withholdingRate / 100)
+        : Math.max(0, toNumber(input.withholdingTax));
+    const localTax = Math.max(0, toNumber(input.localTax));
+    const netAmount = input.netAmount === undefined
+        ? Math.max(0, grossAmount - withholdingTax - localTax)
+        : Math.max(0, toNumber(input.netAmount));
+
+    return {
+        withholdingType,
+        withholdingRate,
+        withholdingTax,
+        localTax,
+        netAmount,
+    };
+}
+
+export async function createInstructorPaymentForAcademy(academyId: string, input: CreateInstructorPaymentInput) {
+    const grossAmount = toNumber(input.grossAmount);
+    if (!input.serviceMonth) throw new Error('급여 월을 입력하세요.');
+    if (!input.paymentDate) throw new Error('지급일을 입력하세요.');
+    if (grossAmount <= 0) throw new Error('급여 금액은 0보다 커야 합니다.');
+    if (!input.instructorId && !input.recipientName?.trim()) {
+        throw new Error('강사 또는 수령인명을 입력하세요.');
+    }
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    if (input.instructorId) {
+        await assertStaffBelongsToAcademy(core, academyId, input.instructorId);
+    }
+
+    const amounts = calculatePayrollAmounts(input);
+    const { error } = await client.schema('lms').from('instructor_payments').insert({
+        academy_id: academyId,
+        instructor_id: input.instructorId || null,
+        recipient_name: input.recipientName?.trim() || null,
+        service_month: input.serviceMonth,
+        payment_date: input.paymentDate,
+        gross_amount: grossAmount,
+        withholding_type: amounts.withholdingType,
+        withholding_rate: amounts.withholdingRate,
+        withholding_tax: amounts.withholdingTax,
+        local_tax: amounts.localTax,
+        net_amount: amounts.netAmount,
+        hours_worked: input.hoursWorked ?? null,
+        hourly_rate: input.hourlyRate ?? null,
+        payment_method: input.paymentMethod || null,
+        status: normalizePayrollStatus(input.status),
+        notes: input.notes || null,
+    });
+    ensureNoError(error, 'Failed to create instructor payment');
 }
 
 async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: string, serviceMonth: string) {

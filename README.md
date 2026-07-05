@@ -72,11 +72,11 @@ $env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin
 - `/classrooms` class and timetable operations
 - `/students` student roster and billing contract setup
 - `/instructors` staff/instructor roster
-- `/accounting` monthly billing overview
+- `/accounting` monthly billing, payment, expense, and instructor payroll operations
 - `/settings` operational settings, CSV export, tax defaults, and guarded reset actions
 - `/login` Supabase Auth login
 - `/signup` student invite-code signup
-- `/api/lms/classes`, `/api/lms/students`, `/api/lms/staff`, `/api/lms/schedule-rules`, `/api/lms/class-books`, `/api/lms/attendance`, `/api/lms/invitations/issue`, `/api/lms/billing/generate`, `/api/lms/admin/export`, `/api/lms/admin/reset`, `/api/lms/admin/tax-settings` server-side LMS mutations and admin operations
+- `/api/lms/classes`, `/api/lms/students`, `/api/lms/staff`, `/api/lms/schedule-rules`, `/api/lms/class-books`, `/api/lms/attendance`, `/api/lms/invitations/issue`, `/api/lms/billing/generate`, `/api/lms/payments`, `/api/lms/expenses`, `/api/lms/payroll`, `/api/lms/admin/export`, `/api/lms/admin/reset`, `/api/lms/admin/tax-settings` server-side LMS mutations and admin operations
 
 ## Database
 

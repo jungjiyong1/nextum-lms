@@ -1,6 +1,9 @@
 export type BillingMode = 'monthly_plus_classes' | 'usage_based' | 'manual';
 export type BillingClassRuleType = 'included' | 'extra_flat' | 'discount' | 'usage_based';
 export type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'makeup';
+export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'cancelled' | 'refunded';
+export type PayrollStatus = 'pending' | 'paid' | 'cancelled';
+export type WithholdingType = 'none' | 'freelance_3.3' | 'custom';
 export type AdminExportType = 'tax' | 'payroll';
 export type AdminResetTarget =
   | 'classrooms'
@@ -123,6 +126,51 @@ export interface BillingRow {
   invoiceId: string | null;
 }
 
+export interface PaymentRow {
+  id: string;
+  invoiceId: string | null;
+  studentId: string;
+  studentName: string;
+  paymentDate: string;
+  amount: number;
+  paymentMethod: string | null;
+  status: PaymentStatus;
+  notes: string | null;
+}
+
+export interface ExpenseRow {
+  id: string;
+  expenseDate: string;
+  category: string;
+  amount: number;
+  paymentMethod: string | null;
+  recipient: string | null;
+  description: string | null;
+  taxDeductible: boolean;
+  hasReceipt: boolean;
+  notes: string | null;
+}
+
+export interface InstructorPaymentRow {
+  id: string;
+  instructorId: string | null;
+  instructorName: string | null;
+  recipientName: string | null;
+  serviceMonth: string;
+  paymentDate: string;
+  grossAmount: number;
+  withholdingType: WithholdingType;
+  withholdingRate: number;
+  withholdingTax: number;
+  localTax: number;
+  netAmount: number;
+  hoursWorked: number | null;
+  hourlyRate: number | null;
+  paymentMethod: string | null;
+  status: PayrollStatus;
+  notes: string | null;
+}
+
 export interface BookSummary {
   id: string;
   bookKey: string;
@@ -207,6 +255,46 @@ export interface CreateScheduleRuleInput {
   endDate?: string | null;
   classroomId?: string | null;
   instructorId?: string | null;
+}
+
+export interface RecordPaymentInput {
+  invoiceId?: string | null;
+  studentId: string;
+  paymentDate: string;
+  amount: number;
+  paymentMethod?: string | null;
+  status?: PaymentStatus;
+  notes?: string | null;
+}
+
+export interface CreateExpenseInput {
+  expenseDate: string;
+  category: string;
+  amount: number;
+  paymentMethod?: string | null;
+  recipient?: string | null;
+  description?: string | null;
+  taxDeductible?: boolean;
+  hasReceipt?: boolean;
+  notes?: string | null;
+}
+
+export interface CreateInstructorPaymentInput {
+  instructorId?: string | null;
+  recipientName?: string | null;
+  serviceMonth: string;
+  paymentDate: string;
+  grossAmount: number;
+  withholdingType?: WithholdingType;
+  withholdingRate?: number;
+  withholdingTax?: number;
+  localTax?: number;
+  netAmount?: number;
+  hoursWorked?: number | null;
+  hourlyRate?: number | null;
+  paymentMethod?: string | null;
+  status?: PayrollStatus;
+  notes?: string | null;
 }
 
 export interface RecordAttendanceInput {
