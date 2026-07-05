@@ -29,6 +29,7 @@ import type {
   StaffSummary,
   StudentInvitationResult,
   StudentSummary,
+  UpdateClassInput,
   UpdateStaffInput,
   UpdateStudentInput,
   WeakTypeRow,
@@ -258,6 +259,8 @@ export async function listClassSummaries(academyId: string): Promise<ClassSummar
       status: profile?.status || (row.active ? 'active' : 'inactive'),
       color: profile?.color ?? null,
       capacity: profile?.capacity ?? null,
+      defaultInstructorId: profile?.default_instructor_staff_id ?? null,
+      defaultClassroomId: profile?.default_classroom_id ?? null,
       courseTitle: profile?.course_id ? courses.get(profile.course_id) ?? null : null,
       instructorName: profile?.default_instructor_staff_id ? staffNames.get(profile.default_instructor_staff_id) ?? null : null,
       classroomName: profile?.default_classroom_id ? classrooms.get(profile.default_classroom_id) ?? null : null,
@@ -271,6 +274,10 @@ export async function listClassSummaries(academyId: string): Promise<ClassSummar
 
 export async function createClass(academyId: string, input: CreateClassInput): Promise<void> {
   await postLmsMutation('/api/lms/classes', { academyId, input });
+}
+
+export async function updateClass(academyId: string, classId: string, input: UpdateClassInput): Promise<void> {
+  await postLmsMutation('/api/lms/classes', { academyId, classId, input });
 }
 
 export async function listStudents(academyId: string): Promise<StudentSummary[]> {

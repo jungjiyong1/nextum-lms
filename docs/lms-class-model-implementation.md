@@ -6,6 +6,10 @@
 - Added development-only admin seeding through `npm run seed:dev-admin`; the script now requires `LMS_DEV_SEED_ALLOW=true`.
 - Added a new `src/features/lms` service/UI layer using the class-centered schema.
 - Added class book assignment, class attendance recording, and monthly billing draft calculation from base fee, class rules, and billable attendance minutes.
+- Added class maintenance after creation:
+  - edit class name, grade, status, capacity, color, and default instructor
+  - deactivate schedule rules when a class is stopped or archived
+  - remove class book assignments so grade-app book access can be revoked
 - Added student roster maintenance after registration:
   - edit student/contact/grade/status
   - update class assignments without hard-deleting history

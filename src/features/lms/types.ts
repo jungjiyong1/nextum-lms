@@ -7,6 +7,7 @@ export type WithholdingType = 'none' | 'freelance_3.3' | 'custom';
 export type StudentStatus = 'active' | 'inactive' | 'on_leave' | 'graduated' | 'dropped';
 export type StaffRole = 'admin' | 'teacher' | 'instructor' | 'staff';
 export type StaffStatus = 'active' | 'inactive' | 'on_leave';
+export type ClassStatus = 'active' | 'inactive' | 'archived';
 export type AdminExportType = 'tax' | 'payroll';
 export type AdminResetTarget =
   | 'classrooms'
@@ -42,6 +43,8 @@ export interface ClassSummary {
   status: string;
   color: string | null;
   capacity: number | null;
+  defaultInstructorId: string | null;
+  defaultClassroomId: string | null;
   courseTitle: string | null;
   instructorName: string | null;
   classroomName: string | null;
@@ -227,6 +230,11 @@ export interface CreateClassInput {
   color?: string | null;
   defaultInstructorId?: string | null;
   defaultClassroomId?: string | null;
+}
+
+export interface UpdateClassInput extends CreateClassInput {
+  status: ClassStatus;
+  active: boolean;
 }
 
 export interface CreateStudentInput {

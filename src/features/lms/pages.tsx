@@ -7,7 +7,6 @@ import {
   BarChart3,
   BookOpen,
   CalendarDays,
-  CheckCircle2,
   CreditCard,
   Download,
   GraduationCap,
@@ -53,6 +52,7 @@ import {
   recordPayment,
   resetAdminData,
   setClassBook,
+  updateClass,
   updateStudent,
   updateStaff,
   updateTaxSettings,
@@ -67,6 +67,7 @@ import type {
   BillingMode,
   BillingRow,
   BookSummary,
+  ClassStatus,
   ClassBookSummary,
   ClassStudentSummary,
   ClassSummary,
@@ -448,10 +449,16 @@ export function ClassesPage() {
   const [classBooks, setClassBooks] = useState<ClassBookSummary[]>([]);
   const [classStudents, setClassStudents] = useState<ClassStudentSummary[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
+  const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [editingClassId, setEditingClassId] = useState('');
   const [name, setName] = useState('');
   const [grade, setGrade] = useState('');
+  const [classStatus, setClassStatus] = useState<ClassStatus>('active');
+  const [capacity, setCapacity] = useState('');
+  const [classColor, setClassColor] = useState('#059669');
+  const [defaultInstructorId, setDefaultInstructorId] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [startTime, setStartTime] = useState('16:00');
@@ -471,16 +478,18 @@ export function ClassesPage() {
     try {
       const rangeStart = today();
       const rangeEnd = addDaysString(rangeStart, 14);
-      const [classRows, scheduleRows, bookRows, attendanceRows] = await Promise.all([
+      const [classRows, scheduleRows, bookRows, attendanceRows, staffRows] = await Promise.all([
         listClassSummaries(academyId),
         listSchedule(academyId, rangeStart, rangeEnd),
         listBooks(academyId),
         listAttendance(academyId, rangeStart, rangeEnd),
+        listStaff(academyId),
       ]);
       setClasses(classRows);
       setSchedule(scheduleRows);
       setBooks(bookRows);
       setAttendance(attendanceRows);
+      setStaff(staffRows);
       setSelectedClassId((current) => current || classRows[0]?.id || '');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 정보를 불러오지 못했습니다.');
@@ -542,16 +551,52 @@ export function ClassesPage() {
 
   if (!academyId) return <MissingAcademy />;
 
+  const resetClassForm = () => {
+    setEditingClassId('');
+    setName('');
+    setGrade('');
+    setClassStatus('active');
+    setCapacity('');
+    setClassColor('#059669');
+    setDefaultInstructorId('');
+  };
+
+  const editClass = (row: ClassSummary) => {
+    setEditingClassId(row.id);
+    setSelectedClassId(row.id);
+    setName(row.name);
+    setGrade(row.grade || '');
+    setClassStatus((row.status as ClassStatus) || (row.active ? 'active' : 'inactive'));
+    setCapacity(row.capacity === null ? '' : String(row.capacity));
+    setClassColor(row.color || '#059669');
+    setDefaultInstructorId(row.defaultInstructorId || '');
+  };
+
   const submitClass = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      await createClass(academyId, { name, grade: grade || null });
-      setName('');
-      setGrade('');
-      toast.success('반을 추가했습니다.');
+      const payload = {
+        name,
+        grade: grade || null,
+        capacity: capacity ? Number(capacity) : null,
+        color: classColor || null,
+        defaultInstructorId: defaultInstructorId || null,
+      };
+      if (editingClassId) {
+        await updateClass(academyId, editingClassId, {
+          ...payload,
+          status: classStatus,
+          active: classStatus === 'active',
+        });
+        toast.success('반 정보를 수정했습니다.');
+      } else {
+        await createClass(academyId, payload);
+        toast.success('반을 추가했습니다.');
+      }
+      resetClassForm();
       await loadBase();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '반 추가 실패');
+      toast.error(err instanceof Error ? err.message : '반 저장 실패');
     }
   };
 
@@ -579,6 +624,16 @@ export function ClassesPage() {
       await loadClassDetail();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '교재 배정 실패');
+    }
+  };
+
+  const removeBook = async (bookId: string) => {
+    try {
+      await setClassBook(academyId, selectedClassId, bookId, false);
+      toast.success('교재 배정을 해제했습니다.');
+      await loadClassDetail();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '교재 배정 해제 실패');
     }
   };
 
@@ -632,11 +687,12 @@ export function ClassesPage() {
                 >
                   <div>
                     <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: row.color || '#d1d5db' }} />
                       <span className="font-semibold">{row.name}</span>
                       <StatusBadge status={row.status} />
                     </div>
                     <p className="mt-1 text-sm text-slate-500">
-                      {row.grade || '학년 미지정'} · 학생 {row.studentCount}명 · 취약 유형 {row.weakTypeCount}개
+                      {row.grade || '학년 미지정'} · 학생 {row.studentCount}명 · 정원 {row.capacity ?? '-'}명 · 취약 유형 {row.weakTypeCount}개
                     </p>
                   </div>
                   <div className="text-right text-sm text-slate-500">
@@ -652,9 +708,14 @@ export function ClassesPage() {
           <div className="space-y-5">
             <Card>
               <CardHeader>
-                <CardTitle>반 추가</CardTitle>
+                <CardTitle>{editingClassId ? '반 수정' : '반 추가'}</CardTitle>
               </CardHeader>
               <CardContent>
+                {selectedClass && !editingClassId && (
+                  <Button type="button" variant="outline" className="mb-3 w-full" onClick={() => editClass(selectedClass)}>
+                    선택한 반 수정
+                  </Button>
+                )}
                 <form onSubmit={submitClass} className="space-y-3">
                   <div>
                     <Label htmlFor="class-name">반 이름</Label>
@@ -664,10 +725,44 @@ export function ClassesPage() {
                     <Label htmlFor="class-grade">학년/레벨</Label>
                     <Input id="class-grade" value={grade} onChange={(event) => setGrade(event.target.value)} placeholder="중1" />
                   </div>
-                  <Button type="submit" className="w-full">
-                    <Plus className="mr-2 h-4 w-4" />
-                    반 생성
-                  </Button>
+                  {editingClassId && (
+                    <div>
+                      <Label>상태</Label>
+                      <SelectBox value={classStatus} onChange={(event) => setClassStatus(event.target.value as ClassStatus)}>
+                        <option value="active">운영</option>
+                        <option value="inactive">중지</option>
+                        <option value="archived">보관</option>
+                      </SelectBox>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>정원</Label>
+                      <Input type="number" value={capacity} onChange={(event) => setCapacity(event.target.value)} />
+                    </div>
+                    <div>
+                      <Label>색상</Label>
+                      <Input type="color" value={classColor} onChange={(event) => setClassColor(event.target.value)} className="h-10 p-1" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>담당강사</Label>
+                    <SelectBox value={defaultInstructorId} onChange={(event) => setDefaultInstructorId(event.target.value)}>
+                      <option value="">미지정</option>
+                      {staff.filter((row) => row.status === 'active').map((row) => (
+                        <option key={row.id} value={row.id}>{row.name}</option>
+                      ))}
+                    </SelectBox>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="submit" className="w-full">
+                      <Plus className="mr-2 h-4 w-4" />
+                      {editingClassId ? '수정 저장' : '반 생성'}
+                    </Button>
+                    <Button type="button" variant="outline" className="w-full" onClick={resetClassForm}>
+                      새 입력
+                    </Button>
+                  </div>
                 </form>
               </CardContent>
             </Card>
@@ -754,7 +849,9 @@ export function ClassesPage() {
                               <div className="text-sm font-medium">{book.title}</div>
                               <div className="text-xs text-slate-400">{book.subject || '-'} · {book.grade || '-'}</div>
                             </div>
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            <Button type="button" variant="outline" size="sm" onClick={() => removeBook(book.id)}>
+                              해제
+                            </Button>
                           </div>
                         ))
                       )}

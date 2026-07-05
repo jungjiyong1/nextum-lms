@@ -21,7 +21,9 @@ import type {
     StudentInvitationResult,
     StaffRole,
     StaffStatus,
+    ClassStatus,
     UpdateStaffInput,
+    UpdateClassInput,
     UpdateStudentInput,
     WithholdingType,
 } from '@/features/lms/types';
@@ -208,6 +210,11 @@ function normalizeStaffStatus(value: StaffStatus): StaffStatus {
     return 'active';
 }
 
+function normalizeClassStatus(value: ClassStatus): ClassStatus {
+    if (value === 'active' || value === 'inactive' || value === 'archived') return value;
+    return 'active';
+}
+
 function isBillableStudentStatus(status: StudentStatus) {
     return status === 'active';
 }
@@ -348,6 +355,61 @@ export async function createStudentForAcademy(academyId: string, input: CreateSt
     } catch (error) {
         await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
         throw error;
+    }
+}
+
+export async function updateClassForAcademy(academyId: string, classId: string, input: UpdateClassInput) {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const name = input.name.trim();
+    if (!classId) throw new Error('반을 선택하세요.');
+    if (!name) throw new Error('반 이름을 입력하세요.');
+
+    await assertClassesBelongToAcademy(core, academyId, [classId]);
+    if (input.defaultInstructorId) {
+        await assertStaffBelongsToAcademy(core, academyId, input.defaultInstructorId);
+    }
+
+    const status = normalizeClassStatus(input.status);
+    const active = input.active && status === 'active';
+
+    const { error: classError } = await core
+        .from('classes')
+        .update({
+            name,
+            grade: input.grade || null,
+            active,
+        })
+        .eq('academy_id', academyId)
+        .eq('id', classId)
+        .select('id')
+        .single();
+    ensureNoError(classError, 'Failed to update class');
+
+    const { error: profileError } = await lms
+        .from('class_profiles')
+        .upsert({
+            academy_id: academyId,
+            class_id: classId,
+            capacity: input.capacity ?? null,
+            color: input.color || null,
+            default_instructor_staff_id: input.defaultInstructorId || null,
+            default_classroom_id: input.defaultClassroomId || null,
+            status,
+        }, { onConflict: 'class_id' })
+        .select('class_id')
+        .single();
+    ensureNoError(profileError, 'Failed to update class profile');
+
+    if (status !== 'active') {
+        const { error: rulesError } = await lms
+            .from('class_schedule_rules')
+            .update({ active: false })
+            .eq('academy_id', academyId)
+            .eq('class_id', classId)
+            .eq('active', true);
+        ensureNoError(rulesError, 'Failed to deactivate class schedule rules');
     }
 }
 
