@@ -109,6 +109,12 @@ npm run db:backup-content
 
 The backup command is read-only against Supabase. It writes `content.books`, `content.units`, `content.concepts`, `content.problem_types`, `content.problems`, and available optional content tables to `backups/`, which is intentionally ignored by git.
 
+The current `nextum-data` cutover status, preservation inventory, schema gaps, and execution order are tracked in:
+
+```text
+docs/nextum-data-cutover-runbook.md
+```
+
 Local Supabase API schema exposure is recorded in:
 
 ```text
