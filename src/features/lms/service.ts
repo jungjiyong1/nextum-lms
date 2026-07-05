@@ -26,10 +26,13 @@ import type {
   RecordAttendanceInput,
   RecordPaymentInput,
   ScheduleItem,
+  ScheduleRuleSummary,
   StaffSummary,
   StudentInvitationResult,
   StudentSummary,
   UpdateClassInput,
+  UpdateLessonOccurrenceInput,
+  UpdateScheduleRuleInput,
   UpdateStaffInput,
   UpdateStudentInput,
   WeakTypeRow,
@@ -416,7 +419,7 @@ export async function listSchedule(academyId: string, startDate: string, endDate
       date: row.occurrence_date,
       startTime: start,
       endTime: normalizeTime(row.end_time),
-      status: row.status,
+      status: row.status as ScheduleItem['status'],
       classroomName: classroomId ? classrooms.get(classroomId) ?? null : null,
       instructorName: instructorId ? staffNames.get(instructorId) ?? null : null,
       cancelReason: row.cancel_reason ?? null,
@@ -464,9 +467,71 @@ export async function listSchedule(academyId: string, startDate: string, endDate
   return items.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
 }
 
+export async function listScheduleRules(academyId: string, classId?: string): Promise<ScheduleRuleSummary[]> {
+  let query = lmsDb
+    .from('class_schedule_rules')
+    .select('*')
+    .eq('academy_id', academyId)
+    .order('day_of_week', { ascending: true })
+    .order('start_time', { ascending: true });
+
+  if (classId) {
+    query = query.eq('class_id', classId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = (data || []) as Row[];
+  if (rows.length === 0) return [];
+
+  const classIds = [...new Set(rows.map((row) => row.class_id).filter(Boolean))];
+  const classroomIds = [...new Set(rows.map((row) => row.classroom_id).filter(Boolean))];
+  const staffIds = [...new Set(rows.map((row) => row.instructor_staff_id).filter(Boolean))];
+
+  const [classNames, classroomsResult, staffResult] = await Promise.all([
+    fetchClassNames(classIds),
+    classroomIds.length > 0
+      ? lmsDb.from('classrooms').select('id,name').eq('academy_id', academyId).in('id', classroomIds)
+      : Promise.resolve({ data: [], error: null }),
+    staffIds.length > 0
+      ? coreDb.from('staff_members').select('id,person_id').eq('academy_id', academyId).in('id', staffIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (classroomsResult.error) throw new Error(classroomsResult.error.message);
+  if (staffResult.error) throw new Error(staffResult.error.message);
+
+  const classroomMap = new Map(((classroomsResult.data || []) as Row[]).map((row) => [row.id, row.name]));
+  const staffNames = await fetchStaffPeople((staffResult.data || []) as Row[]);
+
+  return rows.map((row) => ({
+    id: row.id,
+    classId: row.class_id,
+    className: classNames.get(row.class_id) || '이름 없는 반',
+    dayOfWeek: Number(row.day_of_week),
+    startTime: normalizeTime(row.start_time),
+    endTime: normalizeTime(row.end_time),
+    startDate: row.start_date,
+    endDate: row.end_date ?? null,
+    active: Boolean(row.active),
+    classroomName: row.classroom_id ? classroomMap.get(row.classroom_id) ?? null : null,
+    instructorName: row.instructor_staff_id ? staffNames.get(row.instructor_staff_id) ?? null : null,
+  }));
+}
+
 export async function createScheduleRule(academyId: string, input: CreateScheduleRuleInput): Promise<void> {
   await postLmsMutation('/api/lms/schedule-rules', { academyId, input });
 }
+
+export async function updateScheduleRule(academyId: string, ruleId: string, input: UpdateScheduleRuleInput): Promise<void> {
+  await postLmsMutation('/api/lms/schedule-rules', { academyId, ruleId, input });
+}
+
+export async function updateLessonOccurrence(academyId: string, input: UpdateLessonOccurrenceInput): Promise<void> {
+  await postLmsMutation('/api/lms/lesson-occurrences', { academyId, input });
+}
+
 
 export async function listClassStudents(academyId: string, classId: string): Promise<ClassStudentSummary[]> {
   if (!classId) return [];

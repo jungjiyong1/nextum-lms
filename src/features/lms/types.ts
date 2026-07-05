@@ -8,6 +8,7 @@ export type StudentStatus = 'active' | 'inactive' | 'on_leave' | 'graduated' | '
 export type StaffRole = 'admin' | 'teacher' | 'instructor' | 'staff';
 export type StaffStatus = 'active' | 'inactive' | 'on_leave';
 export type ClassStatus = 'active' | 'inactive' | 'archived';
+export type LessonOccurrenceStatus = 'scheduled' | 'completed' | 'cancelled' | 'makeup' | 'substitute';
 export type AdminExportType = 'tax' | 'payroll';
 export type AdminResetTarget =
   | 'classrooms'
@@ -105,10 +106,24 @@ export interface ScheduleItem {
   date: string;
   startTime: string;
   endTime: string;
-  status: string;
+  status: LessonOccurrenceStatus;
   classroomName: string | null;
   instructorName: string | null;
   cancelReason: string | null;
+}
+
+export interface ScheduleRuleSummary {
+  id: string;
+  classId: string;
+  className: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  startDate: string;
+  endDate: string | null;
+  active: boolean;
+  classroomName: string | null;
+  instructorName: string | null;
 }
 
 export interface WeakTypeRow {
@@ -278,6 +293,10 @@ export interface CreateScheduleRuleInput {
   instructorId?: string | null;
 }
 
+export interface UpdateScheduleRuleInput extends CreateScheduleRuleInput {
+  active: boolean;
+}
+
 export interface RecordPaymentInput {
   invoiceId?: string | null;
   studentId: string;
@@ -329,5 +348,17 @@ export interface RecordAttendanceInput {
   status: AttendanceStatus;
   attendedMinutes?: number | null;
   billableMinutes?: number | null;
+  notes?: string | null;
+}
+
+export interface UpdateLessonOccurrenceInput {
+  occurrenceId?: string | null;
+  classId: string;
+  ruleId?: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: LessonOccurrenceStatus;
+  cancelReason?: string | null;
   notes?: string | null;
 }

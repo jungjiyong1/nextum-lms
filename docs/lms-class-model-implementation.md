@@ -10,6 +10,10 @@
   - edit class name, grade, status, capacity, color, and default instructor
   - deactivate schedule rules when a class is stopped or archived
   - remove class book assignments so grade-app book access can be revoked
+- Added timetable maintenance after schedule creation:
+  - edit and stop recurring schedule rules without deleting history
+  - materialize virtual lesson occurrences when a single lesson is cancelled, completed, changed to makeup, or marked as substitute
+  - keep attendance recording tied to the same occurrence identity used by billing and later reporting
 - Added student roster maintenance after registration:
   - edit student/contact/grade/status
   - update class assignments without hard-deleting history
@@ -23,6 +27,7 @@
   - `/api/lms/students`
   - `/api/lms/staff`
   - `/api/lms/schedule-rules`
+  - `/api/lms/lesson-occurrences`
   - `/api/lms/class-books`
   - `/api/lms/attendance`
   - `/api/lms/invitations/issue`

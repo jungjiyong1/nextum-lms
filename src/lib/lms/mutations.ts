@@ -24,8 +24,11 @@ import type {
     ClassStatus,
     UpdateStaffInput,
     UpdateClassInput,
+    UpdateLessonOccurrenceInput,
+    UpdateScheduleRuleInput,
     UpdateStudentInput,
     WithholdingType,
+    LessonOccurrenceStatus,
 } from '@/features/lms/types';
 
 type Row = Record<string, any>;
@@ -213,6 +216,13 @@ function normalizeStaffStatus(value: StaffStatus): StaffStatus {
 function normalizeClassStatus(value: ClassStatus): ClassStatus {
     if (value === 'active' || value === 'inactive' || value === 'archived') return value;
     return 'active';
+}
+
+function normalizeLessonOccurrenceStatus(value: LessonOccurrenceStatus): LessonOccurrenceStatus {
+    if (value === 'scheduled' || value === 'completed' || value === 'cancelled' || value === 'makeup' || value === 'substitute') {
+        return value;
+    }
+    return 'scheduled';
 }
 
 function isBillableStudentStatus(status: StudentStatus) {
@@ -699,6 +709,47 @@ export async function createScheduleRuleForAcademy(academyId: string, input: Cre
     ensureNoError(error, 'Failed to create schedule rule');
 }
 
+export async function updateScheduleRuleForAcademy(academyId: string, ruleId: string, input: UpdateScheduleRuleInput) {
+    if (!ruleId) throw new Error('시간표 규칙을 선택하세요.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+
+    const { data: existing, error: existingError } = await lms
+        .from('class_schedule_rules')
+        .select('id,class_id')
+        .eq('academy_id', academyId)
+        .eq('id', ruleId)
+        .single();
+    ensureNoError(existingError, 'Failed to load schedule rule');
+
+    await assertClassesBelongToAcademy(core, academyId, [input.classId]);
+    if (input.instructorId) {
+        await assertStaffBelongsToAcademy(core, academyId, input.instructorId);
+    }
+
+    const profile = await loadClassProfile(lms, academyId, input.classId);
+    const { error } = await lms
+        .from('class_schedule_rules')
+        .update({
+            class_id: input.classId,
+            day_of_week: input.dayOfWeek,
+            start_time: input.startTime,
+            end_time: input.endTime,
+            start_date: input.startDate,
+            end_date: input.endDate || null,
+            classroom_id: input.classroomId || profile?.default_classroom_id || null,
+            instructor_staff_id: input.instructorId || profile?.default_instructor_staff_id || null,
+            active: input.active,
+        })
+        .eq('academy_id', academyId)
+        .eq('id', (existing as Row).id)
+        .select('id')
+        .single();
+    ensureNoError(error, 'Failed to update schedule rule');
+}
+
 export async function setClassBookForAcademy(academyId: string, classId: string, bookId: string, active: boolean) {
     if (!classId || !bookId) throw new Error('반과 교재를 선택하세요.');
 
@@ -760,10 +811,17 @@ export async function createStudentInvitationForAcademy(
     };
 }
 
-async function ensureOccurrenceForAttendance(
+async function ensureLessonOccurrence(
     lms: SchemaClient,
     academyId: string,
-    input: RecordAttendanceInput,
+    input: {
+        occurrenceId?: string | null;
+        classId: string;
+        ruleId?: string | null;
+        date: string;
+        startTime: string;
+        endTime: string;
+    },
 ): Promise<string> {
     if (input.occurrenceId) {
         const { data, error } = await lms
@@ -807,6 +865,51 @@ async function ensureOccurrenceForAttendance(
     ensureNoError(existingError, 'Failed to load existing occurrence');
     if (!existing?.id) throw new Error('수업 회차를 생성하지 못했습니다.');
     return existing.id;
+}
+
+export async function updateLessonOccurrenceForAcademy(academyId: string, input: UpdateLessonOccurrenceInput) {
+    if (!input.classId) throw new Error('반을 선택하세요.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    await assertClassesBelongToAcademy(core, academyId, [input.classId]);
+
+    if (input.ruleId) {
+        const { data: rule, error: ruleError } = await lms
+            .from('class_schedule_rules')
+            .select('id,class_id')
+            .eq('academy_id', academyId)
+            .eq('id', input.ruleId)
+            .maybeSingle();
+        ensureNoError(ruleError, 'Failed to verify schedule rule');
+        if (!rule?.id || (rule as Row).class_id !== input.classId) {
+            throw new Error('Selected schedule rule does not belong to this class.');
+        }
+    }
+
+    const occurrenceId = await ensureLessonOccurrence(lms, academyId, input);
+    const status = normalizeLessonOccurrenceStatus(input.status);
+    const { error } = await lms
+        .from('lesson_occurrences')
+        .update({
+            status,
+            cancel_reason: status === 'cancelled' ? input.cancelReason || null : null,
+            notes: input.notes || null,
+        })
+        .eq('academy_id', academyId)
+        .eq('id', occurrenceId)
+        .select('id')
+        .single();
+    ensureNoError(error, 'Failed to update lesson occurrence');
+}
+
+async function ensureOccurrenceForAttendance(
+    lms: SchemaClient,
+    academyId: string,
+    input: RecordAttendanceInput,
+): Promise<string> {
+    return ensureLessonOccurrence(lms, academyId, input);
 }
 
 export async function recordAttendanceForAcademy(academyId: string, input: RecordAttendanceInput) {

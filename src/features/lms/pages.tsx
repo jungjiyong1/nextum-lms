@@ -45,6 +45,7 @@ import {
   listInstructorPayments,
   listPayments,
   listSchedule,
+  listScheduleRules,
   listStaff,
   listStudents,
   listWeakTypes,
@@ -53,6 +54,8 @@ import {
   resetAdminData,
   setClassBook,
   updateClass,
+  updateLessonOccurrence,
+  updateScheduleRule,
   updateStudent,
   updateStaff,
   updateTaxSettings,
@@ -74,8 +77,10 @@ import type {
   DashboardData,
   ExpenseRow,
   InstructorPaymentRow,
+  LessonOccurrenceStatus,
   PaymentRow,
   ScheduleItem,
+  ScheduleRuleSummary,
   StaffRole,
   StaffSummary,
   StaffStatus,
@@ -151,6 +156,17 @@ function attendanceStatusLabel(status: AttendanceStatus): string {
     absent: '결석',
     excused: '인정 결석',
     makeup: '보강',
+  };
+  return labels[status];
+}
+
+function lessonStatusLabel(status: LessonOccurrenceStatus): string {
+  const labels: Record<LessonOccurrenceStatus, string> = {
+    scheduled: '예정',
+    completed: '완료',
+    cancelled: '취소',
+    makeup: '보강',
+    substitute: '대강',
   };
   return labels[status];
 }
@@ -445,6 +461,7 @@ export function ClassesPage() {
   const academyId = useAcademyId();
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
+  const [scheduleRules, setScheduleRules] = useState<ScheduleRuleSummary[]>([]);
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [classBooks, setClassBooks] = useState<ClassBookSummary[]>([]);
   const [classStudents, setClassStudents] = useState<ClassStudentSummary[]>([]);
@@ -460,12 +477,17 @@ export function ClassesPage() {
   const [classColor, setClassColor] = useState('#059669');
   const [defaultInstructorId, setDefaultInstructorId] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
+  const [editingRuleId, setEditingRuleId] = useState('');
+  const [ruleActive, setRuleActive] = useState(true);
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [startTime, setStartTime] = useState('16:00');
   const [endTime, setEndTime] = useState('18:00');
   const [startDate, setStartDate] = useState(today());
+  const [ruleEndDate, setRuleEndDate] = useState('');
   const [selectedBookId, setSelectedBookId] = useState('');
   const [selectedScheduleId, setSelectedScheduleId] = useState('');
+  const [lessonStatus, setLessonStatus] = useState<LessonOccurrenceStatus>('scheduled');
+  const [lessonCancelReason, setLessonCancelReason] = useState('');
   const [attendanceStudentId, setAttendanceStudentId] = useState('');
   const [attendanceStatus, setAttendanceStatus] = useState<AttendanceStatus>('present');
   const [attendedMinutes, setAttendedMinutes] = useState('');
@@ -478,15 +500,17 @@ export function ClassesPage() {
     try {
       const rangeStart = today();
       const rangeEnd = addDaysString(rangeStart, 14);
-      const [classRows, scheduleRows, bookRows, attendanceRows, staffRows] = await Promise.all([
+      const [classRows, scheduleRows, ruleRows, bookRows, attendanceRows, staffRows] = await Promise.all([
         listClassSummaries(academyId),
         listSchedule(academyId, rangeStart, rangeEnd),
+        listScheduleRules(academyId),
         listBooks(academyId),
         listAttendance(academyId, rangeStart, rangeEnd),
         listStaff(academyId),
       ]);
       setClasses(classRows);
       setSchedule(scheduleRows);
+      setScheduleRules(ruleRows);
       setBooks(bookRows);
       setAttendance(attendanceRows);
       setStaff(staffRows);
@@ -533,6 +557,10 @@ export function ClassesPage() {
     () => schedule.filter((item) => item.classId === selectedClassId),
     [schedule, selectedClassId],
   );
+  const classRules = useMemo(
+    () => scheduleRules.filter((item) => item.classId === selectedClassId),
+    [scheduleRules, selectedClassId],
+  );
   const selectedSchedule = classSchedule.find((item) => item.id === selectedScheduleId) || classSchedule[0] || null;
   const selectedDuration = durationMinutes(selectedSchedule);
   const classAttendance = attendance.filter((row) => row.classId === selectedClassId);
@@ -542,6 +570,16 @@ export function ClassesPage() {
       setSelectedScheduleId(classSchedule[0]?.id || '');
     }
   }, [classSchedule, selectedScheduleId]);
+
+  useEffect(() => {
+    if (selectedSchedule) {
+      setLessonStatus(selectedSchedule.status);
+      setLessonCancelReason(selectedSchedule.cancelReason || '');
+    } else {
+      setLessonStatus('scheduled');
+      setLessonCancelReason('');
+    }
+  }, [selectedSchedule]);
 
   useEffect(() => {
     if (!classStudents.some((student) => student.id === attendanceStudentId)) {
@@ -570,6 +608,46 @@ export function ClassesPage() {
     setCapacity(row.capacity === null ? '' : String(row.capacity));
     setClassColor(row.color || '#059669');
     setDefaultInstructorId(row.defaultInstructorId || '');
+  };
+
+  const resetRuleForm = () => {
+    setEditingRuleId('');
+    setRuleActive(true);
+    setDayOfWeek(0);
+    setStartTime('16:00');
+    setEndTime('18:00');
+    setStartDate(today());
+    setRuleEndDate('');
+  };
+
+  const editRule = (row: ScheduleRuleSummary) => {
+    setEditingRuleId(row.id);
+    setSelectedClassId(row.classId);
+    setRuleActive(row.active);
+    setDayOfWeek(row.dayOfWeek);
+    setStartTime(row.startTime);
+    setEndTime(row.endTime);
+    setStartDate(row.startDate);
+    setRuleEndDate(row.endDate || '');
+  };
+
+  const stopRule = async (row: ScheduleRuleSummary) => {
+    try {
+      await updateScheduleRule(academyId, row.id, {
+        classId: row.classId,
+        dayOfWeek: row.dayOfWeek,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        startDate: row.startDate,
+        endDate: row.endDate,
+        active: false,
+      });
+      toast.success('반복 시간표를 중지했습니다.');
+      if (editingRuleId === row.id) resetRuleForm();
+      await loadBase();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '반복 시간표 중지 실패');
+    }
   };
 
   const submitClass = async (event: React.FormEvent) => {
@@ -607,7 +685,21 @@ export function ClassesPage() {
       return;
     }
     try {
-      await createScheduleRule(academyId, { classId: selectedClassId, dayOfWeek, startTime, endTime, startDate });
+      const payload = {
+        classId: selectedClassId,
+        dayOfWeek,
+        startTime,
+        endTime,
+        startDate,
+        endDate: ruleEndDate || null,
+      };
+      if (editingRuleId) {
+        await updateScheduleRule(academyId, editingRuleId, { ...payload, active: ruleActive });
+        resetRuleForm();
+      } else {
+        await createScheduleRule(academyId, payload);
+        resetRuleForm();
+      }
       toast.success('반 시간표를 추가했습니다.');
       await loadBase();
     } catch (err) {
@@ -662,6 +754,30 @@ export function ClassesPage() {
       await loadBase();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '출결 기록 실패');
+    }
+  };
+
+  const submitLessonStatus = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedSchedule) {
+      toast.error('수업을 선택하세요.');
+      return;
+    }
+    try {
+      await updateLessonOccurrence(academyId, {
+        occurrenceId: selectedSchedule.actualId,
+        classId: selectedSchedule.classId,
+        ruleId: selectedSchedule.ruleId,
+        date: selectedSchedule.date,
+        startTime: selectedSchedule.startTime,
+        endTime: selectedSchedule.endTime,
+        status: lessonStatus,
+        cancelReason: lessonCancelReason || null,
+      });
+      toast.success('수업 상태를 저장했습니다.');
+      await loadBase();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '수업 상태 저장 실패');
     }
   };
 
@@ -799,8 +915,46 @@ export function ClassesPage() {
                     <Label>시작일</Label>
                     <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
                   </div>
-                  <Button type="submit" className="w-full">시간표 추가</Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>종료일</Label>
+                      <Input type="date" value={ruleEndDate} onChange={(event) => setRuleEndDate(event.target.value)} />
+                    </div>
+                    <div>
+                      <Label>상태</Label>
+                      <SelectBox value={ruleActive ? 'active' : 'inactive'} onChange={(event) => setRuleActive(event.target.value === 'active')}>
+                        <option value="active">운영</option>
+                        <option value="inactive">중지</option>
+                      </SelectBox>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="submit" className="w-full">{editingRuleId ? '시간표 수정' : '시간표 추가'}</Button>
+                    <Button type="button" variant="outline" className="w-full" onClick={resetRuleForm}>새 입력</Button>
+                  </div>
                 </form>
+                <div className="mt-4 space-y-2">
+                  {classRules.map((rule) => (
+                    <div key={rule.id} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3 text-sm">
+                      <div>
+                        <div className="font-medium">
+                          {dayLabels[rule.dayOfWeek]} {rule.startTime}-{rule.endTime}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {rule.startDate}부터{rule.endDate ? ` ${rule.endDate}까지` : ''} · {rule.instructorName || '-'} · {rule.classroomName || '-'}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusBadge status={rule.active ? 'active' : 'inactive'} />
+                        <Button type="button" variant="outline" size="sm" onClick={() => editRule(rule)}>수정</Button>
+                        {rule.active && <Button type="button" variant="outline" size="sm" onClick={() => stopRule(rule)}>중지</Button>}
+                      </div>
+                    </div>
+                  ))}
+                  {classRules.length === 0 && (
+                    <p className="rounded-lg border bg-white p-3 text-sm text-slate-400">등록된 반복 시간표가 없습니다.</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -894,6 +1048,20 @@ export function ClassesPage() {
                       </div>
                       <Input value={attendanceNotes} onChange={(event) => setAttendanceNotes(event.target.value)} placeholder="메모" />
                       <Button type="submit" className="w-full" disabled={!selectedSchedule || !attendanceStudentId}>출결 저장</Button>
+                    </form>
+                    <form onSubmit={submitLessonStatus} className="space-y-2 rounded-lg border bg-white p-3">
+                      <div className="text-sm font-medium text-slate-700">수업 상태</div>
+                      <SelectBox value={lessonStatus} onChange={(event) => setLessonStatus(event.target.value as LessonOccurrenceStatus)}>
+                        {(['scheduled', 'completed', 'cancelled', 'makeup', 'substitute'] as LessonOccurrenceStatus[]).map((status) => (
+                          <option key={status} value={status}>{lessonStatusLabel(status)}</option>
+                        ))}
+                      </SelectBox>
+                      <Input
+                        value={lessonCancelReason}
+                        onChange={(event) => setLessonCancelReason(event.target.value)}
+                        placeholder="취소 사유 또는 운영 메모"
+                      />
+                      <Button type="submit" variant="outline" className="w-full" disabled={!selectedSchedule}>수업 상태 저장</Button>
                     </form>
                   </div>
                 </div>
