@@ -202,6 +202,19 @@ export interface BookSummary {
   grade: string | null;
 }
 
+export interface CreateBookInput {
+  bookKey?: string | null;
+  title: string;
+  subject?: string | null;
+  grade?: string | null;
+}
+
+export interface UpdateBookInput {
+  title: string;
+  subject?: string | null;
+  grade?: string | null;
+}
+
 export interface ClassBookSummary extends BookSummary {
   assignedAt: string;
   active: boolean;

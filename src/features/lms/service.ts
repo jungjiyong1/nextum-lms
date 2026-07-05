@@ -13,6 +13,7 @@ import type {
   ClassBookSummary,
   ClassStudentSummary,
   ClassSummary,
+  CreateBookInput,
   CreateClassInput,
   CreateExpenseInput,
   CreateInstructorPaymentInput,
@@ -31,6 +32,7 @@ import type {
   StudentInvitationResult,
   StudentSummary,
   UpdateClassInput,
+  UpdateBookInput,
   UpdateLessonOccurrenceInput,
   UpdateScheduleRuleInput,
   UpdateStaffInput,
@@ -581,6 +583,14 @@ export async function listBooks(academyId: string): Promise<BookSummary[]> {
     subject: row.subject ?? null,
     grade: row.grade ?? null,
   }));
+}
+
+export async function createBook(academyId: string, input: CreateBookInput): Promise<void> {
+  await postLmsMutation('/api/lms/books', { academyId, input });
+}
+
+export async function updateBook(academyId: string, bookId: string, input: UpdateBookInput): Promise<void> {
+  await postLmsMutation('/api/lms/books', { academyId, bookId, input });
 }
 
 export async function listClassBooks(classId: string): Promise<ClassBookSummary[]> {

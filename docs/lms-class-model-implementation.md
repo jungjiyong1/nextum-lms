@@ -6,6 +6,10 @@
 - Added development-only admin seeding through `npm run seed:dev-admin`; the script now requires `LMS_DEV_SEED_ALLOW=true`.
 - Added a new `src/features/lms` service/UI layer using the class-centered schema.
 - Added class book assignment, class attendance recording, and monthly billing draft calculation from base fee, class rules, and billable attendance minutes.
+- Added LMS book maintenance on top of the grade-app content contract:
+  - create academy-owned `content.books` records from the class screen
+  - edit title, subject, and grade without changing existing `book_key` references
+  - keep hard delete out of the LMS UI so grade-app book/problem data is not accidentally broken
 - Added class maintenance after creation:
   - edit class name, grade, status, capacity, color, and default instructor
   - deactivate schedule rules when a class is stopped or archived
@@ -26,6 +30,7 @@
   - `/api/lms/classes`
   - `/api/lms/students`
   - `/api/lms/staff`
+  - `/api/lms/books`
   - `/api/lms/schedule-rules`
   - `/api/lms/lesson-occurrences`
   - `/api/lms/class-books`

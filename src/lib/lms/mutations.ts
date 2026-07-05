@@ -8,6 +8,7 @@ import type {
     BillingMode,
     CreateExpenseInput,
     CreateInstructorPaymentInput,
+    CreateBookInput,
     CreateClassInput,
     CreateScheduleRuleInput,
     CreateStaffInput,
@@ -22,6 +23,7 @@ import type {
     StaffRole,
     StaffStatus,
     ClassStatus,
+    UpdateBookInput,
     UpdateStaffInput,
     UpdateClassInput,
     UpdateLessonOccurrenceInput,
@@ -94,6 +96,23 @@ function randomInviteCode(): string {
 
 function hashInviteCode(code: string): string {
     return createHash('sha256').update(code.trim().toUpperCase()).digest('hex');
+}
+
+function slugifyBookKey(value: string): string {
+    return value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9가-힣]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80);
+}
+
+function buildBookKey(academyId: string, input: CreateBookInput): string {
+    const explicit = input.bookKey ? slugifyBookKey(input.bookKey) : '';
+    if (explicit) return explicit;
+
+    const titleSlug = slugifyBookKey(input.title).slice(0, 40) || 'book';
+    return `lms-${academyId.slice(0, 8)}-${titleSlug}-${randomBytes(3).toString('hex')}`;
 }
 
 function defaultBillingRules(input: CreateStudentInput): StudentClassBillingInput[] {
@@ -189,6 +208,44 @@ async function loadClassProfile(lms: SchemaClient, academyId: string, classId: s
         .single();
     ensureNoError(error, 'Failed to load class profile');
     return data as Row;
+}
+
+export async function createBookForAcademy(academyId: string, input: CreateBookInput) {
+    const title = input.title.trim();
+    if (!title) throw new Error('교재명을 입력하세요.');
+
+    const client = createAdminClient();
+    const content = client.schema('content');
+    const { error } = await content.from('books').insert({
+        academy_id: academyId,
+        book_key: buildBookKey(academyId, input),
+        title,
+        subject: input.subject?.trim() || null,
+        grade: input.grade?.trim() || null,
+    });
+    ensureNoError(error, 'Failed to create book');
+}
+
+export async function updateBookForAcademy(academyId: string, bookId: string, input: UpdateBookInput) {
+    if (!bookId) throw new Error('교재를 선택하세요.');
+
+    const title = input.title.trim();
+    if (!title) throw new Error('교재명을 입력하세요.');
+
+    const client = createAdminClient();
+    const content = client.schema('content');
+    const { error } = await content
+        .from('books')
+        .update({
+            title,
+            subject: input.subject?.trim() || null,
+            grade: input.grade?.trim() || null,
+        })
+        .eq('academy_id', academyId)
+        .eq('id', bookId)
+        .select('id')
+        .single();
+    ensureNoError(error, 'Failed to update book');
 }
 
 function normalizeBillingMode(value: BillingMode): BillingMode {

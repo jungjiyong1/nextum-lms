@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import {
   createClass,
+  createBook,
   createScheduleRule,
   createStaff,
   createStudent,
@@ -54,6 +55,7 @@ import {
   resetAdminData,
   setClassBook,
   updateClass,
+  updateBook,
   updateLessonOccurrence,
   updateScheduleRule,
   updateStudent,
@@ -485,6 +487,11 @@ export function ClassesPage() {
   const [startDate, setStartDate] = useState(today());
   const [ruleEndDate, setRuleEndDate] = useState('');
   const [selectedBookId, setSelectedBookId] = useState('');
+  const [editingBookId, setEditingBookId] = useState('');
+  const [bookKey, setBookKey] = useState('');
+  const [bookTitle, setBookTitle] = useState('');
+  const [bookSubject, setBookSubject] = useState('');
+  const [bookGrade, setBookGrade] = useState('');
   const [selectedScheduleId, setSelectedScheduleId] = useState('');
   const [lessonStatus, setLessonStatus] = useState<LessonOccurrenceStatus>('scheduled');
   const [lessonCancelReason, setLessonCancelReason] = useState('');
@@ -726,6 +733,45 @@ export function ClassesPage() {
       await loadClassDetail();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '교재 배정 해제 실패');
+    }
+  };
+
+  const resetBookForm = () => {
+    setEditingBookId('');
+    setBookKey('');
+    setBookTitle('');
+    setBookSubject('');
+    setBookGrade('');
+  };
+
+  const editBook = (book: BookSummary) => {
+    setEditingBookId(book.id);
+    setBookKey(book.bookKey);
+    setBookTitle(book.title);
+    setBookSubject(book.subject || '');
+    setBookGrade(book.grade || '');
+  };
+
+  const submitBookRecord = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      const payload = {
+        title: bookTitle,
+        subject: bookSubject || null,
+        grade: bookGrade || null,
+      };
+      if (editingBookId) {
+        await updateBook(academyId, editingBookId, payload);
+        toast.success('교재 정보를 수정했습니다.');
+      } else {
+        await createBook(academyId, { ...payload, bookKey: bookKey || null });
+        toast.success('교재를 추가했습니다.');
+      }
+      resetBookForm();
+      await loadBase();
+      await loadClassDetail();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '교재 저장 실패');
     }
   };
 
@@ -993,6 +1039,24 @@ export function ClassesPage() {
                       </SelectBox>
                       <Button type="submit" disabled={!selectedClassId || !selectedBookId}>배정</Button>
                     </form>
+                    <form onSubmit={submitBookRecord} className="space-y-2 rounded-lg border bg-white p-3">
+                      <div className="text-sm font-medium text-slate-700">{editingBookId ? '교재 수정' : '교재 추가'}</div>
+                      <Input value={bookTitle} onChange={(event) => setBookTitle(event.target.value)} placeholder="교재명" />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input value={bookSubject} onChange={(event) => setBookSubject(event.target.value)} placeholder="과목" />
+                        <Input value={bookGrade} onChange={(event) => setBookGrade(event.target.value)} placeholder="학년" />
+                      </div>
+                      <Input
+                        value={bookKey}
+                        onChange={(event) => setBookKey(event.target.value)}
+                        placeholder="book key 자동 생성"
+                        disabled={Boolean(editingBookId)}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button type="submit" className="w-full">{editingBookId ? '교재 수정' : '교재 추가'}</Button>
+                        <Button type="button" variant="outline" className="w-full" onClick={resetBookForm}>새 입력</Button>
+                      </div>
+                    </form>
                     <div className="rounded-lg border bg-white">
                       {classBooks.length === 0 ? (
                         <p className="p-4 text-sm text-slate-400">배정된 교재가 없습니다.</p>
@@ -1003,9 +1067,12 @@ export function ClassesPage() {
                               <div className="text-sm font-medium">{book.title}</div>
                               <div className="text-xs text-slate-400">{book.subject || '-'} · {book.grade || '-'}</div>
                             </div>
-                            <Button type="button" variant="outline" size="sm" onClick={() => removeBook(book.id)}>
-                              해제
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button type="button" variant="outline" size="sm" onClick={() => editBook(book)}>수정</Button>
+                              <Button type="button" variant="outline" size="sm" onClick={() => removeBook(book.id)}>
+                                해제
+                              </Button>
+                            </div>
                           </div>
                         ))
                       )}
