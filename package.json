@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "clean": "rimraf .next out dist",
     "test": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "seed:dev-admin": "node scripts/seed-lms-dev-admin.mjs"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.2.9",
