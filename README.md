@@ -45,9 +45,11 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SECRET_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 NEXT_PUBLIC_LMS_LOGIN_EMAIL_DOMAIN=nextum.local
+NEXTUM_INVITE_CODE_SECRET= # optional; set the same value in LMS and grade-app
 ```
 
 `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` is server-only. Never expose either with a `NEXT_PUBLIC_` prefix.
+If `NEXTUM_INVITE_CODE_SECRET` is omitted, invite-code hashing falls back to the server-only Supabase secret key.
 
 ## Development Admin
 

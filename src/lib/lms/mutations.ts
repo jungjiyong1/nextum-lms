@@ -86,8 +86,13 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
 }
 
 function inviteSecret(): string {
-    const secret = process.env.NEXTUM_INVITE_CODE_SECRET ?? process.env.INVITE_CODE_SECRET;
-    if (!secret) throw new Error('Invite code secret is not configured.');
+    const secret = process.env.NEXTUM_INVITE_CODE_SECRET
+        ?? process.env.INVITE_CODE_SECRET
+        ?? process.env.SUPABASE_SECRET_KEY
+        ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!secret) {
+        throw new Error('Invite code secret is not configured. Set NEXTUM_INVITE_CODE_SECRET or SUPABASE_SECRET_KEY.');
+    }
     return secret;
 }
 
