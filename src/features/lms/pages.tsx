@@ -35,7 +35,6 @@ import {
   createClassroom,
   createStaff,
   createStudent,
-  createStudentInvitation,
   exportAdminCsv,
   generateMonthlyInvoices,
   getDashboardData,
@@ -1335,7 +1334,6 @@ export function StudentsOperationsPage() {
   const [hourlyRate, setHourlyRate] = useState('');
   const [extraClassFee, setExtraClassFee] = useState('0');
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
-  const [inviteCodes, setInviteCodes] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!academyId) return;
@@ -1434,16 +1432,6 @@ export function StudentsOperationsPage() {
     }
   };
 
-  const issueInvite = async (studentId: string) => {
-    try {
-      const invite = await createStudentInvitation(academyId, studentId);
-      setInviteCodes((current) => ({ ...current, [studentId]: invite.code }));
-      toast.success('학생 초대코드를 발급했습니다.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '초대코드 발급 실패');
-    }
-  };
-
   return (
     <PageShell title="학생" description="학생 원장, 반 배정, 청구 계약을 한 번에 연결합니다." icon={GraduationCap}>
       {loading && <LoadingBlock />}
@@ -1479,13 +1467,6 @@ export function StudentsOperationsPage() {
                           <Button type="button" variant="outline" size="sm" onClick={() => editStudent(student)}>
                             수정
                           </Button>
-                        {inviteCodes[student.id] ? (
-                          <code className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">{inviteCodes[student.id]}</code>
-                        ) : (
-                          <Button type="button" variant="outline" size="sm" onClick={() => issueInvite(student.id)} disabled={student.status !== 'active'}>
-                            초대코드
-                          </Button>
-                        )}
                         </div>
                       </td>
                     </tr>

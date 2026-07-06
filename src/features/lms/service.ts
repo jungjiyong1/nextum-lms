@@ -19,7 +19,6 @@ import type {
   RecordAttendanceInput,
   RecordPaymentInput,
   StaffSummary,
-  StudentInvitationResult,
   StudentOperationsOverview,
   UpdateBookInput,
   UpdateClassInput,
@@ -146,11 +145,6 @@ export async function updateStudent(academyId: string, studentId: string, input:
 export async function loadStudentOperationsOverview(academyId: string): Promise<StudentOperationsOverview> {
   const params = new URLSearchParams({ academyId });
   return getLmsJson<StudentOperationsOverview>(`/api/lms/students?${params.toString()}`);
-}
-
-export async function createStudentInvitation(academyId: string, studentId: string): Promise<StudentInvitationResult> {
-  const result = await postLmsMutation<{ invite: StudentInvitationResult }>('/api/lms/invitations/issue', { academyId, studentId });
-  return result.invite;
 }
 
 export async function listStaff(academyId: string): Promise<StaffSummary[]> {

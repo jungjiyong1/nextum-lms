@@ -12,15 +12,13 @@ describe('LMS route guards', () => {
 
     it('leaves public and API paths unprotected by page redirect logic', () => {
         expect(isProtectedAppPath('/login')).toBe(false);
-        expect(isProtectedAppPath('/signup')).toBe(false);
         expect(isProtectedAppPath('/api/lms/students')).toBe(false);
         expect(isProtectedAppPath('/icon.png')).toBe(false);
     });
 
     it('identifies public auth pages', () => {
         expect(isPublicAuthPath('/login')).toBe(true);
-        expect(isPublicAuthPath('/signup')).toBe(true);
-        expect(isPublicAuthPath('/signup/invite')).toBe(true);
+        expect(isPublicAuthPath('/signup')).toBe(false);
         expect(isPublicAuthPath('/students')).toBe(false);
     });
 });

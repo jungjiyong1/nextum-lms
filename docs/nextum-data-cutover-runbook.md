@@ -93,7 +93,7 @@
 7. Storage 파일은 기존 object path가 grade-app에서 깨지지 않게 보존한다.
 8. Data API 노출 schema, role grant, RLS policy를 baseline 기준으로 확인한다.
 9. `npm run db:check`를 통과시킨다.
-10. LMS에서 `admin / 1234` dev 계정으로 로그인, 학생 등록, 초대코드 발급, 반/교재 연결, 출석, 청구 생성을 검증한다.
+10. LMS에서 `admin / 1234` dev 계정으로 로그인, 학생 등록, 반/교재 연결, 출석, 청구 생성을 검증한다. 초대코드 기반 학생 가입은 grade-app 단계에서 별도로 검증한다.
 
 ## 절대 먼저 하면 안 되는 일
 

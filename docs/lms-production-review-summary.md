@@ -1,5 +1,11 @@
 # LMS Production Review Summary
 
+Current correction on 2026-07-06:
+
+- Student invitation-code signup is not an LMS runtime feature.
+- LMS no longer exposes `/signup`, `/api/lms/invitations/accept`, or `/api/lms/invitations/issue`.
+- The student signup flow is deferred to the future grade-app migration.
+
 작성일: 2026-07-06
 
 대상:
@@ -24,8 +30,8 @@
 현재 회원가입 코드가 `role: 'admin'`을 보낼 수 있고, DB trigger가 그 값을 믿는다. 즉 공개 회원가입이나 signup API가 열려 있으면 사용자가 LMS admin 권한을 얻을 수 있다.
 
 상태:
-- 2026-07-06 기준 공개 signup은 초대코드 기반 학생 가입 API만 사용한다.
-- invitation accept route는 student 초대만 허용하고 auth user metadata에는 권한 role을 저장하지 않는다.
+- 2026-07-06 correction: public signup and invitation accept routes have been removed from LMS runtime.
+- Student invitation-code signup is deferred to grade-app.
 - clean baseline에는 `raw_user_meta_data` role을 믿는 auth trigger가 없다.
 - admin route 권한 판단은 active `core.academy_members` owner/admin membership을 기준으로 한다.
 

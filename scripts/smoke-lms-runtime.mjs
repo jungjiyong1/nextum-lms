@@ -82,6 +82,9 @@ async function launchBrowser() {
 
 async function login() {
   await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded' });
+  const signupLinks = await page.locator('a[href="/signup"]').count();
+  assert(signupLinks === 0, 'LMS login page must not expose /signup; student signup belongs in grade-app');
+
   await page.locator('#login-id').fill(loginId);
   await page.locator('#password').fill(password);
   await page.locator('button[type="submit"]').click();

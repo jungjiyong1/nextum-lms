@@ -118,7 +118,7 @@
 1. `supabaseClient.ts` schema helper 도입
 2. 학생/강사/프로필 direct table 접근을 중앙 API로 모으기
 3. `AuthContext`를 core 계정 모델로 변경
-4. 학생 등록 화면에서 `core.people`, `core.students`, `core.account_invitations` 생성
+4. 학생 등록 화면에서 `core.people`, `core.students` 생성. `core.account_invitations` 생성/수락은 grade-app 가입 단계로 이연
 5. 수강/수업/회계 테이블의 FK를 UUID로 전환
 6. 학생 리포트 화면은 `reporting.student_*` view를 읽도록 신규 API 추가
 7. raw reset 기능은 운영 앱에서 제거하거나 관리자 dev tool로 격리

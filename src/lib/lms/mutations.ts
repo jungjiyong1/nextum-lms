@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { calculateInvoiceDraft } from '@/features/lms/billing';
 import {
@@ -23,7 +23,6 @@ import type {
     RecordPaymentInput,
     StudentStatus,
     StudentClassBillingInput,
-    StudentInvitationResult,
     StaffRole,
     StaffStatus,
     ClassStatus,
@@ -92,15 +91,6 @@ function minutesBetween(startTime: string, endTime: string): number {
     const start = startHour * 60 + startMinute;
     const end = endHour * 60 + endMinute;
     return Math.max(0, end - start);
-}
-
-function randomInviteCode(): string {
-    const token = randomBytes(9).toString('base64url').replace(/[^A-Z0-9]/gi, '').slice(0, 12).toUpperCase();
-    return `NX-${token.slice(0, 4)}-${token.slice(4, 8)}-${token.slice(8, 12)}`;
-}
-
-function hashInviteCode(code: string): string {
-    return createHash('sha256').update(code.trim().toUpperCase()).digest('hex');
 }
 
 function slugifyBookKey(value: string): string {
@@ -873,52 +863,6 @@ export async function setClassBookForAcademy(academyId: string, classId: string,
         .from('class_books')
         .upsert({ class_id: classId, book_id: bookId, active }, { onConflict: 'class_id,book_id' });
     ensureNoError(error, 'Failed to assign class book');
-}
-
-export async function createStudentInvitationForAcademy(
-    academyId: string,
-    studentId: string,
-): Promise<StudentInvitationResult> {
-    if (!studentId) throw new Error('학생을 선택하세요.');
-
-    const client = createAdminClient();
-    const core = client.schema('core');
-    const { data: student, error: studentError } = await core
-        .from('students')
-        .select('id,person_id,status')
-        .eq('academy_id', academyId)
-        .eq('id', studentId)
-        .eq('status', 'active')
-        .single();
-    ensureNoError(studentError, 'Failed to load student');
-
-    const studentRow = student as Row;
-    const { data: person, error: personError } = await core
-        .from('people')
-        .select('id,full_name,display_name')
-        .eq('id', studentRow.person_id)
-        .single();
-    ensureNoError(personError, 'Failed to load person');
-
-    const personRow = person as Row;
-    const code = randomInviteCode();
-    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    const { error } = await core.from('account_invitations').insert({
-        academy_id: academyId,
-        person_id: studentRow.person_id,
-        student_id: studentRow.id,
-        role: 'student',
-        invite_code_hash: hashInviteCode(code),
-        login_hint: personRow.display_name || personRow.full_name || null,
-        expires_at: expiresAt,
-    });
-    ensureNoError(error, 'Failed to create student invitation');
-
-    return {
-        code,
-        expiresAt,
-        loginHint: personRow.display_name || personRow.full_name || null,
-    };
 }
 
 async function ensureLessonOccurrence(

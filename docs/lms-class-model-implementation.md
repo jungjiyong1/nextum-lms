@@ -28,10 +28,10 @@
   - edit student/contact/grade/status
   - update class assignments without hard-deleting history
   - update or close billing contracts based on student status
-- Added student invitation-code signup:
-  - LMS issues codes from the student list.
-  - `/signup` accepts the code and creates the Supabase Auth account with a normal login ID.
-  - `core.user_accounts` and `core.academy_members` become the canonical account link.
+- Deferred student invitation-code signup to the future grade-app phase:
+  - LMS runtime no longer exposes `/signup`.
+  - LMS runtime no longer exposes invitation-code issue or accept APIs.
+  - `core.account_invitations`, `core.user_accounts`, and `core.academy_members` remain the shared data contract for the later grade-app signup flow.
 - Moved high-risk create/generate mutations behind same-origin server API routes:
   - `/api/lms/classes`
   - `/api/lms/students`
@@ -42,7 +42,6 @@
   - `/api/lms/lesson-occurrences`
   - `/api/lms/class-books`
   - `/api/lms/attendance`
-  - `/api/lms/invitations/issue`
   - `/api/lms/billing/generate`
   - `/api/lms/payments`
   - `/api/lms/expenses`
@@ -119,6 +118,7 @@
 ## Deliberately Not Done Yet
 
 - grade-app code has not been changed in this LMS-only phase.
+- Student invitation-code signup has not been added to LMS. It is deferred to grade-app.
 - PDF report generation is not included. The current target is reliable data structures and LMS views for future report generation.
 - Student analysis and parent report requirements for the future grade-app/reporting phase are tracked in `docs/grade-app-reporting-requirements.md`.
 - Supabase Auth leaked password protection is still a dashboard-side setting, not a SQL migration. The security advisor now only reports that remaining Auth setting.
@@ -129,7 +129,7 @@
 
 1. Keep the preservation backup from `npm run db:backup-preservation` before any further destructive work.
 2. Run `npm run db:check` against `nextum-data` before authenticated LMS use.
-3. Verify admin login, student invite signup, class book assignment, attendance, and billing generation after each schema change.
+3. Verify admin login, student registration, class book assignment, attendance, and billing generation after each schema change.
 4. Enable Supabase Auth leaked password protection in the dashboard.
 5. Modify grade-app to use `core.students`, `core.class_students`, `core.class_books`, `learning.*`, and `ai.*` from the same baseline.
 6. After grade-app migration, remove or archive legacy duplicated learning tables only with a fresh backup.

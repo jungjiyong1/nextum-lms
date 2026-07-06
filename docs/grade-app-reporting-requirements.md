@@ -18,8 +18,9 @@ grade-app is migrated later. Do not treat this as completed grade-app work.
 ## Login Contract
 
 - Students are registered in LMS first.
-- LMS issues a one-time invitation code.
-- Student chooses a normal login ID and password at `/signup`.
+- Student signup is implemented in grade-app later, not in the LMS app.
+- The LMS must not expose a public `/signup` screen or invitation-code accept API in the current phase.
+- When grade-app signup is implemented, the student chooses a normal login ID and password in the grade-app signup flow.
 - The app maps normal IDs to Supabase Auth email internally:
   - `login_id` -> `login_id@LMS_LOGIN_EMAIL_DOMAIN`
 - Canonical identity is:
@@ -27,6 +28,7 @@ grade-app is migrated later. Do not treat this as completed grade-app work.
   - `core.students`
   - `core.user_accounts`
   - `core.academy_members`
+- `core.account_invitations` remains the future invitation contract, but LMS runtime does not issue or accept invitation codes yet.
 
 ## Access Contract
 

@@ -139,29 +139,19 @@ function AppContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, profile, loading } = useAuth();
-  const isSignupRoute = pathname.startsWith('/signup');
 
   useEffect(() => {
     if (loading) return;
-    if (!user && pathname !== '/login' && !isSignupRoute) {
+    if (!user && pathname !== '/login') {
       router.replace('/login');
     }
-    if (user && (pathname === '/login' || isSignupRoute)) {
+    if (user && pathname === '/login') {
       router.replace('/');
     }
-  }, [isSignupRoute, loading, pathname, router, user]);
+  }, [loading, pathname, router, user]);
 
   if (loading) {
     return <LoadingScreen />;
-  }
-
-  if (!user && isSignupRoute) {
-    return (
-      <>
-        {children}
-        <Toaster position="top-right" />
-      </>
-    );
   }
 
   if (!user) {

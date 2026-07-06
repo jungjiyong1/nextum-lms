@@ -79,12 +79,6 @@ export interface StudentClassBillingInput {
   amount: number;
 }
 
-export interface StudentInvitationResult {
-  code: string;
-  expiresAt: string;
-  loginHint: string | null;
-}
-
 export interface StudentOperationsOverview {
   students: StudentSummary[];
   classes: ClassSummary[];

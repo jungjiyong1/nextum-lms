@@ -1,5 +1,11 @@
 # LMS Production-Grade Code Review
 
+Current correction on 2026-07-06:
+
+- Student invitation-code signup is not an LMS runtime feature.
+- LMS no longer exposes `/signup`, `/api/lms/invitations/accept`, or `/api/lms/invitations/issue`.
+- The student signup flow is deferred to the future grade-app migration.
+
 작성일: 2026-07-06
 
 대상:
@@ -65,8 +71,8 @@ Acceptance:
 - admin route는 active owner/admin member만 통과한다.
 
 Implementation status:
-- 2026-07-06 기준 공개 signup 화면은 직접 Supabase signup을 호출하지 않고 `/api/lms/invitations/accept`만 호출한다.
-- invitation accept route는 service role로 auth user를 만들고, `core.account_invitations.role = 'student'`인 초대만 허용한다.
+- 2026-07-06 correction: public signup and invitation accept routes have been removed from LMS runtime.
+- Student invitation-code signup is deferred to grade-app.
 - auth user 생성 시 user metadata에는 `login_id`만 저장하며 권한 role은 저장하지 않는다.
 - clean baseline에는 `raw_user_meta_data` 기반 role provisioning trigger가 없다.
 - `assertLmsAdmin()`/`assertLmsRoleForAcademy()`는 active `core.academy_members` membership만 조회한다.
@@ -255,7 +261,7 @@ Implementation status:
 ### P1-4. account invitation flow가 제품 요구를 완전히 만족하지 않음
 
 Evidence:
-- DB에는 `core.account_invitations`가 있지만 LMS 런타임 signup은 아직 직접 admin metadata를 사용한다.
+- DB에는 `core.account_invitations`가 있지만 LMS 런타임은 signup/초대 수락을 노출하지 않는다. 가입권 생성/수락은 grade-app 단계로 이연한다.
 - 사용자가 말한 "LMS에서 학생 등록하면 회원가입 권한을 부여" 요구와 현재 signup flow가 맞지 않는다.
 
 Risk:
@@ -273,9 +279,8 @@ Acceptance:
 - signup 후 학생이 grade-app에 로그인하면 같은 `core_student_id`를 얻는다.
 
 Implementation status:
-- 2026-07-06 기준 LMS signup은 초대코드 기반 학생 가입으로 동작한다.
-- 초대코드는 hash로 조회되고, 만료/사용 완료/학생 active 상태/중복 login id/이미 가입된 person을 검사한다.
-- 가입 성공 시 `auth.users`, `core.user_accounts`, `core.academy_members(role='student')`, `core.account_invitations.accepted_at`이 연결된다.
+- 2026-07-06 correction: LMS signup has been removed from runtime.
+- Future grade-app signup must validate invitation codes and then connect `auth.users`, `core.user_accounts`, `core.academy_members(role='student')`, and `core.account_invitations.accepted_at`.
 - 남은 작업은 grade-app 로그인 후 같은 `core_student_id`가 end-to-end로 이어지는 통합 검증이다.
 
 ### P1-5. payroll DTO와 DB schema가 맞지 않음

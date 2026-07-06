@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Link from 'next/link';
 import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -112,9 +111,6 @@ export function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-4 text-center">
-            <Link href="/signup" className="text-xs text-gray-400 hover:text-white">초대코드로 학생 가입</Link>
-          </div>
           <div className="mt-3 text-center">
             <p className="text-xs text-gray-500">© 2026 NEXTUM</p>
           </div>
