@@ -66,6 +66,7 @@
   - owner/admin/staff receive billing, payment, expense, payroll, and staff form DTOs from a single server-scoped read.
   - accounting page no longer fans out direct browser Supabase reads for financial data.
 - Moved academy name reads behind authenticated `GET /api/lms/academy`, so the shell no longer reads `core.academies` directly from the browser.
+- Reduced `src/features/lms/service.ts` to browser-safe API wrappers and removed obsolete direct Supabase read helpers from that client module.
 - Expanded accounting operations beyond invoice generation:
   - record student payments and recompute invoice paid/status
   - record operating expenses
