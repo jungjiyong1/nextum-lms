@@ -497,20 +497,27 @@ Fix:
 - payroll/payment/reporting contract test.
 - grade-app smoke를 CI job으로 분리.
 
-### P3-2. 보안 헤더와 server-side page guard가 부족
+### P3-2. 보안 헤더와 server-side page guard를 더 강화해야 함
 
 Evidence:
-- `next.config.ts:3-5`는 `reactStrictMode`만 설정한다.
-- `src/proxy.ts:4-5`, `src/lib/supabase/proxy.ts:33`은 session refresh만 수행하고 route authorization은 하지 않는다.
+- `next.config.ts`는 기본 보안 헤더를 설정한다.
+- `src/proxy.ts`와 `src/lib/supabase/proxy.ts`는 Supabase `getClaims()` 기반으로 보호 앱 페이지를 `/login`으로 redirect한다.
+- 아직 page/layout 단위의 role-aware authorization은 없다.
 
 Risk:
-- SSR data fetching을 추가하는 순간 page-level 노출 위험이 커진다.
-- CSP/frame/referrer 등 기본 브라우저 방어가 없다.
+- SSR data fetching이 role별로 세분화되면 page-level authorization이 추가로 필요하다.
+- CSP가 아직 script/style source까지 강하게 제한하지는 않는다.
 
 Fix:
-- CSP, `frame-ancestors`, HSTS, Referrer-Policy, Permissions-Policy 추가.
-- protected app layout에서 server-side auth/role guard.
-- public route와 private route를 명확히 분리.
+- protected app layout에서 role-aware auth guard.
+- CSP nonce/hash 기반 script/style 정책 강화.
+- public route와 private route 분리를 route metadata 수준으로 고정.
+
+Implementation status:
+- 완료: `Content-Security-Policy`의 `frame-ancestors`, `base-uri`, `object-src`, HSTS, Referrer-Policy, Permissions-Policy, `nosniff`, `X-Frame-Options`를 추가하고 `X-Powered-By`를 비활성화했다.
+- 완료: `src/proxy.ts`를 추가하고 보호 앱 페이지와 public auth 페이지를 서버에서 분기한다.
+- 완료: 보호/public path 판정은 `src/lib/lms/routes.test.ts`로 검증한다.
+- 남음: owner/admin/staff/student/teacher별 page-level authorization.
 
 ### P3-3. `window.api: any`가 contract bug를 숨김
 
