@@ -1,5 +1,6 @@
 import { aiDb, contentDb, coreDb, lmsDb, reportingDb } from '@/core/supabaseClient';
 import { calculateInvoiceDraft } from './billing';
+import { COMPLETED_PAYMENT_STATUS } from './status';
 import type {
   AdminCsvExport,
   AdminExportOptions,
@@ -854,7 +855,7 @@ export async function listBilling(academyId: string, serviceMonth: string): Prom
       .from('payments')
       .select('invoice_id,amount')
       .eq('academy_id', academyId)
-      .eq('status', 'completed')
+      .eq('status', COMPLETED_PAYMENT_STATUS)
       .in('invoice_id', invoiceIds);
     if (paymentsError) throw new Error(paymentsError.message);
     for (const payment of paymentsData || []) {

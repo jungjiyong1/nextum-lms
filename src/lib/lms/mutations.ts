@@ -3,6 +3,11 @@ import 'server-only';
 import { createHash, randomBytes } from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { calculateInvoiceDraft } from '@/features/lms/billing';
+import {
+    COMPLETED_PAYMENT_STATUS,
+    normalizePaymentStatus,
+    normalizePayrollStatus,
+} from '@/features/lms/status';
 import type {
     BillingClassRuleType,
     BillingMode,
@@ -14,8 +19,6 @@ import type {
     CreateScheduleRuleInput,
     CreateStaffInput,
     CreateStudentInput,
-    PaymentStatus,
-    PayrollStatus,
     RecordAttendanceInput,
     RecordPaymentInput,
     StudentStatus,
@@ -336,18 +339,6 @@ function normalizeLessonOccurrenceStatus(value: LessonOccurrenceStatus): LessonO
 
 function isBillableStudentStatus(status: StudentStatus) {
     return status === 'active';
-}
-
-function normalizePaymentStatus(value: PaymentStatus | undefined): PaymentStatus {
-    if (value === 'pending' || value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'refunded') {
-        return value;
-    }
-    return 'completed';
-}
-
-function normalizePayrollStatus(value: PayrollStatus | undefined): PayrollStatus {
-    if (value === 'pending' || value === 'paid' || value === 'cancelled') return value;
-    return 'paid';
 }
 
 function normalizeWithholdingType(value: WithholdingType | undefined): WithholdingType {
@@ -1080,7 +1071,7 @@ async function recomputeInvoicePaymentStatus(lms: SchemaClient, academyId: strin
         .select('amount')
         .eq('academy_id', academyId)
         .eq('invoice_id', invoiceId)
-        .eq('status', 'completed');
+        .eq('status', COMPLETED_PAYMENT_STATUS);
     ensureNoError(paymentsError, 'Failed to load invoice payments');
 
     const paidAmount = (payments || []).reduce((sum: number, row: Row) => sum + toNumber(row.amount), 0);

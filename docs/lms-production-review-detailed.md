@@ -271,6 +271,13 @@ Fix:
 - API input/output DTO를 하나로 정의한다.
 - UI 계산, DB 저장, export가 같은 DTO를 사용한다.
 
+Implementation status:
+- 2026-07-06 기준 legacy `createPayroll`은 gross/tax/local/net을 정규화해서 저장하고 `amount`에는 net amount를 호환값으로 남긴다.
+- `listPayroll`은 gross/tax/local/net을 반환하고, 누락된 과거 행은 `amount` 기반 fallback으로 표시한다.
+- legacy 대시보드/세무/손익 계산은 강사 급여 비용을 `gross_amount` 기준으로 계산한다. 과거 행은 `net_amount + withholding_tax + local_tax`, 또는 `amount + tax`로 보정한다.
+- 새 LMS 급여 생성은 `lms.instructor_payments`의 `gross_amount`, `withholding_tax`, `local_tax`, `net_amount`, `hours_worked`, `hourly_rate` 컬럼을 직접 사용한다.
+- 순수 계산 유틸 `src/modules/accounting/utils/payrollAmounts.ts`와 테스트를 추가했다.
+
 ### P1-6. 결제 status 불일치로 보고서가 누락됨
 
 Evidence:
@@ -284,6 +291,13 @@ Fix:
 - 완료 status를 `paid` 또는 `completed` 하나로 정한다.
 - migration 기간에는 `in ('paid','completed')`로 집계한다.
 - DB check constraint, UI label, report query를 같은 enum으로 맞춘다.
+
+Implementation status:
+- 2026-07-06 기준 새 LMS는 `payments.status = 'completed'`, `invoices.status = 'paid'`, `instructor_payments.status = 'paid'`를 각각 별도 의미로 유지한다.
+- 위 상태값은 `src/features/lms/status.ts`의 공통 helper와 상수로 묶어 service, mutation, admin export, dashboard UI가 같은 기준을 사용한다.
+- legacy `student_payments`는 이전 데이터 호환을 위해 `paid`와 `completed`를 모두 완료 수납으로 인정한다.
+- 학생 월별 납부 상태는 완료 수납만 합산하고 최신 완료일을 표시하도록 수정했다.
+- 상태 helper 테스트를 추가했다.
 
 ### P1-7. 기간 휴강과 recurring schedule 처리 오류
 
@@ -551,8 +565,8 @@ LMS legacy:
 
 ### Week 1-2 - Business correctness
 
-1. payment status enum 통일.
-2. payroll DTO/schema 통일.
+1. payment status enum 통일. 완료: 2026-07-06 LMS 상태 helper/legacy 호환 집계 적용.
+2. payroll DTO/schema 통일. 완료: 2026-07-06 gross/net/tax 저장 및 회계 계산 보정 적용.
 3. StudentDetailPanel hook order 수정.
 4. period cancel transaction API.
 5. makeup/substitute model 수정.

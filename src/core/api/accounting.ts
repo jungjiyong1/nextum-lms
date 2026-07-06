@@ -6,11 +6,15 @@ import { calculateInstructorMonthlySalary } from './instructors';
 import { resetAccounting as resetAccountingViaAdmin } from './reset';
 import { requireCurrentAcademyId } from './currentAcademy';
 import { calculateWithholding, type WithholdingType } from '../../modules/accounting/utils/taxCalculations';
+import { getPayrollGrossAmount, getPayrollNetAmount } from '../../modules/accounting/utils/payrollAmounts';
+import {
+    LEGACY_COMPLETED_STUDENT_PAYMENT_STATUSES,
+    isLegacyCompletedStudentPaymentStatus,
+} from '../../features/lms/status';
 
-const COMPLETED_PAYMENT_STATUSES = ['paid', 'completed'] as const;
-
-function isCompletedPaymentStatus(status: string | null | undefined): boolean {
-    return status === 'paid' || status === 'completed';
+function toCurrencyNumber(value: unknown): number {
+    const numeric = Number(value ?? 0);
+    return Number.isFinite(numeric) ? numeric : 0;
 }
 
 interface DashboardData {
@@ -189,7 +193,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .in('status', COMPLETED_PAYMENT_STATUSES);
+            .in('status', LEGACY_COMPLETED_STUDENT_PAYMENT_STATUSES);
 
         if (paymentsError) return err(new Error(paymentsError.message));
 
@@ -209,13 +213,13 @@ export const accountingApi = {
         // 강사 급여 (지급된 금액)
         const { data: instructorPayments, error: instructorPaymentsError } = await supabase
             .from('instructor_payments')
-            .select('amount')
+            .select('amount, gross_amount, net_amount, withholding_tax, local_tax')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate);
 
         if (instructorPaymentsError) return err(new Error(instructorPaymentsError.message));
 
-        const instructorCosts = (instructorPayments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+        const instructorCosts = (instructorPayments || []).reduce((sum, p) => sum + getPayrollGrossAmount(p), 0);
         const monthlyExpenses = otherExpenses + instructorCosts;
 
         // 예상 수입: 활성 학생들의 월 수강료 합계
@@ -336,7 +340,18 @@ export const accountingApi = {
 
         if (paymentsError) return err(new Error(paymentsError.message));
 
-        const paymentMap = new Map((payments || []).map(p => [p.student_id, p]));
+        const completedPaymentMap = new Map<number, { amount: number; payment_date: string | null }>();
+        (payments || []).forEach((payment) => {
+            if (!isLegacyCompletedStudentPaymentStatus(payment.status)) return;
+            const current = completedPaymentMap.get(payment.student_id) || { amount: 0, payment_date: null };
+            const paymentDate = payment.payment_date || null;
+            completedPaymentMap.set(payment.student_id, {
+                amount: current.amount + toCurrencyNumber(payment.amount),
+                payment_date: paymentDate && (!current.payment_date || paymentDate > current.payment_date)
+                    ? paymentDate
+                    : current.payment_date,
+            });
+        });
 
         // 선택한 월 이후에 등록된 학생은 제외
         const filteredStudents = (students || []).filter(s => {
@@ -346,9 +361,9 @@ export const accountingApi = {
         });
 
         return ok(filteredStudents.map(s => {
-            const payment = paymentMap.get(s.id);
+            const payment = completedPaymentMap.get(s.id);
             const studentName = s.name || '이름없음';
-            const isPaid = isCompletedPaymentStatus(payment?.status);
+            const isPaid = !!payment;
             return {
                 student_id: s.id,
                 student_name: studentName,
@@ -614,10 +629,10 @@ export const accountingApi = {
 
         return ok((data || []).map((p) => {
             const instructor = Array.isArray(p.instructors) ? p.instructors[0] : p.instructors;
-            const grossAmount = Number(p.gross_amount ?? p.amount ?? 0);
+            const grossAmount = getPayrollGrossAmount(p);
             const withholdingTax = Number(p.withholding_tax ?? 0);
             const localTax = Number(p.local_tax ?? 0);
-            const netAmount = Number(p.net_amount ?? p.amount ?? Math.max(0, grossAmount - withholdingTax - localTax));
+            const netAmount = getPayrollNetAmount(p);
             const recipientName = p.recipient_name || instructor?.name || '이름없음';
             return {
                 id: p.id,
@@ -721,7 +736,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .in('status', COMPLETED_PAYMENT_STATUSES);
+            .in('status', LEGACY_COMPLETED_STUDENT_PAYMENT_STATUSES);
 
         if (incomeError) return err(new Error(incomeError.message));
 
@@ -741,13 +756,13 @@ export const accountingApi = {
 
         const { data: payrollData, error: payrollError } = await supabase
             .from('instructor_payments')
-            .select('amount, withholding_tax, local_tax')
+            .select('amount, gross_amount, net_amount, withholding_tax, local_tax')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate);
 
         if (payrollError) return err(new Error(payrollError.message));
 
-        const instructorCosts = (payrollData || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+        const instructorCosts = (payrollData || []).reduce((sum, p) => sum + getPayrollGrossAmount(p), 0);
 
         const taxableIncome = grossIncome - deductibleExpenses - instructorCosts;
 
@@ -787,7 +802,7 @@ export const accountingApi = {
 
         const { data, error } = await supabase
             .from('instructor_payments')
-            .select('payment_date, amount, withholding_tax, local_tax')
+            .select('payment_date, amount, gross_amount, net_amount, withholding_tax, local_tax')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate);
 
@@ -800,7 +815,7 @@ export const accountingApi = {
             const month = p.payment_date?.substring(0, 7) || '';
             const savedIncomeTax = Number(p.withholding_tax || 0);
             const savedLocalTax = Number(p.local_tax || 0);
-            const fallbackIncomeTax = Math.round(Number(p.amount || 0) * 0.03);
+            const fallbackIncomeTax = Math.round(getPayrollGrossAmount(p) * 0.03);
             const fallbackLocalTax = Math.round(fallbackIncomeTax * 0.1);
             const current = monthMap.get(month) || { incomeTax: 0, localTax: 0 };
             monthMap.set(month, {
@@ -833,7 +848,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .in('status', COMPLETED_PAYMENT_STATUSES);
+            .in('status', LEGACY_COMPLETED_STUDENT_PAYMENT_STATUSES);
 
         if (error) return err(new Error(error.message));
 
@@ -856,7 +871,7 @@ export const accountingApi = {
             .select('amount')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate)
-            .in('status', COMPLETED_PAYMENT_STATUSES);
+            .in('status', LEGACY_COMPLETED_STUDENT_PAYMENT_STATUSES);
 
         if (tuitionError) return err(new Error(tuitionError.message));
 
@@ -887,13 +902,13 @@ export const accountingApi = {
 
         const { data: payrollData, error: payrollError } = await supabase
             .from('instructor_payments')
-            .select('amount')
+            .select('amount, gross_amount, net_amount, withholding_tax, local_tax')
             .gte('payment_date', startDate)
             .lte('payment_date', endDate);
 
         if (payrollError) return err(new Error(payrollError.message));
 
-        const instructorSalary = (payrollData || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+        const instructorSalary = (payrollData || []).reduce((sum, p) => sum + getPayrollGrossAmount(p), 0);
 
         return ok({
             tuitionIncome,

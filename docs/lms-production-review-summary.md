@@ -96,6 +96,12 @@ LMS에서 학생을 삭제하거나 reset하면 core 학생 데이터, grade-app
 
 급여 UI는 gross/tax/net을 기대하지만 API는 net 값을 제대로 받지 못하고 `amount`만 저장한다. 학생 결제는 `completed`로 저장되는데 일부 세금/손익 보고서는 `paid`만 집계한다.
 
+상태:
+- 2026-07-06 기준 새 LMS 결제/청구/급여 상태값은 `src/features/lms/status.ts`의 공통 helper로 통일했다.
+- legacy 회계 API는 학생 수납 완료 상태를 `paid`/`completed` 둘 다 인정하고, 한 달에 여러 결제 기록이 있어도 완료 기록만 합산한다.
+- legacy 회계/세금/손익 계산은 강사 급여 비용을 `amount` 실수령액이 아니라 `gross_amount` 기준으로 계산하고, 과거 행은 `net_amount` 또는 `amount`에 원천세/지방세를 더해 보정한다.
+- 남은 작업은 회계/급여/리포트 집계를 SQL view/RPC로 옮겨 대량 데이터에서 성능과 일관성을 더 높이는 것이다.
+
 조치:
 - 결제 status enum 통일
 - 급여 DTO와 DB 컬럼 통일
@@ -110,7 +116,7 @@ LMS에서 학생을 삭제하거나 reset하면 core 학생 데이터, grade-app
 3. RLS 권한을 role별로 분리하는 migration 설계
 4. content answers 학생 노출 차단
 5. grade-app의 exposed schema overwrite 방지
-6. payroll/payment status bug 수정
+6. payroll/payment status bug 수정 완료
 7. 학생 삭제를 archive-first로 변경
 
 ### 그 다음 정리

@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { COMPLETED_PAYMENT_STATUS, PAID_PAYROLL_STATUS } from '@/features/lms/status';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -387,7 +388,7 @@ async function buildProfitLossSection(client: LmsAdminClient, options: ExportDat
             .eq('academy_id', academyId)
             .gte('payment_date', options.startDate)
             .lte('payment_date', options.endDate)
-            .eq('status', 'completed'),
+            .eq('status', COMPLETED_PAYMENT_STATUS),
         lms
             .from('expenses')
             .select('amount')
@@ -400,7 +401,7 @@ async function buildProfitLossSection(client: LmsAdminClient, options: ExportDat
             .eq('academy_id', academyId)
             .gte('payment_date', options.startDate)
             .lte('payment_date', options.endDate)
-            .eq('status', 'paid'),
+            .eq('status', PAID_PAYROLL_STATUS),
     ]);
 
     ensureNoError(payments.error, 'Failed to export tuition summary');

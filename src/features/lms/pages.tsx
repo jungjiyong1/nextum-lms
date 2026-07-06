@@ -67,6 +67,7 @@ import {
   createExpense,
   createInstructorPayment,
 } from './service';
+import { isPaidInvoiceStatus } from './status';
 import type {
   AdminExportType,
   AdminResetTarget,
@@ -368,7 +369,7 @@ export function LearningHomePage() {
   if (!academyId) return <MissingAcademy />;
 
   const weakCount = data?.weakTypes.filter((row) => row.status === 'weak').length || 0;
-  const unpaid = data?.billing.filter((row) => row.status !== 'paid' && row.invoicedAmount > 0).length || 0;
+  const unpaid = data?.billing.filter((row) => !isPaidInvoiceStatus(row.status) && row.invoicedAmount > 0).length || 0;
 
   return (
     <PageShell
