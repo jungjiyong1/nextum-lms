@@ -26,7 +26,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { canManageScheduleRules, requiresAssignedClassScope } from '@/core/auth/roles';
 import { cn } from '@/lib/utils';
+import { applyAssignedClassScope } from './classScope';
 import {
   createClass,
   createBook,
@@ -468,6 +470,10 @@ export function LearningHomePage() {
 
 export function ClassesPage() {
   const academyId = useAcademyId();
+  const { profile } = useAuth();
+  const staffMemberId = profile?.staff_member_id ?? null;
+  const shouldUseAssignedClassScope = requiresAssignedClassScope(profile?.role);
+  const canManageClassSetup = canManageScheduleRules(profile?.role);
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
   const [scheduleRules, setScheduleRules] = useState<ScheduleRuleSummary[]>([]);
@@ -530,20 +536,35 @@ export function ClassesPage() {
         listStaff(academyId),
         listClassrooms(academyId),
       ]);
-      setClasses(classRows);
-      setSchedule(scheduleRows);
-      setScheduleRules(ruleRows);
+      const scoped = shouldUseAssignedClassScope
+        ? applyAssignedClassScope({
+          staffMemberId,
+          classes: classRows,
+          schedule: scheduleRows,
+          scheduleRules: ruleRows,
+          attendance: attendanceRows,
+        })
+        : {
+          classes: classRows,
+          schedule: scheduleRows,
+          scheduleRules: ruleRows,
+          attendance: attendanceRows,
+        };
+
+      setClasses(scoped.classes);
+      setSchedule(scoped.schedule);
+      setScheduleRules(scoped.scheduleRules);
       setBooks(bookRows);
-      setAttendance(attendanceRows);
+      setAttendance(scoped.attendance);
       setStaff(staffRows);
       setClassrooms(classroomRows);
-      setSelectedClassId((current) => current || classRows[0]?.id || '');
+      setSelectedClassId((current) => (current && scoped.classes.some((row) => row.id === current) ? current : scoped.classes[0]?.id || ''));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 정보를 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
-  }, [academyId]);
+  }, [academyId, shouldUseAssignedClassScope, staffMemberId]);
 
   const loadClassDetail = useCallback(async () => {
     if (!academyId || !selectedClassId) {
@@ -930,7 +951,7 @@ export function ClassesPage() {
                 <CardTitle>{editingClassId ? '반 수정' : '반 추가'}</CardTitle>
               </CardHeader>
               <CardContent>
-                {selectedClass && !editingClassId && (
+                {canManageClassSetup && selectedClass && !editingClassId && (
                   <Button type="button" variant="outline" className="mb-3 w-full" onClick={() => editClass(selectedClass)}>
                     선택한 반 수정
                   </Button>
@@ -983,7 +1004,7 @@ export function ClassesPage() {
                     </SelectBox>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button type="submit" className="w-full">
+                    <Button type="submit" className="w-full" disabled={!canManageClassSetup}>
                       <Plus className="mr-2 h-4 w-4" />
                       {editingClassId ? '수정 저장' : '반 생성'}
                     </Button>
@@ -1025,7 +1046,7 @@ export function ClassesPage() {
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2">
-                    <Button type="submit" className="w-full">{editingClassroomId ? '강의실 수정' : '강의실 추가'}</Button>
+                    <Button type="submit" className="w-full" disabled={!canManageClassSetup}>{editingClassroomId ? '강의실 수정' : '강의실 추가'}</Button>
                     <Button type="button" variant="outline" className="w-full" onClick={resetClassroomForm}>새 입력</Button>
                   </div>
                 </form>
@@ -1041,7 +1062,7 @@ export function ClassesPage() {
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <StatusBadge status={room.active ? 'active' : 'inactive'} />
-                        <Button type="button" variant="outline" size="sm" onClick={() => editClassroom(room)}>수정</Button>
+                        {canManageClassSetup && <Button type="button" variant="outline" size="sm" onClick={() => editClassroom(room)}>수정</Button>}
                       </div>
                     </div>
                   ))}
@@ -1098,7 +1119,7 @@ export function ClassesPage() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button type="submit" className="w-full">{editingRuleId ? '시간표 수정' : '시간표 추가'}</Button>
+                    <Button type="submit" className="w-full" disabled={!canManageClassSetup}>{editingRuleId ? '시간표 수정' : '시간표 추가'}</Button>
                     <Button type="button" variant="outline" className="w-full" onClick={resetRuleForm}>새 입력</Button>
                   </div>
                 </form>
@@ -1115,8 +1136,8 @@ export function ClassesPage() {
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <StatusBadge status={rule.active ? 'active' : 'inactive'} />
-                        <Button type="button" variant="outline" size="sm" onClick={() => editRule(rule)}>수정</Button>
-                        {rule.active && <Button type="button" variant="outline" size="sm" onClick={() => stopRule(rule)}>중지</Button>}
+                        {canManageClassSetup && <Button type="button" variant="outline" size="sm" onClick={() => editRule(rule)}>수정</Button>}
+                        {canManageClassSetup && rule.active && <Button type="button" variant="outline" size="sm" onClick={() => stopRule(rule)}>중지</Button>}
                       </div>
                     </div>
                   ))}
@@ -1160,7 +1181,7 @@ export function ClassesPage() {
                         <option value="">교재 선택</option>
                         {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
                       </SelectBox>
-                      <Button type="submit" disabled={!selectedClassId || !selectedBookId}>배정</Button>
+                      <Button type="submit" disabled={!canManageClassSetup || !selectedClassId || !selectedBookId}>배정</Button>
                     </form>
                     <form onSubmit={submitBookRecord} className="space-y-2 rounded-lg border bg-white p-3">
                       <div className="text-sm font-medium text-slate-700">{editingBookId ? '교재 수정' : '교재 추가'}</div>
@@ -1176,7 +1197,7 @@ export function ClassesPage() {
                         disabled={Boolean(editingBookId)}
                       />
                       <div className="grid grid-cols-2 gap-2">
-                        <Button type="submit" className="w-full">{editingBookId ? '교재 수정' : '교재 추가'}</Button>
+                        <Button type="submit" className="w-full" disabled={!canManageClassSetup}>{editingBookId ? '교재 수정' : '교재 추가'}</Button>
                         <Button type="button" variant="outline" className="w-full" onClick={resetBookForm}>새 입력</Button>
                       </div>
                     </form>
@@ -1191,10 +1212,12 @@ export function ClassesPage() {
                               <div className="text-xs text-slate-400">{book.subject || '-'} · {book.grade || '-'}</div>
                             </div>
                             <div className="flex gap-2">
-                              <Button type="button" variant="outline" size="sm" onClick={() => editBook(book)}>수정</Button>
-                              <Button type="button" variant="outline" size="sm" onClick={() => removeBook(book.id)}>
-                                해제
-                              </Button>
+                              {canManageClassSetup && <Button type="button" variant="outline" size="sm" onClick={() => editBook(book)}>수정</Button>}
+                              {canManageClassSetup && (
+                                <Button type="button" variant="outline" size="sm" onClick={() => removeBook(book.id)}>
+                                  해제
+                                </Button>
+                              )}
                             </div>
                           </div>
                         ))

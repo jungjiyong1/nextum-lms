@@ -14,7 +14,7 @@ export async function POST(request: Request) {
             return Response.json({ success: false, error: 'Invalid schedule rule request.' }, { status: 400 });
         }
 
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
         if (body.ruleId) {
             await updateScheduleRuleForAcademy(body.academyId, body.ruleId, body.input as UpdateScheduleRuleInput);
         } else {

@@ -116,6 +116,7 @@ export interface ScheduleItem {
   endTime: string;
   status: LessonOccurrenceStatus;
   classroomName: string | null;
+  instructorId: string | null;
   instructorName: string | null;
   cancelReason: string | null;
 }
@@ -131,6 +132,7 @@ export interface ScheduleRuleSummary {
   endDate: string | null;
   active: boolean;
   classroomName: string | null;
+  instructorId: string | null;
   instructorName: string | null;
 }
 

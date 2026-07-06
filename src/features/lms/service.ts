@@ -428,6 +428,7 @@ export async function listSchedule(academyId: string, startDate: string, endDate
       endTime: normalizeTime(row.end_time),
       status: row.status as ScheduleItem['status'],
       classroomName: classroomId ? classrooms.get(classroomId) ?? null : null,
+      instructorId: instructorId ?? null,
       instructorName: instructorId ? staffNames.get(instructorId) ?? null : null,
       cancelReason: row.cancel_reason ?? null,
     });
@@ -463,6 +464,7 @@ export async function listSchedule(academyId: string, startDate: string, endDate
           endTime: normalizeTime(rule.end_time),
           status: 'scheduled',
           classroomName: classroomId ? classrooms.get(classroomId) ?? null : null,
+          instructorId: instructorId ?? null,
           instructorName: instructorId ? staffNames.get(instructorId) ?? null : null,
           cancelReason: null,
         });
@@ -523,6 +525,7 @@ export async function listScheduleRules(academyId: string, classId?: string): Pr
     endDate: row.end_date ?? null,
     active: Boolean(row.active),
     classroomName: row.classroom_id ? classroomMap.get(row.classroom_id) ?? null : null,
+    instructorId: row.instructor_staff_id ?? null,
     instructorName: row.instructor_staff_id ? staffNames.get(row.instructor_staff_id) ?? null : null,
   }));
 }

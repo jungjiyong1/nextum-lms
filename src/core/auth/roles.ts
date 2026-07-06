@@ -72,6 +72,14 @@ export function canAccessAppPage(role: AppRole | null | undefined, page: AppPage
     return pageAccess[page].includes(role);
 }
 
+export function canManageScheduleRules(role: AppRole | null | undefined): boolean {
+    return role === 'owner' || role === 'admin' || role === 'staff';
+}
+
+export function requiresAssignedClassScope(role: AppRole | null | undefined): boolean {
+    return role === 'teacher' || role === 'instructor';
+}
+
 export function firstAccessibleAppPage(role: AppRole | null | undefined): AppPage | null {
     if (!role) return null;
     return appPages.find((page) => canAccessAppPage(role, page)) ?? null;

@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
     appPageFromPath,
+    canManageScheduleRules,
     canAccessAppPage,
     firstAccessibleAppPage,
     getRoleLabel,
     normalizeAppRole,
+    requiresAssignedClassScope,
 } from './roles';
 
 describe('LMS app roles', () => {
@@ -36,6 +38,16 @@ describe('LMS app roles', () => {
     it('finds the first allowed page or null for non-operational roles', () => {
         expect(firstAccessibleAppPage('staff')).toBe('home');
         expect(firstAccessibleAppPage('student')).toBeNull();
+    });
+
+    it('separates schedule rule management from assigned-class operations', () => {
+        expect(canManageScheduleRules('owner')).toBe(true);
+        expect(canManageScheduleRules('staff')).toBe(true);
+        expect(canManageScheduleRules('teacher')).toBe(false);
+        expect(canManageScheduleRules('instructor')).toBe(false);
+        expect(requiresAssignedClassScope('teacher')).toBe(true);
+        expect(requiresAssignedClassScope('instructor')).toBe(true);
+        expect(requiresAssignedClassScope('staff')).toBe(false);
     });
 
     it('maps paths to app pages', () => {

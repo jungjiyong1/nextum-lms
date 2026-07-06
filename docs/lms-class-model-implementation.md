@@ -74,6 +74,10 @@
   - teacher/instructor: home and class operations
   - student/guardian: no LMS operational page until a dedicated student/guardian LMS surface exists
 - Added an access-denied screen for non-operational LMS roles and cleaned up the broken Korean copy on the startup/sidebar/no-academy surfaces touched by this guard.
+- Tightened teacher/instructor class operations:
+  - recurring schedule rule create/update is limited to owner/admin/staff
+  - attendance and single-lesson status mutations require teacher/instructor assignment to the target class
+  - class, schedule, rule, and attendance lists are filtered in the LMS class screen to the current teacher/instructor's assigned classes
 - Added `supabase/config.toml` so local Supabase exposes the non-public schemas used by the browser client.
 - Hardened the baseline with same-academy foreign keys, active-contract uniqueness, attendance enrollment validation, and narrower delete policies for LMS operation tables.
 
@@ -83,7 +87,7 @@
 - The active remote `nextum-data` database is the intended final database, but the clean baseline was not applied destructively to that remote database in this phase.
 - PDF report generation is not included. The current target is reliable data structures and LMS views for future report generation.
 - Student analysis and parent report requirements for the future grade-app/reporting phase are tracked in `docs/grade-app-reporting-requirements.md`.
-- Instructor/teacher access is still broad at the page level. The next tightening step is class-scoped data filtering and controls so instructors only see their assigned classes and students.
+- The clean baseline RLS still grants broad read access to teacher/instructor roles inside an academy. The next DB tightening step is class-scoped teacher/instructor RLS and server-side read APIs for assigned-class rosters, learning summaries, and AI/report data.
 
 ## Cutover Requirements Before Production Use
 

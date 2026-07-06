@@ -1,4 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertAssignedClassAccess } from '@/lib/lms/class-access';
 import { recordAttendanceForAcademy } from '@/lib/lms/mutations';
 import type { RecordAttendanceInput } from '@/features/lms/types';
 
@@ -10,7 +11,8 @@ export async function POST(request: Request) {
             return Response.json({ success: false, error: 'Invalid attendance request.' }, { status: 400 });
         }
 
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        await assertAssignedClassAccess(actor, body.input);
         await recordAttendanceForAcademy(body.academyId, body.input);
 
         return Response.json({ success: true });

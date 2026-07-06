@@ -12,6 +12,7 @@ export interface AuthProfile {
     full_name: string | null;
     role: AppRole;
     current_academy_id: AcademyId | null;
+    staff_member_id?: string | null;
     created_at: string;
     updated_at: string;
     pin_hash?: string | null;
@@ -125,6 +126,20 @@ async function readCoreMembership(userId: string, account: RawRecord): Promise<R
     }
 
     return null;
+}
+
+async function readCoreStaffMember(academyId: string, personId: string): Promise<RawRecord | null> {
+    const { data, error } = await coreDb
+        .from('staff_members')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('person_id', personId)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle();
+
+    if (error) throw error;
+    return asRecord(data);
 }
 
 async function readCoreSecuritySettings(userId: string, account?: RawRecord | null): Promise<SecuritySettings | null> {
@@ -260,6 +275,12 @@ async function loadCoreProfile(user: Pick<User, 'id' | 'email'>): Promise<AuthPr
     const security = await loadSecuritySettings(user.id, account);
     const createdAt = pickDate(account, ['created_at']) ?? pickDate(person, ['created_at']) ?? nowIso();
     const updatedAt = pickDate(account, ['updated_at']) ?? pickDate(person, ['updated_at']) ?? createdAt;
+    const currentAcademyId = normalizeAcademyId(
+        membership?.academy_id ?? account.current_academy_id ?? account.academy_id,
+    );
+    const staffMember = typeof currentAcademyId === 'string' && personId
+        ? await readCoreStaffMember(currentAcademyId, personId)
+        : null;
 
     return {
         id: user.id,
@@ -271,9 +292,8 @@ async function loadCoreProfile(user: Pick<User, 'id' | 'email'>): Promise<AuthPr
             ?? pickString(account, ['full_name', 'name'])
             ?? null,
         role: normalizeAppRole(membership?.role),
-        current_academy_id: normalizeAcademyId(
-            membership?.academy_id ?? account.current_academy_id ?? account.academy_id,
-        ),
+        current_academy_id: currentAcademyId,
+        staff_member_id: pickString(staffMember, ['id']),
         created_at: createdAt,
         updated_at: updatedAt,
         pin_hash: security.pin_hash,
@@ -298,6 +318,7 @@ async function loadLegacyProfile(user: Pick<User, 'id' | 'email'>): Promise<Auth
         full_name: pickString(row, ['full_name', 'name']),
         role: normalizeAppRole(row.role),
         current_academy_id: normalizeAcademyId(row.current_academy_id),
+        staff_member_id: null,
         created_at: pickDate(row, ['created_at']) ?? nowIso(),
         updated_at: pickDate(row, ['updated_at']) ?? pickDate(row, ['created_at']) ?? nowIso(),
         pin_hash: pickString(row, ['pin_hash']),
