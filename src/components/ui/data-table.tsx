@@ -8,7 +8,7 @@ const DataTable = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
     <div
         ref={ref}
-        className={cn("overflow-hidden rounded-xl border border-border bg-card shadow-sm", className)}
+        className={cn("overflow-hidden rounded-xl border border-border bg-card", className)}
         {...props}
     >
         <div className="overflow-x-auto">{children}</div>

@@ -80,7 +80,7 @@ export function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardContent className="p-8">
           <div className="mb-8 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <BookOpen className="h-8 w-8" aria-hidden="true" />
             </div>
             <h1 className="mb-2 text-xl font-semibold text-foreground">NEXTUM LMS</h1>

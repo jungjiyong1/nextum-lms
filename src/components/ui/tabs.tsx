@@ -65,7 +65,7 @@ const TabsList = React.forwardRef<
     const { variant } = React.useContext(TabsContext);
 
     const variantStyles = {
-        default: "bg-muted/80 border-0",
+        default: "bg-muted/70 border-0",
         pills: "bg-transparent gap-2 border-0",
         underline: "bg-transparent border-b border-border rounded-none gap-0",
     };
@@ -97,12 +97,12 @@ const TabsTrigger = React.forwardRef<
             case "pills":
                 return {
                     trigger: cn(
-                        "rounded-full px-4 py-2 border-0",
+                        "rounded-md px-4 py-2 border-0",
                         isActive
                             ? "text-primary-foreground"
-                            : "text-muted-foreground hover:bg-primary-soft hover:text-foreground"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     ),
-                    indicator: "rounded-full bg-primary shadow-sm",
+                    indicator: "rounded-md bg-primary",
                 };
             case "underline":
                 return {
@@ -117,12 +117,12 @@ const TabsTrigger = React.forwardRef<
             default:
                 return {
                     trigger: cn(
-                        "rounded-lg px-3.5 py-1.5 border-0",
+                        "rounded-md px-3.5 py-1.5 border-0",
                         isActive
-                            ? "text-foreground"
-                            : "text-muted-foreground hover:bg-card hover:text-foreground"
+                            ? "text-primary-strong"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     ),
-                    indicator: "rounded-lg bg-card shadow-sm",
+                    indicator: "rounded-md bg-primary-soft",
                 };
         }
     };
@@ -135,10 +135,10 @@ const TabsTrigger = React.forwardRef<
             value={value}
             className={cn(
                 // Base styles - ensure NO border
-                "group relative inline-flex items-center justify-center whitespace-nowrap",
+                "group relative inline-flex appearance-none items-center justify-center whitespace-nowrap",
                 "text-sm font-semibold border-0 outline-none",
                 "transition-all duration-200 ease-out",
-                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                "focus-visible:ring-0",
                 "disabled:pointer-events-none disabled:opacity-50",
                 "select-none cursor-pointer",
                 styles.trigger,
@@ -191,7 +191,7 @@ const TabsTrigger = React.forwardRef<
             {!isActive && (
                 <span className={cn(
                     "absolute inset-0 rounded-lg opacity-0 transition-opacity duration-200",
-                    "bg-primary-soft",
+                    "bg-muted",
                     "group-hover:opacity-100"
                 )} />
             )}
@@ -208,7 +208,7 @@ const TabsContent = React.forwardRef<
         ref={ref}
         className={cn(
             "mt-4",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+            "focus-visible:outline-none focus-visible:ring-0",
             "data-[state=inactive]:hidden",
             className
         )}

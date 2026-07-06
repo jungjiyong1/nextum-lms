@@ -1,10 +1,11 @@
 # LMS UI System
 
-NEXTUM LMS uses a quiet operator-tool UI with restrained color. The base surface is neutral, and color is reserved for action priority, selected state, and meaningful status.
+NEXTUM LMS uses a quiet, flat 2D operator-tool UI with restrained color. The base surface is neutral, and color is reserved for action priority, selected state, and meaningful status.
 
 ## Canonical Tokens
 
 - Use Tailwind classes backed by HSL CSS variables in `src/app/globals.css`.
+- Keep Tailwind preflight enabled. LMS relies on the browser reset for links, buttons, form controls, and consistent 2D interaction states.
 - Use `background`, `card`, `muted`, `border`, `foreground`, and `muted-foreground` for the default UI.
 - Use `primary` for primary actions, active tabs, selected rows, and key metric accents.
 - Use `success`, `warning`, `danger`/`destructive`, and `info` only when the color carries meaning.
@@ -34,6 +35,15 @@ Use `src/components/ui` first:
 - Ghost: low-emphasis toolbar and inline actions.
 - Destructive: archive, hard-delete, reset, and irreversible actions.
 - Icon buttons must use a known icon and an accessible label/title.
+- Buttons do not use elevation, press-depth transforms, or mouse-click rings. Use color, border, and background only.
+- Links, buttons, selects, and inputs must inherit the global interactive reset. Do not reintroduce browser-default underline, native button chrome, or click-time outlines.
+
+## Elevation And Focus
+
+- Default surfaces are flat: no `shadow-*` utilities on cards, buttons, tables, forms, toasts, dialogs, or selectable rows.
+- Use `border`, `bg-muted`, `bg-primary-soft`, and status tokens for hierarchy and state.
+- Focus should be subtle and keyboard-oriented. Avoid `focus:ring-2`, `focus-visible:ring-2`, `ring-offset-*`, and click-time open-state rings.
+- Do not use active press transforms such as `active:translate-y-px`.
 
 ## Forms
 
@@ -62,6 +72,7 @@ Use `src/components/ui` first:
 - Local duplicates named `PageShell`, `StatusBadge`, or `SelectBox`.
 - Legacy global domain CSS under `src/styles`.
 - Inline hex colors or Tailwind color-family utilities in governed UI files.
+- Elevation shadows, strong focus rings, ring offsets, or press-depth transforms in governed UI files.
 - Decorative gradient/orb backgrounds in operational screens.
 
 Allowed exceptions must be documented here before merging. Current built-in exceptions:

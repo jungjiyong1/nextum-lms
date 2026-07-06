@@ -13,9 +13,9 @@ const SelectableCard = React.forwardRef<HTMLButtonElement, SelectableCardProps>(
             type="button"
             aria-pressed={selected}
             className={cn(
-                "w-full rounded-xl border bg-card p-3 text-left text-sm shadow-sm transition-colors",
-                "hover:border-primary/30 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                selected && "border-primary/45 bg-primary-soft text-foreground shadow-none",
+                "w-full appearance-none rounded-lg border border-border bg-card p-3 text-left text-sm transition-colors",
+                "hover:bg-muted/50 focus-visible:border-primary/45 focus-visible:outline-none",
+                selected && "border-primary/45 bg-primary-soft text-foreground",
                 className
             )}
             {...props}

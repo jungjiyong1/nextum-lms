@@ -82,7 +82,7 @@ export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academ
                         key={item.id}
                         href={item.href}
                         className={cn(
-                            'flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-primary-soft/50 hover:text-foreground',
+                            'flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-primary-soft/50 hover:text-foreground',
                             activePage === item.id && 'bg-primary-soft text-primary-strong',
                             visuallyCollapsed && 'justify-center px-2',
                         )}

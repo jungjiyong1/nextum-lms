@@ -79,6 +79,14 @@ const files = new Set([
 
 const failures = [];
 
+const tailwindConfigPath = path.join(root, 'tailwind.config.js');
+if (fs.existsSync(tailwindConfigPath)) {
+  const tailwindConfig = fs.readFileSync(tailwindConfigPath, 'utf8');
+  if (/preflight\s*:\s*false/.test(tailwindConfig)) {
+    failures.push('tailwind.config.js: Tailwind preflight must stay enabled for consistent 2D control resets');
+  }
+}
+
 for (const legacyPath of legacyPaths) {
   if (exists(legacyPath)) {
     failures.push(`${legacyPath}: legacy UI path should not exist in the current routed LMS UI`);
@@ -88,6 +96,8 @@ for (const legacyPath of legacyPaths) {
 const colorFamilyPattern = /(?:bg|text|border|divide|from|via|to|ring|shadow|focus:ring|hover:bg|hover:text|hover:border)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d+)?/g;
 const hexPattern = /#[0-9a-fA-F]{3,8}\b/g;
 const arbitraryColorPattern = /(?:bg|text|border|from|via|to|ring|shadow|focus:ring|hover:bg|hover:text|hover:border)-\[([^\]]+)\]/g;
+const elevationPattern = /\b(?:[\w!:[\].-]+:)?shadow(?:-(?:sm|md|lg|xl|2xl|inner|none))?\b/g;
+const strongFocusPattern = /\b(?:focus|focus-visible|data-\[state=open\]):ring-2\b|\bring-offset(?:-\d+|-background)?\b|\bactive:translate-y-px\b/g;
 
 for (const file of [...files].sort()) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -112,6 +122,18 @@ for (const file of [...files].sort()) {
     if (/^(#|rgb|rgba|hsl|hsla|oklch|color:)/i.test(value)) {
       failures.push(`${file}: Use tokens instead of arbitrary color class: ${arbitraryMatch[0]}`);
     }
+  }
+
+  elevationPattern.lastIndex = 0;
+  let elevationMatch;
+  while ((elevationMatch = elevationPattern.exec(text))) {
+    failures.push(`${file}: 2D UI baseline prohibits elevation shadows: ${elevationMatch[0]}`);
+  }
+
+  strongFocusPattern.lastIndex = 0;
+  let strongFocusMatch;
+  while ((strongFocusMatch = strongFocusPattern.exec(text))) {
+    failures.push(`${file}: 2D UI baseline prohibits strong click/focus depth effects: ${strongFocusMatch[0]}`);
   }
 
   if (!rawButtonAllowed.has(file) && /<button\b/.test(text)) {

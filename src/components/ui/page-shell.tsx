@@ -79,7 +79,7 @@ function PageStatusBar({
     return (
         <div
             className={cn(
-                "flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm shadow-sm",
+                "flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm",
                 toneStyles[tone],
                 className
             )}

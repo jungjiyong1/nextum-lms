@@ -1,9 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     darkMode: ["class"],
-    corePlugins: {
-        preflight: false,
-    },
     content: [
         "./src/**/*.{ts,tsx}",
     ],
@@ -52,6 +49,11 @@ module.exports = {
                 },
                 destructive: {
                     DEFAULT: "hsl(var(--destructive))",
+                    foreground: "hsl(var(--destructive-foreground))",
+                },
+                danger: {
+                    DEFAULT: "hsl(var(--destructive))",
+                    soft: "hsl(var(--destructive) / 0.1)",
                     foreground: "hsl(var(--destructive-foreground))",
                 },
                 muted: {

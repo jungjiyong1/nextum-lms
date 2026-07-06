@@ -5,26 +5,26 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "../../lib/utils"
 
 const buttonVariants = cva(
-    "inline-flex appearance-none items-center justify-center whitespace-nowrap rounded-xl border border-transparent text-sm font-semibold ring-offset-background transition-[background-color,border-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-45 active:translate-y-px",
+    "inline-flex appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent text-sm font-medium leading-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45",
     {
         variants: {
             variant: {
-                default: "bg-primary text-primary-foreground shadow-sm hover:bg-primary-strong",
+                default: "bg-primary text-primary-foreground hover:bg-primary-strong focus-visible:bg-primary-strong",
                 destructive:
-                    "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+                    "bg-destructive text-destructive-foreground hover:bg-destructive/90",
                 outline:
-                    "border-border bg-card text-foreground shadow-sm hover:border-input hover:bg-muted/70",
+                    "border-border bg-card text-foreground hover:bg-muted focus-visible:border-primary/45",
                 secondary:
-                    "bg-muted text-foreground hover:bg-muted/80",
-                ghost: "border-transparent bg-transparent text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-                link: "h-auto rounded-none border-transparent bg-transparent p-0 text-primary underline-offset-4 hover:underline",
+                    "bg-muted text-foreground hover:bg-secondary focus-visible:border-primary/35",
+                ghost: "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+                link: "h-auto rounded-none border-transparent bg-transparent p-0 text-primary underline-offset-4 hover:underline focus-visible:underline",
             },
             size: {
-                default: "h-10 px-4 py-2",
+                default: "h-9 px-3.5 py-2",
                 xs: "h-7 px-2.5 text-xs",
                 sm: "h-8 px-3 text-xs",
-                lg: "h-11 rounded-xl px-5",
-                icon: "h-10 w-10",
+                lg: "h-10 rounded-md px-4",
+                icon: "h-9 w-9",
                 "icon-sm": "h-8 w-8",
             },
         },
