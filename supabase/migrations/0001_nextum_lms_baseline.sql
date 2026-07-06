@@ -1529,28 +1529,28 @@ create policy lms_class_profiles_write on lms.class_profiles for all to authenti
 create policy lms_rules_select on lms.class_schedule_rules for select to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
 create policy lms_rules_insert on lms.class_schedule_rules for insert to authenticated
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_rules_update on lms.class_schedule_rules for update to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_rules_delete on lms.class_schedule_rules for delete to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_occurrences_select on lms.lesson_occurrences for select to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
 create policy lms_occurrences_insert on lms.lesson_occurrences for insert to authenticated
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_occurrences_update on lms.lesson_occurrences for update to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_occurrences_delete on lms.lesson_occurrences for delete to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_attendance_select on lms.attendance_records for select to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
 create policy lms_attendance_insert on lms.attendance_records for insert to authenticated
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_attendance_update on lms.attendance_records for update to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_attendance_delete on lms.attendance_records for delete to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_billing_staff on lms.student_billing_contracts for all to authenticated
@@ -1613,10 +1613,10 @@ create policy learning_reports_select on learning.reports for select to authenti
     or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
   );
 create policy learning_reports_insert on learning.reports for insert to authenticated
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy learning_reports_update on learning.reports for update to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
-  with check (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']))
+  with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 
 create policy ai_conversations_access on ai.conversations for all to authenticated
   using (

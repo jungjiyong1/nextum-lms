@@ -64,6 +64,13 @@ Acceptance:
 - authenticated client가 `lms.profiles.role`을 update해도 실패한다.
 - admin route는 active owner/admin member만 통과한다.
 
+Implementation status:
+- 2026-07-06 기준 공개 signup 화면은 직접 Supabase signup을 호출하지 않고 `/api/lms/invitations/accept`만 호출한다.
+- invitation accept route는 service role로 auth user를 만들고, `core.account_invitations.role = 'student'`인 초대만 허용한다.
+- auth user 생성 시 user metadata에는 `login_id`만 저장하며 권한 role은 저장하지 않는다.
+- clean baseline에는 `raw_user_meta_data` 기반 role provisioning trigger가 없다.
+- `assertLmsAdmin()`/`assertLmsRoleForAcademy()`는 active `core.academy_members` membership만 조회한다.
+
 ### P0-2. LMS RLS가 membership만 보고 주요 테이블 전체 CRUD를 허용
 
 Evidence:
@@ -86,6 +93,13 @@ Acceptance:
 - student role로 `lms.students`, `lms.student_payments`, `lms.settings` update/delete가 실패한다.
 - instructor role은 담당 수업 외 학생/회계 데이터에 접근하지 못한다.
 - staff/admin role별 허용 범위가 SQL test로 고정된다.
+
+Implementation status:
+- 2026-07-06 기준 clean baseline은 core 학생/반/교재/회계/설정 쓰기를 owner/admin/staff 중심으로 제한한다.
+- `lms.class_schedule_rules`, `lms.lesson_occurrences`, `lms.attendance_records`, `learning.reports`의 direct RLS write도 owner/admin/staff로 좁혔다.
+- teacher/instructor의 일정/출결 조작은 direct Data API가 아니라 서버 route의 `assertLmsRoleForAcademy()`와 service-role mutation 경로로 통제한다.
+- 임시 Postgres 17 clean baseline 검증에서 teacher direct schedule insert 거부와 staff direct schedule insert 성공을 확인했다.
+- 남은 작업은 teacher/instructor가 "자기 반/자기 수업"에만 접근하도록 RLS와 서버 route를 더 세분화하는 것이다.
 
 ### P0-3. 문제 정답 데이터가 학생에게 노출될 수 있음
 
@@ -253,6 +267,12 @@ Acceptance:
 - invitation 없는 학생 signup은 LMS/grade-app 권한을 얻지 못한다.
 - invitation token은 한 번만 사용 가능하다.
 - signup 후 학생이 grade-app에 로그인하면 같은 `core_student_id`를 얻는다.
+
+Implementation status:
+- 2026-07-06 기준 LMS signup은 초대코드 기반 학생 가입으로 동작한다.
+- 초대코드는 hash로 조회되고, 만료/사용 완료/학생 active 상태/중복 login id/이미 가입된 person을 검사한다.
+- 가입 성공 시 `auth.users`, `core.user_accounts`, `core.academy_members(role='student')`, `core.account_invitations.accepted_at`이 연결된다.
+- 남은 작업은 grade-app 로그인 후 같은 `core_student_id`가 end-to-end로 이어지는 통합 검증이다.
 
 ### P1-5. payroll DTO와 DB schema가 맞지 않음
 

@@ -23,6 +23,12 @@
 
 현재 회원가입 코드가 `role: 'admin'`을 보낼 수 있고, DB trigger가 그 값을 믿는다. 즉 공개 회원가입이나 signup API가 열려 있으면 사용자가 LMS admin 권한을 얻을 수 있다.
 
+상태:
+- 2026-07-06 기준 공개 signup은 초대코드 기반 학생 가입 API만 사용한다.
+- invitation accept route는 student 초대만 허용하고 auth user metadata에는 권한 role을 저장하지 않는다.
+- clean baseline에는 `raw_user_meta_data` role을 믿는 auth trigger가 없다.
+- admin route 권한 판단은 active `core.academy_members` owner/admin membership을 기준으로 한다.
+
 조치:
 - 공개 admin signup 제거
 - role metadata 신뢰 금지
@@ -31,6 +37,11 @@
 ### 2. 한 학원 구성원의 쓰기 권한이 너무 넓음
 
 현재 RLS 정책은 "이 학원 소속인가"만 보고 학생, 수업, 회계, 설정 테이블에 넓은 CRUD 권한을 준다. 여러 역할이 있는 제품에서는 학생/강사/staff/admin 권한이 명확히 달라야 한다.
+
+상태:
+- 2026-07-06 기준 clean baseline은 주요 운영/회계/설정 direct write를 owner/admin/staff 중심으로 제한한다.
+- 일정 rule, 수업 occurrence, 출결, 리포트 direct write도 owner/admin/staff로 좁혔다.
+- teacher/instructor의 자기 반/자기 수업 범위 제한은 아직 더 세분화해야 한다.
 
 조치:
 - 학생, 강사, staff, admin, owner 권한 분리
