@@ -32,8 +32,16 @@ Nextum LMS is the operator-facing web app for academy management. The current ap
 - Next.js 16 App Router
 - React 19, TypeScript
 - Supabase Auth, PostgreSQL, RLS
-- Tailwind CSS, Radix UI, shadcn/ui-style primitives
+- Tailwind CSS, Radix UI, NEXTUM shared primitives
 - Vitest, React Testing Library
+
+## UI System
+
+The LMS UI system is documented in `docs/lms-ui-system.md`. New LMS UI work should use shared primitives from `src/components/ui` and pass the UI guard:
+
+```bash
+npm run ui:check
+```
 
 ## Environment
 
@@ -68,6 +76,7 @@ The seed script uses Supabase Admin API and requires `SUPABASE_SECRET_KEY` or `S
 npm run dev
 npm run build
 npm run lint
+npm run ui:check
 npm run typecheck
 npm run db:check
 npm run db:backup-content -- --dry-run

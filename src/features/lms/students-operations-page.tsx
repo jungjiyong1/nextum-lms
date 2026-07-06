@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    AlertTriangle,
     BarChart3,
     CalendarDays,
     Copy,
@@ -21,6 +20,16 @@ import { toast } from 'sonner';
 import { PasswordConfirmDialog } from '@/components/security/PasswordConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    DataTable,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/data-table';
 import {
     Dialog,
     DialogContent,
@@ -29,9 +38,14 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { EmptyState, ErrorState } from '@/components/ui/state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageShell, PageStatusBar } from '@/components/ui/page-shell';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SelectableCard } from '@/components/ui/selectable-card';
 import { Skeleton, SkeletonPage, SkeletonPanel } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -167,49 +181,8 @@ function billingModeLabel(mode: BillingMode | null): string {
     return '-';
 }
 
-function StatusBadge({ status }: { status: string }) {
-    return (
-        <span
-            className={cn(
-                'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
-                ['weak', 'absent', 'dropped', 'failed', 'overdue'].includes(status) && 'bg-red-50 text-red-700',
-                ['watch', 'late', 'makeup', 'partial', 'issued'].includes(status) && 'bg-amber-50 text-amber-700',
-                ['active', 'ok', 'present', 'paid', 'completed'].includes(status) && 'bg-emerald-50 text-emerald-700',
-                ['inactive', 'on_leave', 'graduated', 'insufficient', 'excused', 'not_issued', 'draft'].includes(status) && 'bg-slate-100 text-slate-600',
-            )}
-        >
-            {statusLabel(status)}
-        </span>
-    );
-}
-
-function SelectBox(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-    return (
-        <select
-            {...props}
-            className={cn('h-10 w-full rounded-md border border-input bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring', props.className)}
-        />
-    );
-}
-
-function PageShell({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
-    return (
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-5 lg:p-8">
-            <div className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                        <GraduationCap className="h-5 w-5" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-semibold text-slate-950">학생</h1>
-                        <p className="text-sm text-slate-500">학습분석, 출결, 연락처, 청구 계약을 한 화면에서 관리합니다.</p>
-                    </div>
-                </div>
-                {action}
-            </div>
-            {children}
-        </div>
-    );
+function StudentStatusBadge({ status }: { status: string }) {
+    return <StatusBadge status={status} label={statusLabel(status)} />;
 }
 
 function LoadingBlock() {
@@ -249,10 +222,10 @@ function EmptyDetail({ canCreate, onCreate }: { canCreate: boolean; onCreate: ()
     return (
         <Card className="min-h-[520px]">
             <CardContent className="flex h-full min-h-[520px] flex-col items-center justify-center gap-3 text-center">
-                <UserRound className="h-9 w-9 text-slate-300" />
+                <UserRound className="h-9 w-9 text-muted-foreground" />
                 <div>
-                    <p className="text-sm font-medium text-slate-700">학생을 선택하세요.</p>
-                    <p className="mt-1 text-xs text-slate-400">왼쪽 목록에서 학생을 클릭하면 상세 정보가 열립니다.</p>
+                    <p className="text-sm font-medium text-foreground">학생을 선택하세요.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">왼쪽 목록에서 학생을 클릭하면 상세 정보가 열립니다.</p>
                 </div>
                 {canCreate && (
                     <Button type="button" variant="outline" size="sm" onClick={onCreate}>
@@ -296,24 +269,21 @@ function StudentList({
     onSelect: (student: StudentSummary) => void;
 }) {
     return (
-        <div className="divide-y divide-slate-100 bg-white">
+        <div className="space-y-2 bg-card p-2">
             {students.map((student) => (
-                <button
+                <SelectableCard
                     key={student.id}
-                    type="button"
-                    className={cn(
-                        'flex w-full appearance-none items-start justify-between gap-3 border-0 bg-white px-4 py-3 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-200',
-                        selectedStudentId === student.id && 'bg-emerald-50/70',
-                    )}
+                    selected={selectedStudentId === student.id}
+                    className="flex items-start justify-between gap-3"
                     onClick={() => onSelect(student)}
                 >
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                            <span className="truncate font-medium text-slate-900">{student.name}</span>
-                            <StatusBadge status={student.status} />
+                            <span className="truncate font-medium text-foreground">{student.name}</span>
+                            <StudentStatusBadge status={student.status} />
                         </div>
-                        <p className="mt-1 truncate text-xs text-slate-500">{student.classNames.join(', ') || '배정 반 없음'}</p>
-                        <p className="mt-1 text-xs text-slate-400">{student.phone || '-'} · 보호자 {student.parentPhone || '-'}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{student.classNames.join(', ') || '배정 반 없음'}</p>
+                        <p className="mt-1 text-xs text-muted-foreground/80">{student.phone || '-'} · 보호자 {student.parentPhone || '-'}</p>
                     </div>
                     <div className="shrink-0 text-right text-xs">
                         {metricsLoading && !student.learningMetricsLoaded ? (
@@ -323,17 +293,17 @@ function StudentList({
                             </div>
                         ) : (
                             <>
-                                <p className={cn('font-medium', (student.weakTypeCount || 0) > 0 ? 'text-red-600' : 'text-slate-500')}>
+                                <p className={cn('font-medium', (student.weakTypeCount || 0) > 0 ? 'text-destructive' : 'text-muted-foreground')}>
                                     {summarizeRisk(student)}
                                 </p>
-                                <p className="mt-1 text-slate-400">{shortDate(student.lastLearningAt)}</p>
+                                <p className="mt-1 text-muted-foreground/80">{shortDate(student.lastLearningAt)}</p>
                             </>
                         )}
                     </div>
-                </button>
+                </SelectableCard>
             ))}
             {students.length === 0 && (
-                <div className="px-4 py-10 text-center text-sm text-slate-400">조건에 맞는 학생이 없습니다.</div>
+                <EmptyState title="조건에 맞는 학생이 없습니다." className="border-0" />
             )}
         </div>
     );
@@ -348,90 +318,88 @@ function LearningTab({ detail }: { detail: StudentDetail }) {
     return (
         <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-lg border bg-white p-3">
-                    <p className="text-xs text-slate-500">취약/주의 유형</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-950">{detail.summary.weakTypeCount || 0}개</p>
+                <div className="rounded-xl border bg-card p-3">
+                    <p className="text-xs text-muted-foreground">취약/주의 유형</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{detail.summary.weakTypeCount || 0}개</p>
                 </div>
-                <div className="rounded-lg border bg-white p-3">
-                    <p className="text-xs text-slate-500">평균 유형 점수</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-950">{detail.summary.avgTypeScore ?? '-'}점</p>
+                <div className="rounded-xl border bg-card p-3">
+                    <p className="text-xs text-muted-foreground">평균 유형 점수</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{detail.summary.avgTypeScore ?? '-'}점</p>
                 </div>
-                <div className="rounded-lg border bg-white p-3">
-                    <p className="text-xs text-slate-500">최근 풀이 정답률</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-950">{accuracy === null ? '-' : `${accuracy}%`}</p>
+                <div className="rounded-xl border bg-card p-3">
+                    <p className="text-xs text-muted-foreground">최근 풀이 정답률</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{accuracy === null ? '-' : `${accuracy}%`}</p>
                 </div>
-                <div className="rounded-lg border bg-white p-3">
-                    <p className="text-xs text-slate-500">AI 대화</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-950">{detail.aiConversations.length}건</p>
+                <div className="rounded-xl border bg-card p-3">
+                    <p className="text-xs text-muted-foreground">AI 대화</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{detail.aiConversations.length}건</p>
                 </div>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
-                <div className="rounded-lg border bg-white">
+                <div className="rounded-xl border bg-card">
                     <div className="border-b px-4 py-3 text-sm font-medium">취약유형</div>
                     <div className="divide-y">
                         {detail.weakTypes.map((row) => (
                             <div key={`${row.typeName}-${row.classId || 'none'}`} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                                 <div className="min-w-0">
-                                    <p className="truncate font-medium text-slate-800">{row.typeName}</p>
-                                    <p className="text-xs text-slate-400">표본 {row.sampleCount} · 정답 {row.correctCount}</p>
+                                    <p className="truncate font-medium text-foreground">{row.typeName}</p>
+                                    <p className="text-xs text-muted-foreground">표본 {row.sampleCount} · 정답 {row.correctCount}</p>
                                 </div>
                                 <div className="text-right">
-                                    <StatusBadge status={row.status} />
-                                    <p className="mt-1 text-xs text-slate-500">{row.score ?? '-'}점</p>
+                                    <StudentStatusBadge status={row.status} />
+                                    <p className="mt-1 text-xs text-muted-foreground">{row.score ?? '-'}점</p>
                                 </div>
                             </div>
                         ))}
-                        {detail.weakTypes.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">취약유형 데이터가 없습니다.</p>}
+                        {detail.weakTypes.length === 0 && <p className="px-4 py-8 text-center text-sm text-muted-foreground">취약유형 데이터가 없습니다.</p>}
                     </div>
                 </div>
 
-                <div className="rounded-lg border bg-white">
+                <div className="rounded-xl border bg-card">
                     <div className="border-b px-4 py-3 text-sm font-medium">최근 채점</div>
                     <div className="divide-y">
                         {detail.recentAttempts.map((row) => (
                             <div key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                                 <div className="min-w-0">
-                                    <p className="truncate font-medium text-slate-800">{row.problemId}</p>
-                                    <p className="text-xs text-slate-400">{shortDate(row.createdAt)} · {row.attemptNo}회차</p>
+                                    <p className="truncate font-medium text-foreground">{row.problemId}</p>
+                                    <p className="text-xs text-muted-foreground">{shortDate(row.createdAt)} · {row.attemptNo}회차</p>
                                 </div>
-                                <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', row.correct ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700')}>
-                                    {row.correct ? '정답' : '오답'}
-                                </span>
+                                <StatusBadge tone={row.correct ? 'success' : 'danger'} label={row.correct ? '정답' : '오답'} />
                             </div>
                         ))}
-                        {detail.recentAttempts.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">최근 채점 데이터가 없습니다.</p>}
+                        {detail.recentAttempts.length === 0 && <p className="px-4 py-8 text-center text-sm text-muted-foreground">최근 채점 데이터가 없습니다.</p>}
                     </div>
                 </div>
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
-                <div className="rounded-lg border bg-white">
+                <div className="rounded-xl border bg-card">
                     <div className="border-b px-4 py-3 text-sm font-medium">AI 대화</div>
                     <div className="divide-y">
                         {detail.aiConversations.map((row) => (
                             <div key={row.id} className="px-4 py-3 text-sm">
-                                <p className="truncate font-medium text-slate-800">{row.title || '제목 없음'}</p>
-                                <p className="text-xs text-slate-400">{row.sourceApp || '-'} · {shortDate(row.updatedAt)}</p>
+                                <p className="truncate font-medium text-foreground">{row.title || '제목 없음'}</p>
+                                <p className="text-xs text-muted-foreground">{row.sourceApp || '-'} · {shortDate(row.updatedAt)}</p>
                             </div>
                         ))}
-                        {detail.aiConversations.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">AI 대화 데이터가 없습니다.</p>}
+                        {detail.aiConversations.length === 0 && <p className="px-4 py-8 text-center text-sm text-muted-foreground">AI 대화 데이터가 없습니다.</p>}
                     </div>
                 </div>
 
-                <div className="rounded-lg border bg-white">
+                <div className="rounded-xl border bg-card">
                     <div className="border-b px-4 py-3 text-sm font-medium">리포트 소재</div>
                     <div className="divide-y">
                         {detail.reports.map((row) => (
                             <div key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                                 <div className="min-w-0">
-                                    <p className="truncate font-medium text-slate-800">{row.title || row.reportType}</p>
-                                    <p className="text-xs text-slate-400">{row.reportType} · {shortDate(row.generatedAt)}</p>
+                                    <p className="truncate font-medium text-foreground">{row.title || row.reportType}</p>
+                                    <p className="text-xs text-muted-foreground">{row.reportType} · {shortDate(row.generatedAt)}</p>
                                 </div>
-                                <StatusBadge status={row.status} />
+                                <StudentStatusBadge status={row.status} />
                             </div>
                         ))}
-                        {detail.reports.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">저장된 리포트가 없습니다.</p>}
+                        {detail.reports.length === 0 && <p className="px-4 py-8 text-center text-sm text-muted-foreground">저장된 리포트가 없습니다.</p>}
                     </div>
                 </div>
             </div>
@@ -442,24 +410,24 @@ function LearningTab({ detail }: { detail: StudentDetail }) {
 function ProfileTab({ student }: { student: StudentSummary }) {
     return (
         <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border bg-white p-4">
-                <p className="text-xs font-medium text-slate-500">학생 정보</p>
+            <div className="rounded-xl border bg-card p-4">
+                <p className="text-xs font-medium text-muted-foreground">학생 정보</p>
                 <dl className="mt-3 grid gap-3 text-sm">
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">이름</dt><dd className="font-medium">{student.name}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">상태</dt><dd><StatusBadge status={student.status} /></dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">학년/메모</dt><dd>{student.grade || '-'}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">학생 연락처</dt><dd>{student.phone || '-'}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">보호자</dt><dd>{student.parentName || '-'}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">보호자 연락처</dt><dd>{student.parentPhone || '-'}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">이름</dt><dd className="font-medium">{student.name}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">상태</dt><dd><StudentStatusBadge status={student.status} /></dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">학년/메모</dt><dd>{student.grade || '-'}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">학생 연락처</dt><dd>{student.phone || '-'}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">보호자</dt><dd>{student.parentName || '-'}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">보호자 연락처</dt><dd>{student.parentPhone || '-'}</dd></div>
                 </dl>
             </div>
-            <div className="rounded-lg border bg-white p-4">
-                <p className="text-xs font-medium text-slate-500">반 배정</p>
+            <div className="rounded-xl border bg-card p-4">
+                <p className="text-xs font-medium text-muted-foreground">반 배정</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                     {student.classNames.map((name) => (
-                        <span key={name} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">{name}</span>
+                        <span key={name} className="rounded-full bg-muted px-3 py-1 text-sm text-foreground">{name}</span>
                     ))}
-                    {student.classNames.length === 0 && <span className="text-sm text-slate-400">배정된 반이 없습니다.</span>}
+                    {student.classNames.length === 0 && <span className="text-sm text-muted-foreground">배정된 반이 없습니다.</span>}
                 </div>
             </div>
         </div>
@@ -472,39 +440,43 @@ function AttendanceTab({ detail }: { detail: StudentDetail }) {
         <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-5">
                 {(['present', 'late', 'absent', 'excused', 'makeup'] as const).map((status) => (
-                    <div key={status} className="rounded-lg border bg-white p-3">
-                        <p className="text-xs text-slate-500">{statusLabel(status)}</p>
-                        <p className="mt-1 text-xl font-semibold text-slate-950">{summary[status]}건</p>
+                    <div key={status} className="rounded-xl border bg-card p-3">
+                        <p className="text-xs text-muted-foreground">{statusLabel(status)}</p>
+                        <p className="mt-1 text-xl font-semibold text-foreground">{summary[status]}건</p>
                     </div>
                 ))}
             </div>
-            <div className="overflow-hidden rounded-lg border bg-white">
-                <table className="w-full text-sm">
-                    <thead className="bg-slate-50 text-left text-slate-500">
-                        <tr>
-                            <th className="px-4 py-3 font-medium">일자</th>
-                            <th className="px-4 py-3 font-medium">반</th>
-                            <th className="px-4 py-3 font-medium">상태</th>
-                            <th className="px-4 py-3 font-medium">시간</th>
-                            <th className="px-4 py-3 font-medium">메모</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y">
+            <DataTable>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>일자</TableHead>
+                            <TableHead>반</TableHead>
+                            <TableHead>상태</TableHead>
+                            <TableHead>시간</TableHead>
+                            <TableHead>메모</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
                         {detail.recentAttendance.map((row) => (
-                            <tr key={row.id}>
-                                <td className="px-4 py-3">{row.date}</td>
-                                <td className="px-4 py-3">{row.className}</td>
-                                <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
-                                <td className="px-4 py-3 text-slate-600">{row.attendedMinutes ?? 0}분 / {row.billableMinutes ?? 0}분</td>
-                                <td className="px-4 py-3 text-slate-500">{row.notes || '-'}</td>
-                            </tr>
+                            <TableRow key={row.id}>
+                                <TableCell>{row.date}</TableCell>
+                                <TableCell>{row.className}</TableCell>
+                                <TableCell><StudentStatusBadge status={row.status} /></TableCell>
+                                <TableCell>{row.attendedMinutes ?? 0}분 / {row.billableMinutes ?? 0}분</TableCell>
+                                <TableCell>{row.notes || '-'}</TableCell>
+                            </TableRow>
                         ))}
                         {detail.recentAttendance.length === 0 && (
-                            <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">출결 기록이 없습니다.</td></tr>
+                            <TableRow>
+                                <TableCell colSpan={5}>
+                                    <EmptyState title="출결 기록이 없습니다." className="border-0 py-6" />
+                                </TableCell>
+                            </TableRow>
                         )}
-                    </tbody>
-                </table>
-            </div>
+                    </TableBody>
+                </Table>
+            </DataTable>
         </div>
     );
 }
@@ -514,48 +486,48 @@ function BillingTab({ detail }: { detail: StudentDetail }) {
     return (
         <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border bg-white p-3">
-                    <p className="text-xs text-slate-500">청구 방식</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">{billingModeLabel(student.billingMode)}</p>
+                <div className="rounded-xl border bg-card p-3">
+                    <p className="text-xs text-muted-foreground">청구 방식</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">{billingModeLabel(student.billingMode)}</p>
                 </div>
-                <div className="rounded-lg border bg-white p-3">
-                    <p className="text-xs text-slate-500">기본료</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">{currency(student.baseMonthlyFee)}</p>
+                <div className="rounded-xl border bg-card p-3">
+                    <p className="text-xs text-muted-foreground">기본료</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">{currency(student.baseMonthlyFee)}</p>
                 </div>
-                <div className="rounded-lg border bg-white p-3">
-                    <p className="text-xs text-slate-500">추가 반 금액</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">{currency(student.extraClassFee)}</p>
+                <div className="rounded-xl border bg-card p-3">
+                    <p className="text-xs text-muted-foreground">추가 반 금액</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">{currency(student.extraClassFee)}</p>
                 </div>
             </div>
-            <div className="rounded-lg border bg-white p-4">
+            <div className="rounded-xl border bg-card p-4">
                 <div className="flex items-center justify-between gap-3">
                     <div>
-                        <p className="text-sm font-medium text-slate-800">최근 청구</p>
-                        <p className="mt-1 text-xs text-slate-400">{detail.billing?.invoiceId || '발행된 청구서 없음'}</p>
+                        <p className="text-sm font-medium text-foreground">최근 청구</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{detail.billing?.invoiceId || '발행된 청구서 없음'}</p>
                     </div>
-                    {detail.billing ? <StatusBadge status={detail.billing.status} /> : <StatusBadge status="not_issued" />}
+                    {detail.billing ? <StudentStatusBadge status={detail.billing.status} /> : <StudentStatusBadge status="not_issued" />}
                 </div>
                 {detail.billing && (
                     <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
-                        <div><span className="text-slate-500">청구액</span><p className="font-medium">{currency(detail.billing.invoicedAmount)}</p></div>
-                        <div><span className="text-slate-500">납부액</span><p className="font-medium">{currency(detail.billing.paidAmount)}</p></div>
-                        <div><span className="text-slate-500">예상액</span><p className="font-medium">{currency(detail.billing.expectedAmount)}</p></div>
+                        <div><span className="text-muted-foreground">청구액</span><p className="font-medium">{currency(detail.billing.invoicedAmount)}</p></div>
+                        <div><span className="text-muted-foreground">납부액</span><p className="font-medium">{currency(detail.billing.paidAmount)}</p></div>
+                        <div><span className="text-muted-foreground">예상액</span><p className="font-medium">{currency(detail.billing.expectedAmount)}</p></div>
                     </div>
                 )}
             </div>
-            <div className="rounded-lg border bg-white">
+            <div className="rounded-xl border bg-card">
                 <div className="border-b px-4 py-3 text-sm font-medium">최근 납부</div>
                 <div className="divide-y">
                     {detail.recentPayments.map((row) => (
                         <div key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                             <div>
-                                <p className="font-medium text-slate-800">{currency(row.amount)}</p>
-                                <p className="text-xs text-slate-400">{row.paymentDate} · {row.paymentMethod || '-'}</p>
+                                <p className="font-medium text-foreground">{currency(row.amount)}</p>
+                                <p className="text-xs text-muted-foreground">{row.paymentDate} · {row.paymentMethod || '-'}</p>
                             </div>
-                            <StatusBadge status={row.status} />
+                            <StudentStatusBadge status={row.status} />
                         </div>
                     ))}
-                    {detail.recentPayments.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">납부 기록이 없습니다.</p>}
+                    {detail.recentPayments.length === 0 && <p className="px-4 py-8 text-center text-sm text-muted-foreground">납부 기록이 없습니다.</p>}
                 </div>
             </div>
         </div>
@@ -615,13 +587,18 @@ function StudentForm(props: StudentFormProps) {
             {props.mode === 'edit' && (
                 <div>
                     <Label>상태</Label>
-                    <SelectBox value={props.status} onChange={(event) => props.onStatus(event.target.value as StudentStatus)}>
-                        <option value="active">재원</option>
-                        <option value="on_leave">휴원</option>
-                        <option value="inactive">중지</option>
-                        <option value="graduated">졸업</option>
-                        <option value="dropped">퇴원/보관</option>
-                    </SelectBox>
+                    <Select value={props.status} onValueChange={(value) => props.onStatus(value as StudentStatus)}>
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="active">재원</SelectItem>
+                            <SelectItem value="on_leave">휴원</SelectItem>
+                            <SelectItem value="inactive">중지</SelectItem>
+                            <SelectItem value="graduated">졸업</SelectItem>
+                            <SelectItem value="dropped">퇴원/보관</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
             )}
 
@@ -629,23 +606,28 @@ function StudentForm(props: StudentFormProps) {
                 <Label>반 배정</Label>
                 <div className="mt-2 grid gap-2 md:grid-cols-2">
                     {props.classes.map((row) => (
-                        <label key={row.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
-                            <input type="checkbox" checked={props.selectedClassIds.has(row.id)} onChange={() => props.onToggleClass(row.id)} />
+                        <label key={row.id} className="flex items-center gap-2 rounded-xl bg-muted px-3 py-2 text-sm">
+                            <Checkbox checked={props.selectedClassIds.has(row.id)} onCheckedChange={() => props.onToggleClass(row.id)} />
                             <span className="truncate">{row.name}</span>
                         </label>
                     ))}
-                    {props.classes.length === 0 && <p className="text-sm text-slate-400">배정 가능한 반이 없습니다.</p>}
+                    {props.classes.length === 0 && <p className="text-sm text-muted-foreground">배정 가능한 반이 없습니다.</p>}
                 </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-4">
                 <div>
                     <Label>청구 방식</Label>
-                    <SelectBox value={props.billingMode} onChange={(event) => props.onBillingMode(event.target.value as BillingMode)}>
-                        <option value="monthly_plus_classes">기본료 + 추가반</option>
-                        <option value="usage_based">시간제</option>
-                        <option value="manual">수동 청구</option>
-                    </SelectBox>
+                    <Select value={props.billingMode} onValueChange={(value) => props.onBillingMode(value as BillingMode)}>
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="monthly_plus_classes">기본료 + 추가반</SelectItem>
+                            <SelectItem value="usage_based">시간제</SelectItem>
+                            <SelectItem value="manual">수동 청구</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
                 <div>
                     <Label>기본료</Label>
@@ -700,14 +682,14 @@ function ManagementTab({
     return (
         <div className="grid gap-4">
             {detail.permissions.canEdit && (
-                <div className="rounded-lg border bg-white p-4">
+                <div className="rounded-xl border bg-card p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
-                            <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                            <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                                 <KeyRound className="h-4 w-4" />
                                 Grade app 가입 코드
                             </p>
-                            <p className="mt-1 text-xs text-slate-400">
+                            <p className="mt-1 text-xs text-muted-foreground">
                                 미사용 코드만 표시됩니다. 학생이 가입하면 코드는 더 이상 사용할 수 없습니다.
                             </p>
                         </div>
@@ -724,16 +706,16 @@ function ManagementTab({
                             </Button>
                         )}
                     </div>
-                    <div className="mt-4 rounded-lg bg-slate-50 p-3">
+                    <div className="mt-4 rounded-xl bg-muted p-3">
                         {detail.hasGradeAppAccount ? (
-                            <p className="text-sm font-medium text-emerald-700">가입 완료</p>
+                            <p className="text-sm font-medium text-success-foreground">가입 완료</p>
                         ) : detail.signupInvitation ? (
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                    <code className="select-all break-all text-xl font-semibold tracking-[0.18em] text-slate-950">
+                                    <code className="select-all break-all text-xl font-semibold tracking-[0.18em] text-foreground">
                                         {detail.signupInvitation.inviteCode}
                                     </code>
-                                    <p className="mt-1 text-xs text-slate-500">만료일 {shortDate(detail.signupInvitation.expiresAt)}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">만료일 {shortDate(detail.signupInvitation.expiresAt)}</p>
                                 </div>
                                 <Button
                                     type="button"
@@ -746,18 +728,18 @@ function ManagementTab({
                                 </Button>
                             </div>
                         ) : (
-                            <p className="text-sm text-slate-500">사용 가능한 가입 코드가 없습니다.</p>
+                            <p className="text-sm text-muted-foreground">사용 가능한 가입 코드가 없습니다.</p>
                         )}
                     </div>
                 </div>
             )}
 
             {detail.permissions.canEdit && (
-                <div className="rounded-lg border bg-white p-4">
+                <div className="rounded-xl border bg-card p-4">
                     <div className="mb-4 flex items-center justify-between gap-3">
                         <div>
-                            <p className="text-sm font-medium text-slate-800">학생 정보 수정</p>
-                            <p className="mt-1 text-xs text-slate-400">연락처, 반 배정, 청구 계약을 수정합니다.</p>
+                            <p className="text-sm font-medium text-foreground">학생 정보 수정</p>
+                            <p className="mt-1 text-xs text-muted-foreground">연락처, 반 배정, 청구 계약을 수정합니다.</p>
                         </div>
                         {formMode !== 'edit' && (
                             <Button type="button" variant="outline" size="sm" onClick={onStartEdit}>
@@ -771,14 +753,14 @@ function ManagementTab({
             )}
 
             {detail.permissions.canArchive && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="rounded-xl border border-warning/30 bg-warning-soft p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
-                            <p className="flex items-center gap-2 text-sm font-medium text-amber-900">
+                            <p className="flex items-center gap-2 text-sm font-medium text-warning-foreground">
                                 <ShieldAlert className="h-4 w-4" />
                                 퇴원/보관
                             </p>
-                            <p className="mt-1 text-sm text-amber-800">
+                            <p className="mt-1 text-sm text-warning-foreground">
                                 운영 목록에서 숨기고 반 배정, 청구 계약, 학생 멤버십을 종료합니다. 회계, 출결, 학습, AI 이력은 보존됩니다.
                             </p>
                         </div>
@@ -790,18 +772,18 @@ function ManagementTab({
             )}
 
             {detail.permissions.canHardDelete && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
-                            <p className="flex items-center gap-2 text-sm font-medium text-red-900">
+                            <p className="flex items-center gap-2 text-sm font-medium text-destructive">
                                 <Trash2 className="h-4 w-4" />
                                 오등록 완전삭제
                             </p>
-                            <p className="mt-1 text-sm text-red-800">
+                            <p className="mt-1 text-sm text-destructive">
                                 청구, 납부, 출결, 학습, AI, 리포트 이력이 0건일 때만 삭제할 수 있습니다.
                             </p>
                             {preview && !preview.canHardDelete && (
-                                <p className="mt-2 text-xs text-red-700">
+                                <p className="mt-2 text-xs text-destructive">
                                     이력 {preview.historicalRecordCount}건 또는 공유 신원 {preview.sharedIdentityCount}건이 있어 완전삭제가 차단됩니다.
                                 </p>
                             )}
@@ -1030,7 +1012,7 @@ export function StudentsOperationsPage() {
             <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
                 <Card>
                     <CardHeader><CardTitle>학원 연결이 필요합니다.</CardTitle></CardHeader>
-                    <CardContent className="text-sm text-slate-500">현재 계정에 연결된 academy가 없습니다.</CardContent>
+                    <CardContent className="text-sm text-muted-foreground">현재 계정에 연결된 academy가 없습니다.</CardContent>
                 </Card>
             </div>
         );
@@ -1219,7 +1201,10 @@ export function StudentsOperationsPage() {
 
     return (
         <PageShell
-            action={permissions.canCreate ? (
+            title="학생"
+            description="학습분석, 출결, 연락처, 청구 계약을 한 화면에서 관리합니다."
+            icon={GraduationCap}
+            actions={permissions.canCreate ? (
                 <Button type="button" onClick={startCreate}>
                     <Plus className="mr-2 h-4 w-4" />
                     학생 등록
@@ -1227,34 +1212,37 @@ export function StudentsOperationsPage() {
             ) : undefined}
         >
             {!loading && refreshing && (
-                <div className="mb-3 flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    최신 데이터 동기화 중
-                </div>
+                <PageStatusBar tone="neutral" className="text-xs">
+                    <span className="flex items-center gap-2">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        최신 데이터 동기화 중
+                    </span>
+                </PageStatusBar>
             )}
             {!loading && hasExternalUpdate && (
-                <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    <span>입력 중 새 데이터가 들어왔습니다.</span>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            setHasExternalUpdate(false);
-                            void load({ force: true });
-                        }}
-                    >
-                        새로고침
-                    </Button>
-                </div>
+                <PageStatusBar
+                    tone="warning"
+                    className="text-xs"
+                    action={(
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setHasExternalUpdate(false);
+                                void load({ force: true });
+                            }}
+                        >
+                            새로고침
+                        </Button>
+                    )}
+                >
+                    입력 중 새 데이터가 들어왔습니다.
+                </PageStatusBar>
             )}
             {loading && <SkeletonPage />}
             {!loading && error && (
-                <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-                    <AlertTriangle className="h-7 w-7 text-red-600" />
-                    <p className="text-sm font-medium text-red-800">{error}</p>
-                    <Button variant="outline" onClick={() => void load({ force: true })}>다시 시도</Button>
-                </div>
+                <ErrorState title={error} retryLabel="다시 시도" onRetry={() => void load({ force: true })} />
             )}
             {!loading && !error && (
                 <div className="grid min-h-[620px] gap-5 xl:grid-cols-[0.9fr_1.5fr]">
@@ -1263,33 +1251,48 @@ export function StudentsOperationsPage() {
                             <div className="flex items-center justify-between gap-3">
                                 <CardTitle>학생 목록</CardTitle>
                                 {permissions.scopedToAssignedClasses && (
-                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">담당 반만</span>
+                                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">담당 반만</span>
                                 )}
                             </div>
                             <div className="grid gap-2">
                                 <div className="relative">
-                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                     <Input className="pl-9" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="이름, 학생/보호자 연락처 검색" />
                                 </div>
                                 <div className="grid gap-2 sm:grid-cols-3">
-                                    <SelectBox value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
-                                        <option value="all">전체 반</option>
-                                        {classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                                    </SelectBox>
-                                    <SelectBox value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StudentFilterStatus)}>
-                                        <option value="operations">운영 학생</option>
-                                        <option value="all">전체 상태</option>
-                                        <option value="active">재원</option>
-                                        <option value="on_leave">휴원</option>
-                                        <option value="inactive">중지</option>
-                                        <option value="graduated">졸업</option>
-                                        <option value="dropped">퇴원/보관</option>
-                                    </SelectBox>
-                                    <SelectBox value={sortMode} onChange={(event) => setSortMode(event.target.value as StudentSortMode)}>
-                                        <option value="risk">위험도순</option>
-                                        <option value="recent">최근 학습순</option>
-                                        <option value="name">이름순</option>
-                                    </SelectBox>
+                                    <Select value={classFilter} onValueChange={setClassFilter}>
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">전체 반</SelectItem>
+                                            {classes.map((row) => <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                    <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StudentFilterStatus)}>
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="operations">운영 학생</SelectItem>
+                                            <SelectItem value="all">전체 상태</SelectItem>
+                                            <SelectItem value="active">재원</SelectItem>
+                                            <SelectItem value="on_leave">휴원</SelectItem>
+                                            <SelectItem value="inactive">중지</SelectItem>
+                                            <SelectItem value="graduated">졸업</SelectItem>
+                                            <SelectItem value="dropped">퇴원/보관</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Select value={sortMode} onValueChange={(value) => setSortMode(value as StudentSortMode)}>
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="risk">위험도순</SelectItem>
+                                            <SelectItem value="recent">최근 학습순</SelectItem>
+                                            <SelectItem value="name">이름순</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </div>
                         </CardHeader>
@@ -1319,20 +1322,20 @@ export function StudentsOperationsPage() {
                                     <div>
                                         <div className="flex flex-wrap items-center gap-2">
                                             <CardTitle>{detail.summary.name}</CardTitle>
-                                            <StatusBadge status={detail.summary.status} />
+                                            <StudentStatusBadge status={detail.summary.status} />
                                         </div>
-                                        <p className="mt-1 text-sm text-slate-500">
+                                        <p className="mt-1 text-sm text-muted-foreground">
                                             {detail.summary.classNames.join(', ') || '배정 반 없음'} · {detail.summary.phone || '학생 연락처 없음'} · 보호자 {detail.summary.parentPhone || '-'}
                                         </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
-                                        <div className="rounded-lg bg-slate-50 px-3 py-2 text-right text-xs">
-                                            <p className="text-slate-500">취약/주의</p>
-                                            <p className="font-semibold text-slate-950">{detail.summary.weakTypeCount || 0}개</p>
+                                        <div className="rounded-xl bg-muted px-3 py-2 text-right text-xs">
+                                            <p className="text-muted-foreground">취약/주의</p>
+                                            <p className="font-semibold text-foreground">{detail.summary.weakTypeCount || 0}개</p>
                                         </div>
-                                        <div className="rounded-lg bg-slate-50 px-3 py-2 text-right text-xs">
-                                            <p className="text-slate-500">최근 학습</p>
-                                            <p className="font-semibold text-slate-950">{shortDate(detail.summary.lastLearningAt)}</p>
+                                        <div className="rounded-xl bg-muted px-3 py-2 text-right text-xs">
+                                            <p className="text-muted-foreground">최근 학습</p>
+                                            <p className="font-semibold text-foreground">{shortDate(detail.summary.lastLearningAt)}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1392,10 +1395,10 @@ export function StudentsOperationsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
-                        <div className="rounded-lg border bg-slate-50 p-4">
-                            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">가입 코드</p>
+                        <div className="rounded-xl border bg-muted p-4">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">가입 코드</p>
                             <div className="mt-2 flex items-center justify-between gap-3">
-                                <code className="select-all break-all text-2xl font-semibold tracking-[0.2em] text-slate-950">
+                                <code className="select-all break-all text-2xl font-semibold tracking-[0.2em] text-foreground">
                                     {createdInvitation?.invitation.inviteCode || '-'}
                                 </code>
                                 <Button type="button" variant="outline" size="sm" onClick={() => void copyInviteCode(createdInvitation?.invitation.inviteCode)}>
@@ -1404,14 +1407,14 @@ export function StudentsOperationsPage() {
                                 </Button>
                             </div>
                         </div>
-                        <div className="grid gap-2 text-sm text-slate-600">
+                        <div className="grid gap-2 text-sm text-muted-foreground">
                             <div className="flex items-center justify-between gap-3">
                                 <span>학생</span>
-                                <strong className="text-slate-900">{createdInvitation?.studentName || '-'}</strong>
+                                <strong className="text-foreground">{createdInvitation?.studentName || '-'}</strong>
                             </div>
                             <div className="flex items-center justify-between gap-3">
                                 <span>만료일</span>
-                                <strong className="text-slate-900">{shortDate(createdInvitation?.invitation.expiresAt)}</strong>
+                                <strong className="text-foreground">{shortDate(createdInvitation?.invitation.expiresAt)}</strong>
                             </div>
                         </div>
                     </div>
@@ -1445,21 +1448,21 @@ export function StudentsOperationsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
-                        <div className="rounded-lg border bg-slate-50 p-3 text-sm">
-                            <p className="font-medium text-slate-800">{hardDeletePreview?.studentName || detail?.summary.name || '-'}</p>
+                        <div className="rounded-xl border bg-muted p-3 text-sm">
+                            <p className="font-medium text-foreground">{hardDeletePreview?.studentName || detail?.summary.name || '-'}</p>
                             {hardDeletePreview ? (
-                                <div className="mt-2 grid gap-1 text-xs text-slate-600">
+                                <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
                                     {hardDeletePreview.blockers.filter((row) => row.count > 0).map((row) => (
                                         <div key={row.key} className="flex justify-between gap-3">
                                             <span>{row.label}</span>
                                             <strong>{row.count.toLocaleString()}건</strong>
                                         </div>
                                     ))}
-                                    {hardDeletePreview.canHardDelete && <p className="text-emerald-700">차단 이력이 없어 완전삭제할 수 있습니다.</p>}
-                                    {!hardDeletePreview.canHardDelete && <p className="text-red-700">이력이 있어 완전삭제가 차단됩니다.</p>}
+                                    {hardDeletePreview.canHardDelete && <p className="text-success-foreground">차단 이력이 없어 완전삭제할 수 있습니다.</p>}
+                                    {!hardDeletePreview.canHardDelete && <p className="text-destructive">이력이 있어 완전삭제가 차단됩니다.</p>}
                                 </div>
                             ) : (
-                                <p className="mt-2 text-xs text-slate-500">가능 여부를 확인하는 중입니다.</p>
+                                <p className="mt-2 text-xs text-muted-foreground">가능 여부를 확인하는 중입니다.</p>
                             )}
                         </div>
                         <div>

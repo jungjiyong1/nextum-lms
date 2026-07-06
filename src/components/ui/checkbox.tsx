@@ -10,27 +10,17 @@ const Checkbox = React.forwardRef<
     <CheckboxPrimitive.Root
         ref={ref}
         className={cn(
-            // Base: 24px size, white background, thin slate border
-            "h-6 w-6 shrink-0 rounded-md border border-slate-300 bg-white",
-            // Explicitly no shadow - completely flat
-            "shadow-none",
-            // Smooth transition
-            "transition-all duration-200",
-            // Hover: emerald-400 border
-            "hover:border-emerald-400",
-            // Checked: emerald-600 background and border
-            "data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600",
-            // Disabled
+            "h-5 w-5 shrink-0 rounded-md border border-input bg-card shadow-sm transition-colors",
+            "hover:border-primary/60",
+            "data-[state=checked]:border-primary data-[state=checked]:bg-primary",
             "disabled:cursor-not-allowed disabled:opacity-50",
-            // Focus: no ring, no shadow, no offset - completely flat
-            "focus-visible:outline-none",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
             className
         )}
-        style={{ boxShadow: 'none', borderStyle: 'solid' }}
         {...props}
     >
         <CheckboxPrimitive.Indicator
-            className="flex items-center justify-center text-white"
+            className="flex items-center justify-center text-primary-foreground"
         >
             <svg
                 viewBox="0 0 20 20"

@@ -33,7 +33,7 @@ function Skeleton({
         <div
             aria-hidden="true"
             className={cn(
-                "animate-shimmer bg-gradient-to-r from-slate-100 via-slate-200 to-slate-100 bg-[length:200%_100%] rounded-md",
+                "animate-shimmer rounded-xl bg-gradient-to-r from-muted via-border to-muted bg-[length:200%_100%]",
                 variantStyles[variant],
                 className
             )}
@@ -71,7 +71,7 @@ function SkeletonRows({
     return (
         <div className={cn("space-y-3", className)}>
             {Array.from({ length: count }).map((_, i) => (
-                <div key={i} className={cn("rounded-lg border bg-white p-4", rowClassName)}>
+                <div key={i} className={cn("rounded-xl border bg-card p-4", rowClassName)}>
                     <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0 flex-1 space-y-2">
                             <Skeleton className="h-4 w-1/3" />
@@ -92,7 +92,7 @@ function SkeletonPanel({
     ...props
 }: SkeletonPanelProps) {
     return (
-        <div className={cn("rounded-lg border bg-white", className)} {...props}>
+        <div className={cn("rounded-xl border bg-card", className)} {...props}>
             {showHeader && (
                 <div className="border-b p-4">
                     <Skeleton className="h-5 w-40" />

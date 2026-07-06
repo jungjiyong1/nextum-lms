@@ -10,6 +10,7 @@ import {
     Settings,
     Users,
 } from 'lucide-react';
+import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { Profile } from '../../contexts/AuthContext';
 import { appPageHref, canAccessAppPage, getRoleLabel, type AppPage } from '../../core/auth/roles';
@@ -34,64 +35,93 @@ const navItems: Array<{ id: AppPage; label: string; href: string; icon: React.Co
 
 export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academyName }: SidebarProps) {
     const [collapsed, setCollapsed] = React.useState(false);
+    const [compactViewport, setCompactViewport] = React.useState(false);
     const visibleNavItems = navItems.filter((item) => canAccessAppPage(userProfile?.role, item.id));
+    const visuallyCollapsed = collapsed || compactViewport;
+
+    React.useEffect(() => {
+        const updateCompactViewport = () => {
+            setCompactViewport(window.innerWidth < 768);
+        };
+
+        updateCompactViewport();
+        window.addEventListener('resize', updateCompactViewport);
+        return () => window.removeEventListener('resize', updateCompactViewport);
+    }, []);
 
     return (
-        <aside className={cn('sidebar flex flex-col', collapsed && 'collapsed')}>
-            <button
+        <aside
+            className={cn(
+                'flex h-screen shrink-0 flex-col overflow-hidden border-r border-border bg-card transition-[width] duration-200',
+                visuallyCollapsed ? 'w-16' : 'w-[220px]',
+            )}
+        >
+            <Button
                 type="button"
-                className="sidebar-header w-full"
+                variant="ghost"
+                className={cn(
+                    'h-auto w-full justify-start gap-3 rounded-none border-b border-border px-3 py-4 hover:bg-primary-soft/50',
+                    visuallyCollapsed && 'justify-center px-2',
+                )}
                 onClick={() => setCollapsed(!collapsed)}
-                title={collapsed ? '메뉴 열기' : '메뉴 닫기'}
+                title={visuallyCollapsed ? '메뉴 열기' : '메뉴 닫기'}
             >
-                <div className="sidebar-logo">
-                    <img src="/icon.png" alt="NEXTUM LMS" className="h-8 w-8 rounded-lg" />
-                </div>
-                {!collapsed && <span className="sidebar-title">{academyName || 'NEXTUM LMS'}</span>}
-            </button>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary-soft text-primary-strong">
+                    <img src="/icon.png" alt="NEXTUM LMS" className="h-8 w-8 rounded-xl" />
+                </span>
+                {!visuallyCollapsed && (
+                    <span className="min-w-0 truncate text-left text-base font-semibold text-foreground">
+                        {academyName || 'NEXTUM LMS'}
+                    </span>
+                )}
+            </Button>
 
-            <nav className="sidebar-nav flex-1">
+            <nav className="flex flex-1 flex-col gap-1 px-2 py-3">
                 {visibleNavItems.map((item) => (
                     <Link
                         key={item.id}
                         href={item.href}
-                        className={cn('nav-item', activePage === item.id && 'active')}
+                        className={cn(
+                            'flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-primary-soft/50 hover:text-foreground',
+                            activePage === item.id && 'bg-primary-soft text-primary-strong',
+                            visuallyCollapsed && 'justify-center px-2',
+                        )}
                         onClick={() => onNavigate(item.id)}
+                        title={visuallyCollapsed ? item.label : undefined}
                     >
-                        <span className="nav-icon">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                             <item.icon size={20} />
                         </span>
-                        {!collapsed && <span className="nav-label">{item.label}</span>}
+                        {!visuallyCollapsed && <span className="truncate">{item.label}</span>}
                     </Link>
                 ))}
             </nav>
 
-            <div className="mt-auto border-t border-white/10 px-2 pb-2 pt-2">
-                {userProfile && !collapsed && (
-                    <div className="mb-2 px-2 py-2 text-xs text-white/60">
-                        <div className="truncate font-medium text-white/80">
+            <div className="mt-auto border-t border-border px-2 pb-2 pt-2">
+                {userProfile && !visuallyCollapsed && (
+                    <div className="mb-2 rounded-xl bg-muted/70 px-2 py-2 text-xs text-muted-foreground">
+                        <div className="truncate font-medium text-foreground">
                             {userProfile.full_name || userProfile.email}
                         </div>
-                        <div className="text-white/40">
-                            {getRoleLabel(userProfile.role)}
-                        </div>
+                        <div>{getRoleLabel(userProfile.role)}</div>
                     </div>
                 )}
                 {onSignOut && (
-                    <button
+                    <Button
                         type="button"
+                        variant="ghost"
                         className={cn(
-                            'nav-item w-full text-red-400 hover:bg-red-500/10 hover:text-red-300',
-                            collapsed && 'justify-center',
+                            'h-10 w-full justify-start gap-3 text-danger hover:bg-danger-soft hover:text-danger',
+                            visuallyCollapsed && 'justify-center px-2',
                         )}
                         onClick={onSignOut}
                         title="로그아웃"
                     >
-                        <span className="nav-icon">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                             <LogOut size={20} />
                         </span>
-                        {!collapsed && <span className="nav-label">로그아웃</span>}
-                    </button>
+                        {!visuallyCollapsed && <span className="truncate">로그아웃</span>}
+                    </Button>
                 )}
             </div>
         </aside>

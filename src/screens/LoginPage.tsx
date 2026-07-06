@@ -3,6 +3,7 @@ import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
+import { Card, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Skeleton } from '../components/ui/skeleton';
@@ -49,44 +50,46 @@ export function LoginPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#1a1f2c] p-4">
-        <div className="w-full max-w-sm rounded-2xl border border-white/5 bg-[#242b3d] p-8 shadow-2xl">
-          <div className="mb-8 flex flex-col items-center">
-            <Skeleton className="mb-4 h-16 w-16 rounded-xl bg-white/15" />
-            <Skeleton className="mb-3 h-5 w-32 bg-white/15" />
-            <Skeleton className="h-4 w-40 bg-white/10" />
-          </div>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Skeleton className="h-3 w-12 bg-white/10" />
-              <Skeleton className="h-10 w-full bg-white/15" />
+      <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+        <Card className="w-full max-w-sm">
+          <CardContent className="p-8">
+            <div className="mb-8 flex flex-col items-center">
+              <Skeleton className="mb-4 h-16 w-16 rounded-xl" />
+              <Skeleton className="mb-3 h-5 w-32" />
+              <Skeleton className="h-4 w-40" />
             </div>
-            <div className="space-y-2">
-              <Skeleton className="h-3 w-16 bg-white/10" />
-              <Skeleton className="h-10 w-full bg-white/15" />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+              <Skeleton className="h-10 w-full" />
             </div>
-            <Skeleton className="h-10 w-full bg-white/15" />
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#1a1f2c] p-4">
-      <div className="w-full max-w-sm">
-        <div className="rounded-2xl border border-white/5 bg-[#242b3d] p-8 shadow-2xl">
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+      <Card className="w-full max-w-sm">
+        <CardContent className="p-8">
           <div className="mb-8 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-[#1ea362] shadow-lg shadow-[#1ea362]/20">
-              <BookOpen className="h-8 w-8 text-white" aria-hidden="true" />
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <BookOpen className="h-8 w-8" aria-hidden="true" />
             </div>
-            <h1 className="mb-2 text-xl font-bold text-white">NEXTUM LMS</h1>
-            <p className="text-sm text-gray-400">아이디로 로그인하세요</p>
+            <h1 className="mb-2 text-xl font-semibold text-foreground">NEXTUM LMS</h1>
+            <p className="text-sm text-muted-foreground">아이디로 로그인하세요</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="login-id" className="pl-1 text-xs font-medium text-gray-300">
+              <Label htmlFor="login-id" className="pl-1 text-xs font-medium">
                 아이디
               </Label>
               <Input
@@ -95,14 +98,14 @@ export function LoginPage() {
                 placeholder="아이디"
                 value={loginId}
                 onChange={(event) => setLoginId(event.target.value)}
-                className="h-10 border-transparent bg-[#e8e8e8] text-sm font-medium text-slate-900 placeholder:text-gray-400 focus:border-[#1ea362] focus:bg-white focus:ring-[#1ea362]/30"
+                className="h-10"
                 autoComplete="username"
                 disabled={isSubmitting}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="pl-1 text-xs font-medium text-gray-300">
+              <Label htmlFor="password" className="pl-1 text-xs font-medium">
                 비밀번호
               </Label>
               <Input
@@ -111,26 +114,22 @@ export function LoginPage() {
                 placeholder="비밀번호"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="h-10 border-transparent bg-[#e8e8e8] text-sm font-medium text-slate-900 placeholder:text-gray-400 focus:border-[#1ea362] focus:bg-white focus:ring-[#1ea362]/30"
+                className="h-10"
                 autoComplete="current-password"
                 disabled={isSubmitting}
               />
             </div>
 
-            <Button
-              type="submit"
-              className="mt-2 h-10 w-full bg-[#1ea362] font-medium text-white shadow-lg shadow-[#1ea362]/30 transition-all duration-200 hover:bg-[#188f54]"
-              disabled={isSubmitting}
-            >
+            <Button type="submit" className="mt-2 h-10 w-full" disabled={isSubmitting}>
               {isSubmitting ? '로그인 중...' : '로그인'}
             </Button>
           </form>
 
           <div className="mt-3 text-center">
-            <p className="text-xs text-gray-500">© 2026 NEXTUM</p>
+            <p className="text-xs text-muted-foreground">© 2026 NEXTUM</p>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

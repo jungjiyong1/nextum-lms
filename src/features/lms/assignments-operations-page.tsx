@@ -1,16 +1,21 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ClipboardList, RefreshCw, Upload } from 'lucide-react';
+import { ClipboardList, RefreshCw, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { PageShell, PageStatusBar } from '@/components/ui/page-shell';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SelectableCard } from '@/components/ui/selectable-card';
 import { SkeletonPanel } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
+import { EmptyState, ErrorState } from '@/components/ui/state';
+import { StatusBadge } from '@/components/ui/status-badge';
 import {
     addLmsInvalidationListener,
     createLearningAssignment,
@@ -29,15 +34,6 @@ type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
 
 function academyIdOf(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function SelectBox(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-    return (
-        <select
-            {...props}
-            className={cn('h-10 w-full rounded-md border border-input bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring', props.className)}
-        />
-    );
 }
 
 function formatDate(value: string | null): string {
@@ -226,59 +222,58 @@ export function AssignmentsOperationsPage() {
             <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
                 <Card>
                     <CardHeader><CardTitle>학원 연결이 필요합니다</CardTitle></CardHeader>
-                    <CardContent className="text-sm text-slate-500">현재 계정에 연결된 academy가 없습니다.</CardContent>
+                    <CardContent className="text-sm text-muted-foreground">현재 계정에 연결된 academy가 없습니다.</CardContent>
                 </Card>
             </div>
         );
     }
 
     return (
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-5 lg:p-8">
-            <div className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                        <ClipboardList className="h-5 w-5" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-semibold text-slate-950">과제 관리</h1>
-                        <p className="text-sm text-slate-500">교재 범위 또는 crop-trainer 학습지를 학생 과제로 배정합니다.</p>
-                    </div>
-                </div>
+        <PageShell
+            title="과제 관리"
+            description="교재 범위 또는 crop-trainer 학습지를 학생 과제로 배정합니다."
+            icon={ClipboardList}
+            actions={(
                 <Button type="button" variant="outline" onClick={() => void load({ force: true })} disabled={loading}>
                     <RefreshCw className="mr-2 h-4 w-4" />
                     새로고침
                 </Button>
-            </div>
+            )}
+        >
 
             {!loading && refreshing && (
-                <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    최신 데이터 동기화 중
-                </div>
+                <PageStatusBar tone="neutral" className="text-xs">
+                    <span className="flex items-center gap-2">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        최신 데이터 동기화 중
+                    </span>
+                </PageStatusBar>
             )}
             {!loading && hasExternalUpdate && (
-                <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    <span>작업 중 새 데이터가 들어왔습니다.</span>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            setHasExternalUpdate(false);
-                            void load({ force: true });
-                        }}
-                    >
-                        새로고침
-                    </Button>
-                </div>
+                <PageStatusBar
+                    tone="warning"
+                    className="text-xs"
+                    action={(
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setHasExternalUpdate(false);
+                                void load({ force: true });
+                            }}
+                        >
+                            새로고침
+                        </Button>
+                    )}
+                >
+                    작업 중 새 데이터가 들어왔습니다.
+                </PageStatusBar>
             )}
 
             {loading && <SkeletonPanel className="min-h-[360px]" rows={7} />}
             {error && (
-                <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                    <AlertTriangle className="h-4 w-4" />
-                    {error}
-                </div>
+                <ErrorState title={error} retryLabel="다시 시도" onRetry={() => void load({ force: true })} />
             )}
 
             {data && (
@@ -288,28 +283,20 @@ export function AssignmentsOperationsPage() {
                         <CardContent>
                             <form onSubmit={submit} className="space-y-5">
                                 <div className="grid gap-3 md:grid-cols-2">
-                                    <button
-                                        type="button"
+                                    <SelectableCard
+                                        selected={sourceType === 'content_scope'}
                                         onClick={() => setSourceType('content_scope')}
-                                        className={cn(
-                                            'rounded-lg border p-3 text-left text-sm',
-                                            sourceType === 'content_scope' ? 'border-emerald-500 bg-emerald-50' : 'bg-white',
-                                        )}
                                     >
                                         <div className="font-semibold">교재 범위</div>
-                                        <div className="mt-1 text-xs text-slate-500">단원, 세부유형, 문항을 선택합니다.</div>
-                                    </button>
-                                    <button
-                                        type="button"
+                                        <div className="mt-1 text-xs text-muted-foreground">단원, 세부유형, 문항을 선택합니다.</div>
+                                    </SelectableCard>
+                                    <SelectableCard
+                                        selected={sourceType === 'worksheet'}
                                         onClick={() => setSourceType('worksheet')}
-                                        className={cn(
-                                            'rounded-lg border p-3 text-left text-sm',
-                                            sourceType === 'worksheet' ? 'border-emerald-500 bg-emerald-50' : 'bg-white',
-                                        )}
                                     >
                                         <div className="font-semibold">학습지 export</div>
-                                        <div className="mt-1 text-xs text-slate-500">crop-trainer zip/json을 과제로 등록합니다.</div>
-                                    </button>
+                                        <div className="mt-1 text-xs text-muted-foreground">crop-trainer zip/json을 과제로 등록합니다.</div>
+                                    </SelectableCard>
                                 </div>
 
                                 <div className="grid gap-3 md:grid-cols-2">
@@ -328,52 +315,57 @@ export function AssignmentsOperationsPage() {
                                 </div>
 
                                 {sourceType === 'content_scope' ? (
-                                    <div className="space-y-4 rounded-lg border bg-slate-50/70 p-4">
+                                    <div className="space-y-4 rounded-xl border bg-muted/50 p-4">
                                         <div>
                                             <Label>교재</Label>
-                                            <SelectBox
+                                            <Select
                                                 value={bookId}
-                                                onChange={(event) => {
-                                                    setBookId(event.target.value);
+                                                onValueChange={(value) => {
+                                                    setBookId(value);
                                                     resetScope();
                                                 }}
                                             >
-                                                {data.books.map((book) => (
-                                                    <option key={book.id} value={book.id}>{book.title}</option>
-                                                ))}
-                                            </SelectBox>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="교재 선택" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {data.books.map((book) => (
+                                                        <SelectItem key={book.id} value={book.id}>{book.title}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
 
                                         {selectedBook && (
                                             <div className="grid gap-4 lg:grid-cols-3">
                                                 <div>
                                                     <div className="mb-2 text-sm font-semibold">단원</div>
-                                                    <div className="max-h-72 space-y-2 overflow-auto rounded-lg border bg-white p-2">
+                                                    <div className="max-h-72 space-y-2 overflow-auto rounded-xl border bg-card p-2">
                                                         {selectedBook.units.map((unit) => (
-                                                            <label key={unit.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-slate-50">
-                                                                <input type="checkbox" checked={selectedUnitIds.has(unit.id)} onChange={() => toggleSetValue(setSelectedUnitIds, unit.id)} />
-                                                                <span>{unit.name} <span className="text-xs text-slate-400">({unit.problemCount})</span></span>
+                                                            <label key={unit.id} className="flex items-start gap-2 rounded-xl p-2 text-sm hover:bg-muted">
+                                                                <Checkbox checked={selectedUnitIds.has(unit.id)} onCheckedChange={() => toggleSetValue(setSelectedUnitIds, unit.id)} />
+                                                                <span>{unit.name} <span className="text-xs text-muted-foreground">({unit.problemCount})</span></span>
                                                             </label>
                                                         ))}
                                                     </div>
                                                 </div>
                                                 <div>
                                                     <div className="mb-2 text-sm font-semibold">세부유형</div>
-                                                    <div className="max-h-72 space-y-2 overflow-auto rounded-lg border bg-white p-2">
+                                                    <div className="max-h-72 space-y-2 overflow-auto rounded-xl border bg-card p-2">
                                                         {selectedBook.problemTypes.map((type) => (
-                                                            <label key={type.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-slate-50">
-                                                                <input type="checkbox" checked={selectedTypeIds.has(type.id)} onChange={() => toggleSetValue(setSelectedTypeIds, type.id)} />
-                                                                <span>{type.name} <span className="text-xs text-slate-400">({type.problemCount})</span></span>
+                                                            <label key={type.id} className="flex items-start gap-2 rounded-xl p-2 text-sm hover:bg-muted">
+                                                                <Checkbox checked={selectedTypeIds.has(type.id)} onCheckedChange={() => toggleSetValue(setSelectedTypeIds, type.id)} />
+                                                                <span>{type.name} <span className="text-xs text-muted-foreground">({type.problemCount})</span></span>
                                                             </label>
                                                         ))}
                                                     </div>
                                                 </div>
                                                 <div>
                                                     <div className="mb-2 text-sm font-semibold">개별 문항</div>
-                                                    <div className="max-h-72 space-y-2 overflow-auto rounded-lg border bg-white p-2">
+                                                    <div className="max-h-72 space-y-2 overflow-auto rounded-xl border bg-card p-2">
                                                         {selectedBook.problems.map((problem) => (
-                                                            <label key={problem.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-slate-50">
-                                                                <input type="checkbox" checked={selectedProblemIdsSet.has(problem.id)} onChange={() => toggleSetValue(setSelectedProblemIdsSet, problem.id)} />
+                                                            <label key={problem.id} className="flex items-start gap-2 rounded-xl p-2 text-sm hover:bg-muted">
+                                                                <Checkbox checked={selectedProblemIdsSet.has(problem.id)} onCheckedChange={() => toggleSetValue(setSelectedProblemIdsSet, problem.id)} />
                                                                 <span>{problemLabel(problem)}</span>
                                                             </label>
                                                         ))}
@@ -381,19 +373,19 @@ export function AssignmentsOperationsPage() {
                                                 </div>
                                             </div>
                                         )}
-                                        <div className="text-sm font-medium text-slate-600">
+                                        <div className="text-sm font-medium text-muted-foreground">
                                             선택 문제 수: {previewProblemIds.length}문제
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="rounded-lg border bg-slate-50/70 p-4">
+                                    <div className="rounded-xl border bg-muted/50 p-4">
                                         <Label>crop-trainer export zip/json</Label>
                                         <Input
                                             type="file"
                                             accept=".zip,.json,application/zip,application/json"
                                             onChange={(event) => setWorksheetFile(event.target.files?.[0] || null)}
                                         />
-                                        <p className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+                                        <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                                             <Upload className="h-3.5 w-3.5" />
                                             LMS에서 crop하지 않고, 검수 완료된 export 산출물만 등록합니다.
                                         </p>
@@ -403,10 +395,10 @@ export function AssignmentsOperationsPage() {
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div>
                                         <div className="mb-2 text-sm font-semibold">대상 반</div>
-                                        <div className="max-h-52 space-y-2 overflow-auto rounded-lg border bg-white p-2">
+                                        <div className="max-h-52 space-y-2 overflow-auto rounded-xl border bg-card p-2">
                                             {data.classes.filter((row) => row.active).map((row) => (
-                                                <label key={row.id} className="flex items-center gap-2 rounded-md p-2 text-sm hover:bg-slate-50">
-                                                    <input type="checkbox" checked={selectedClassIds.has(row.id)} onChange={() => toggleSetValue(setSelectedClassIds, row.id)} />
+                                                <label key={row.id} className="flex items-center gap-2 rounded-xl p-2 text-sm hover:bg-muted">
+                                                    <Checkbox checked={selectedClassIds.has(row.id)} onCheckedChange={() => toggleSetValue(setSelectedClassIds, row.id)} />
                                                     <span>{row.name}</span>
                                                 </label>
                                             ))}
@@ -414,10 +406,10 @@ export function AssignmentsOperationsPage() {
                                     </div>
                                     <div>
                                         <div className="mb-2 text-sm font-semibold">개별 학생</div>
-                                        <div className="max-h-52 space-y-2 overflow-auto rounded-lg border bg-white p-2">
+                                        <div className="max-h-52 space-y-2 overflow-auto rounded-xl border bg-card p-2">
                                             {data.students.filter((row) => row.status === 'active').map((row) => (
-                                                <label key={row.id} className="flex items-center gap-2 rounded-md p-2 text-sm hover:bg-slate-50">
-                                                    <input type="checkbox" checked={selectedStudentIds.has(row.id)} onChange={() => toggleSetValue(setSelectedStudentIds, row.id)} />
+                                                <label key={row.id} className="flex items-center gap-2 rounded-xl p-2 text-sm hover:bg-muted">
+                                                    <Checkbox checked={selectedStudentIds.has(row.id)} onCheckedChange={() => toggleSetValue(setSelectedStudentIds, row.id)} />
                                                     <span>{row.name}</span>
                                                 </label>
                                             ))}
@@ -436,29 +428,28 @@ export function AssignmentsOperationsPage() {
                         <CardHeader><CardTitle>최근 과제</CardTitle></CardHeader>
                         <CardContent>
                             {data.assignments.length === 0 ? (
-                                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">아직 생성된 과제가 없습니다.</div>
+                                <EmptyState title="아직 생성된 과제가 없습니다." />
                             ) : (
                                 <div className="space-y-3">
                                     {data.assignments.map((assignment) => (
-                                        <div key={assignment.id} className="rounded-lg border bg-white p-4">
+                                        <div key={assignment.id} className="rounded-xl border bg-card p-4">
                                             <div className="flex items-start justify-between gap-3">
                                                 <div>
-                                                    <div className="font-semibold text-slate-900">{assignment.title}</div>
-                                                    <div className="mt-1 text-xs text-slate-500">
+                                                    <div className="font-semibold text-foreground">{assignment.title}</div>
+                                                    <div className="mt-1 text-xs text-muted-foreground">
                                                         {assignment.bookTitle || '외부 학습지'} · {assignment.problemCount}문제 · {formatDate(assignment.dueAt)}
                                                     </div>
                                                 </div>
-                                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                                                    {assignment.sourceType === 'worksheet' ? '학습지' : '교재'}
-                                                </span>
+                                                <StatusBadge
+                                                    tone={assignment.sourceType === 'worksheet' ? 'info' : 'primary'}
+                                                    label={assignment.sourceType === 'worksheet' ? '학습지' : '교재'}
+                                                />
                                             </div>
                                             <div className="mt-3 flex flex-wrap gap-1.5">
                                                 {assignment.targetLabels.length === 0 ? (
-                                                    <span className="text-xs text-slate-400">대상 없음</span>
+                                                    <span className="text-xs text-muted-foreground">대상 없음</span>
                                                 ) : assignment.targetLabels.map((label) => (
-                                                    <span key={label} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700">
-                                                        {label}
-                                                    </span>
+                                                    <StatusBadge key={label} tone="primary" label={label} />
                                                 ))}
                                             </div>
                                         </div>
@@ -469,6 +460,6 @@ export function AssignmentsOperationsPage() {
                     </Card>
                 </div>
             )}
-        </div>
+        </PageShell>
     );
 }

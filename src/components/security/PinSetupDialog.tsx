@@ -169,13 +169,16 @@ export function PinSetupDialog({
                                     autoComplete="off"
                                     disabled={loading}
                                 />
-                                <button
+                                <Button
                                     type="button"
                                     onClick={() => setShowCurrentPin(!showCurrentPin)}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                                    aria-label={showCurrentPin ? 'PIN 숨기기' : 'PIN 보기'}
                                 >
                                     {showCurrentPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                </button>
+                                </Button>
                             </div>
                         </div>
                     )}
@@ -197,13 +200,16 @@ export function PinSetupDialog({
                                         autoComplete="off"
                                         disabled={loading}
                                     />
-                                    <button
+                                    <Button
                                         type="button"
                                         onClick={() => setShowNewPin(!showNewPin)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                                        aria-label={showNewPin ? 'PIN 숨기기' : 'PIN 보기'}
                                     >
                                         {showNewPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                             <div className="space-y-2">

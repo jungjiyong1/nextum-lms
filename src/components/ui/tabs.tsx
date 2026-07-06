@@ -65,16 +65,16 @@ const TabsList = React.forwardRef<
     const { variant } = React.useContext(TabsContext);
 
     const variantStyles = {
-        default: "bg-[#f0f2f1] border-0",
+        default: "bg-muted/80 border-0",
         pills: "bg-transparent gap-2 border-0",
-        underline: "bg-transparent border-b border-[#e3e8e5] rounded-none gap-0",
+        underline: "bg-transparent border-b border-border rounded-none gap-0",
     };
 
     return (
         <TabsPrimitive.List
             ref={ref}
             className={cn(
-                "relative inline-flex h-11 items-center justify-start rounded-xl p-1 text-[#5f6b66]",
+                "relative inline-flex h-10 items-center justify-start rounded-xl p-1 text-muted-foreground",
                 variantStyles[variant || "default"],
                 className
             )}
@@ -99,30 +99,30 @@ const TabsTrigger = React.forwardRef<
                     trigger: cn(
                         "rounded-full px-4 py-2 border-0",
                         isActive
-                            ? "text-white"
-                            : "text-[#5f6b66] hover:text-[#1b1f1c] hover:bg-[#d6f1e2]/50"
+                            ? "text-primary-foreground"
+                            : "text-muted-foreground hover:bg-primary-soft hover:text-foreground"
                     ),
-                    indicator: "rounded-full bg-gradient-to-r from-[#1f9d57] to-[#138a48] shadow-lg shadow-[rgba(31,157,87,0.25)]",
+                    indicator: "rounded-full bg-primary shadow-sm",
                 };
             case "underline":
                 return {
                     trigger: cn(
                         "rounded-none px-4 py-2.5 border-b-2 -mb-px border-0",
                         isActive
-                            ? "text-[#1f9d57] border-b-[#1f9d57]"
-                            : "text-[#5f6b66] border-b-transparent hover:text-[#1b1f1c] hover:border-b-[#e3e8e5]"
+                            ? "text-primary border-b-primary"
+                            : "text-muted-foreground border-b-transparent hover:text-foreground hover:border-b-border"
                     ),
-                    indicator: "absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#1f9d57] to-[#138a48] rounded-full",
+                    indicator: "absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full",
                 };
             default:
                 return {
                     trigger: cn(
-                        "rounded-lg px-4 py-2 border-0",
+                        "rounded-lg px-3.5 py-1.5 border-0",
                         isActive
-                            ? "text-white"
-                            : "text-[#5f6b66] hover:text-[#1b1f1c] hover:bg-[#e3e8e5]/60"
+                            ? "text-foreground"
+                            : "text-muted-foreground hover:bg-card hover:text-foreground"
                     ),
-                    indicator: "rounded-lg bg-gradient-to-br from-[#1f9d57] to-[#138a48] shadow-md shadow-[rgba(31,157,87,0.2)]",
+                    indicator: "rounded-lg bg-card shadow-sm",
                 };
         }
     };
@@ -136,9 +136,9 @@ const TabsTrigger = React.forwardRef<
             className={cn(
                 // Base styles - ensure NO border
                 "group relative inline-flex items-center justify-center whitespace-nowrap",
-                "text-sm font-medium border-0 outline-none",
+                "text-sm font-semibold border-0 outline-none",
                 "transition-all duration-200 ease-out",
-                "focus-visible:ring-2 focus-visible:ring-[#1f9d57]/40 focus-visible:ring-offset-1",
+                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
                 "disabled:pointer-events-none disabled:opacity-50",
                 "select-none cursor-pointer",
                 styles.trigger,
@@ -191,7 +191,7 @@ const TabsTrigger = React.forwardRef<
             {!isActive && (
                 <span className={cn(
                     "absolute inset-0 rounded-lg opacity-0 transition-opacity duration-200",
-                    "bg-[#1f9d57]/5",
+                    "bg-primary-soft",
                     "group-hover:opacity-100"
                 )} />
             )}
@@ -208,7 +208,7 @@ const TabsContent = React.forwardRef<
         ref={ref}
         className={cn(
             "mt-4",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1f9d57]/40 focus-visible:ring-offset-1",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
             "data-[state=inactive]:hidden",
             className
         )}

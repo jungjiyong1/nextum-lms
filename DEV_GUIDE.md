@@ -7,52 +7,53 @@ npm install
 npm run dev
 ```
 
-Next 개발 서버가 실행되면 브라우저에서 표시된 localhost 주소로 접속합니다.
+Open the printed localhost URL in the browser.
 
 ## Verification
 
-수정 후 아래 순서로 확인합니다.
+Run these before handing off meaningful code changes:
 
 ```bash
+npm run ui:check
 npm run lint
 npm run typecheck
 npm test -- --run
 npm run build
 ```
 
-프로덕션 실행 확인이 필요하면:
+Use production mode when runtime behavior needs confirmation:
 
 ```bash
 npm run start
 ```
 
+## UI Work
+
+- Read `docs/lms-ui-system.md` first.
+- Start routed LMS screens with `PageShell`.
+- Use shared primitives from `src/components/ui`.
+- Keep neutral surfaces dominant and use `primary`, `success`, `warning`, `danger`, and `info` only for meaning.
+- Do not add local `PageShell`, `StatusBadge`, or `SelectBox` helpers.
+- Do not use raw `button`, `select`, `table`, or checkbox inputs in governed UI files.
+- Add loading, empty, error, disabled, and background-refresh states for operational workflows.
+
 ## Supabase
 
-- 브라우저 클라이언트는 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`만 사용합니다.
-- 서버 전용 작업은 `SUPABASE_SECRET_KEY`를 사용하는 `src/lib/supabase/admin.ts`에만 둡니다.
-- 앱 데이터는 Supabase `lms` 스키마를 사용합니다.
-- Supabase Data API 설정에서 `lms` 스키마를 노출해야 클라이언트 쿼리가 동작합니다.
-- RLS 정책은 인증 사용자와 학원 소속 기준으로 설계합니다.
-- reset, CSV export, tax settings 저장은 `src/app/api/lms/admin/*` Route Handler에서 `assertLmsAdmin()` 확인 후 실행합니다.
+- Browser clients use only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+- Server-only work uses `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` through server modules only.
+- Client-facing LMS data uses API Route Handlers or scoped browser calls with RLS.
+- Admin reset, CSV export, and tax settings run through `src/app/api/lms/admin/*` and must call `assertLmsAdmin()`.
 
 ## Adding Pages
 
-1. `src/app/<route>/page.tsx`를 추가합니다.
-2. 화면 로직이 client component라면 `src/app-routes/`에 래퍼를 둡니다.
-3. 공통 shell 안에 보여야 하면 `src/App.tsx`의 라우트 판별과 `Sidebar` 내비게이션을 갱신합니다.
+1. Add the route under `src/app`.
+2. Put substantial LMS UI/service logic under `src/features/lms` unless the route is clearly standalone.
+3. Update `src/core/auth/roles.ts` and `src/components/layout/Sidebar.tsx` if the page belongs in the app shell.
+4. Use shared UI primitives and run `npm run ui:check`.
 
 ## Adding API Functions
 
-도메인별 파일에 추가합니다.
-
-```text
-src/core/api/students.ts
-src/core/api/instructors.ts
-src/core/api/lessons.ts
-src/core/api/schedules.ts
-src/core/api/accounting.ts
-```
-
-기존 화면 호환이 필요하면 `src/core/api/index.ts`의 `supabaseApi` 객체에도 연결합니다.
-
-관리자 전용이거나 파괴적인 작업은 브라우저 API 함수에서 직접 Supabase를 호출하지 말고 `src/lib/lms/admin-operations.ts`와 Route Handler를 통해 구현합니다.
+- Prefer `src/app/api/lms/*` Route Handlers for server-side mutations and admin reads.
+- Keep Supabase admin calls out of browser components.
+- Validate request bodies before mutation.
+- Respect academy scoping and role checks for every LMS operation.

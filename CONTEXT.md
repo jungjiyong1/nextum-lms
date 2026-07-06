@@ -1,60 +1,71 @@
 # CONTEXT
 
+Nextum LMS is the operator-facing Next.js web app for academy management. It uses the shared Supabase project that LMS owns first and grade-app consumes later.
+
 ## Current State
 
-Nextum LMS는 Next.js App Router 기반 웹앱입니다. 이전 Electron 런타임, preload IPC, esbuild renderer 구조는 제거되었습니다.
-
-마지막 주요 변경: 2026-07-05, Electron 앱을 Next.js 웹앱으로 전환.
+- App Router routes live in `src/app`.
+- Auth, route guards, the sidebar, idle lock, and global loading live in `src/App.tsx`.
+- Current routed LMS screens use `src/features/lms`.
+- Electron-era routed UI and legacy global domain CSS have been removed from the active codebase.
+- Shared UI primitives live in `src/components/ui`; new UI work should start there.
 
 ## Architecture
 
 ```text
 Next.js App Router
   -> AuthProvider / App shell
-  -> Route client wrappers
-  -> React components + Zustand stores
-  -> src/core/api Supabase API layer
+  -> Route client components
+  -> src/features/lms services and UI
+  -> src/app/api/lms Route Handlers
   -> Supabase PostgreSQL / Auth / RLS
 ```
 
 ## Key Directories
 
 ```text
-src/app/              App Router route files
-src/app-routes/       라우트별 client wrapper
-src/screens/          페이지급 화면
-src/components/       화면/도메인/UI 컴포넌트
-src/contexts/         인증 컨텍스트
-src/core/api/         도메인별 Supabase API
-src/lib/lms/          서버 전용 LMS 관리자 작업과 권한 검사
-src/lib/supabase/     browser/server/admin client
-src/stores/           Zustand store
-src/styles/           기존 도메인 CSS
-public/               정적 파일
-supabase/migrations/  LMS DB 마이그레이션
+src/app/              App Router routes and API handlers
+src/components/ui/    Shared UI primitives and LMS design-system components
+src/components/layout/Sidebar.tsx
+src/components/security/
+src/contexts/         Auth context
+src/features/lms/     Routed LMS feature screens, services, types, tests
+src/lib/lms/          Server-side LMS auth/admin helpers
+src/lib/supabase/     Browser/server/admin Supabase clients
+supabase/migrations/  LMS database migrations
+docs/                 Architecture and operating docs
+scripts/              Verification, seed, backup, and guard scripts
 ```
+
+## UI Rules
+
+- Read `docs/lms-ui-system.md` before changing LMS UI.
+- Use shared primitives from `src/components/ui` instead of local one-off controls.
+- Use HSL design tokens from `src/app/globals.css`; do not use hard-coded color-family classes or hex colors in governed UI files.
+- Do not add raw `button`, `select`, `table`, or checkbox inputs in governed UI files unless implementing a documented primitive.
+- Run `npm run ui:check` with UI changes.
 
 ## Runtime Notes
 
-- `window.api`는 Electron IPC가 아니라 `src/core/api/legacyShim.ts`에서 브라우저 전역으로 연결하는 호환 레이어입니다.
-- 신규 코드는 가능한 한 `window.api` 대신 `src/core/api/*` 도메인 함수를 직접 import합니다.
-- Supabase browser client는 `lms` 스키마를 기본으로 사용합니다.
-- 서버 전용 Supabase secret key는 `src/lib/supabase/admin.ts` 안에서만 사용합니다.
-- reset/export/tax settings 같은 관리자 작업은 `/api/lms/admin/*` Route Handler에서 `assertLmsAdmin()` 후 처리합니다.
+- Supabase browser code must use publishable keys only.
+- Server-only Supabase secrets are used only through server/admin modules and Route Handlers.
+- Admin reset/export/tax operations are handled under `/api/lms/admin/*` and must call `assertLmsAdmin()`.
+- Grade-app shared data should stay in shared schemas such as `core`, `content`, `learning`, `ai`, and `reporting`; avoid duplicating shared data inside `lms`.
 
 ## Verification Commands
 
 ```bash
+npm run ui:check
 npm run lint
 npm run typecheck
 npm test -- --run
 npm run build
 ```
 
-## Development Rules
+## Decision Log
 
-- 새 페이지는 `src/app` route와 `src/app-routes` wrapper를 함께 고려합니다.
-- shared UI는 `src/components/ui`를 우선 사용합니다.
-- DB 접근은 `src/core/api`에서 도메인별로 분리합니다.
-- 브라우저에서 전체 reset이나 서버 secret이 필요한 작업을 직접 실행하지 않습니다.
-- grade-app과 공유할 데이터는 앱별 테이블에 직접 중복 저장하지 말고 core/lms/grading 분리 설계를 기준으로 확장합니다.
+### 2026-07-07
+
+- Standardized routed LMS UI around `src/components/ui`, token-based Tailwind classes, and `docs/lms-ui-system.md`.
+- Removed inactive legacy UI directories and legacy global domain CSS after import verification.
+- Added `npm run ui:check` and made `npm run lint` run the UI guard.

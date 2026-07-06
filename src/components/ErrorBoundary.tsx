@@ -1,17 +1,19 @@
-import React, { Component, ErrorInfo, ReactNode } from "react";
-import { AlertTriangle, RefreshCw, ChevronDown } from "lucide-react";
+import React, { Component, ErrorInfo, ReactNode } from "react"
+import { AlertTriangle, ChevronDown, RefreshCw } from "lucide-react"
+
+import { Button } from "./ui/button"
 
 interface Props {
-    children?: ReactNode;
-    fallback?: ReactNode;
-    onReset?: () => void;
+    children?: ReactNode
+    fallback?: ReactNode
+    onReset?: () => void
 }
 
 interface State {
-    hasError: boolean;
-    error: Error | null;
-    errorInfo: ErrorInfo | null;
-    showDetails: boolean;
+    hasError: boolean
+    error: Error | null
+    errorInfo: ErrorInfo | null
+    showDetails: boolean
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -19,81 +21,67 @@ export class ErrorBoundary extends Component<Props, State> {
         hasError: false,
         error: null,
         errorInfo: null,
-        showDetails: false
-    };
+        showDetails: false,
+    }
 
     public static getDerivedStateFromError(error: Error): Partial<State> {
-        return { hasError: true, error };
+        return { hasError: true, error }
     }
 
     public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-        console.error("Uncaught error:", error, errorInfo);
-        this.setState({ error, errorInfo });
+        console.error("Uncaught error:", error, errorInfo)
+        this.setState({ error, errorInfo })
     }
 
     private handleReset = () => {
-        this.setState({ hasError: false, error: null, errorInfo: null, showDetails: false });
-        this.props.onReset?.();
-    };
+        this.setState({ hasError: false, error: null, errorInfo: null, showDetails: false })
+        this.props.onReset?.()
+    }
 
     private toggleDetails = () => {
-        this.setState(prev => ({ showDetails: !prev.showDetails }));
-    };
+        this.setState((prev) => ({ showDetails: !prev.showDetails }))
+    }
 
     public render() {
-        if (this.state.hasError) {
-            // Custom fallback provided
-            if (this.props.fallback) {
-                return this.props.fallback;
-            }
+        if (!this.state.hasError) return this.props.children
 
-            // Default error UI
-            return (
-                <div className="flex flex-col items-center justify-center min-h-[200px] p-8 bg-red-50 border border-red-200 rounded-lg m-4">
-                    <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
-                    <h2 className="text-lg font-semibold text-red-800 mb-2">
-                        문제가 발생했습니다
-                    </h2>
-                    <p className="text-sm text-red-600 mb-4 text-center max-w-md">
-                        예기치 않은 오류가 발생했습니다. 페이지를 새로고침하거나 다시 시도해주세요.
-                    </p>
+        if (this.props.fallback) return this.props.fallback
 
-                    <div className="flex gap-3 mb-4">
-                        <button
-                            onClick={this.handleReset}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm font-medium"
-                        >
-                            <RefreshCw className="h-4 w-4" />
-                            다시 시도
-                        </button>
-                        <button
-                            onClick={() => window.location.reload()}
-                            className="px-4 py-2 bg-white border border-red-300 text-red-700 rounded-md hover:bg-red-50 transition-colors text-sm font-medium"
-                        >
-                            페이지 새로고침
-                        </button>
-                    </div>
+        return (
+            <div className="m-4 flex min-h-[200px] flex-col items-center justify-center rounded-xl border border-destructive/30 bg-destructive/10 p-8 text-center">
+                <AlertTriangle className="mb-4 h-12 w-12 text-destructive" />
+                <h2 className="mb-2 text-lg font-semibold text-destructive">화면을 표시하지 못했습니다</h2>
+                <p className="mb-4 max-w-md text-sm text-destructive">
+                    예상하지 못한 오류가 발생했습니다. 다시 시도하거나 페이지를 새로고침해 주세요.
+                </p>
 
-                    {/* Error details (collapsible) */}
-                    <button
-                        onClick={this.toggleDetails}
-                        className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700"
-                    >
-                        <ChevronDown className={`h-3 w-3 transition-transform ${this.state.showDetails ? 'rotate-180' : ''}`} />
-                        세부정보
-                    </button>
-
-                    {this.state.showDetails && (
-                        <pre className="mt-3 p-3 bg-red-100 rounded text-xs text-red-800 max-w-full overflow-auto max-h-48 w-full">
-                            {this.state.error?.toString()}
-                            {this.state.errorInfo?.componentStack}
-                        </pre>
-                    )}
+                <div className="mb-4 flex gap-3">
+                    <Button onClick={this.handleReset} variant="destructive">
+                        <RefreshCw className="h-4 w-4" />
+                        다시 시도
+                    </Button>
+                    <Button onClick={() => window.location.reload()} variant="outline">
+                        새로고침
+                    </Button>
                 </div>
-            );
-        }
 
-        return this.props.children;
+                <Button
+                    onClick={this.toggleDetails}
+                    variant="ghost"
+                    size="xs"
+                    className="text-destructive hover:text-destructive"
+                >
+                    <ChevronDown className={`h-3 w-3 transition-transform ${this.state.showDetails ? "rotate-180" : ""}`} />
+                    오류 정보
+                </Button>
+
+                {this.state.showDetails && (
+                    <pre className="mt-3 max-h-48 w-full max-w-full overflow-auto rounded-xl bg-card p-3 text-left text-xs text-destructive">
+                        {this.state.error?.toString()}
+                        {this.state.errorInfo?.componentStack}
+                    </pre>
+                )}
+            </div>
+        )
     }
 }
-

@@ -27,7 +27,7 @@ import './pointer-safety';
 function LoadingScreen() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
-      <aside className="hidden w-[220px] shrink-0 border-r bg-white p-4 sm:flex sm:flex-col">
+      <aside className="hidden w-[220px] shrink-0 border-r bg-card p-4 sm:flex sm:flex-col">
         <div className="mb-8 flex items-center gap-3">
           <Skeleton className="h-10 w-10 rounded-lg" />
           <Skeleton className="h-5 w-24" />

@@ -24,11 +24,26 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PasswordConfirmDialog } from '@/components/security/PasswordConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DataTable,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/data-table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageShell } from '@/components/ui/page-shell';
+import { SelectField } from '@/components/ui/select-field';
+import { SelectableCard } from '@/components/ui/selectable-card';
 import { SkeletonPanel } from '@/components/ui/skeleton';
+import { ErrorState } from '@/components/ui/state';
+import { StatCard } from '@/components/ui/stat-card';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { canManageScheduleRules } from '@/core/auth/roles';
-import { cn } from '@/lib/utils';
 import {
   addLmsInvalidationListener,
   createClass,
@@ -94,6 +109,10 @@ type CreateStaffRole = StaffRole;
 type LmsPageLoadOptions = { force?: boolean; background?: boolean };
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
+const DEFAULT_CLASS_COLOR = '#059669';
+const DEFAULT_CLASSROOM_COLOR = '#64748b';
+const CLASS_SWATCH_FALLBACK = '#d1d5db';
+const CLASSROOM_SWATCH_FALLBACK = '#94a3b8';
 
 function currentMonth(): string {
   const now = new Date();
@@ -185,38 +204,6 @@ function downloadCsv(filename: string, csv: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function PageShell({
-  title,
-  description,
-  icon: Icon,
-  action,
-  children,
-}: {
-  title: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-5 lg:p-8">
-      <div className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-            <Icon className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-950">{title}</h1>
-            <p className="text-sm text-slate-500">{description}</p>
-          </div>
-        </div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function LoadingBlock() {
   return <SkeletonPanel className="min-h-[320px]" rows={6} />;
 }
@@ -228,7 +215,7 @@ function MissingAcademy() {
         <CardHeader>
           <CardTitle>학원 연결이 필요합니다</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-slate-500">
+        <CardContent className="text-sm text-muted-foreground">
           현재 계정에 연결된 academy가 없습니다. 개발 환경에서는 `npm run seed:dev-admin`으로 관리자 계정을 먼저 생성하세요.
         </CardContent>
       </Card>
@@ -237,15 +224,7 @@ function MissingAcademy() {
 }
 
 function ErrorBlock({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-      <AlertTriangle className="h-7 w-7 text-red-600" />
-      <p className="text-sm font-medium text-red-800">{message}</p>
-      <Button variant="outline" onClick={onRetry}>
-        다시 시도
-      </Button>
-    </div>
-  );
+  return <ErrorState title="데이터를 불러오지 못했습니다" description={message} retryLabel="다시 시도" onRetry={onRetry} />;
 }
 
 function MetricCard({
@@ -259,74 +238,7 @@ function MetricCard({
   hint: string;
   icon: React.ComponentType<{ className?: string }>;
 }) {
-  return (
-    <Card className="border-slate-200">
-      <CardContent className="flex items-center justify-between p-5">
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
-          <p className="mt-1 text-xs text-slate-400">{hint}</p>
-        </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
-          <Icon className="h-5 w-5" />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const label: Record<string, string> = {
-    active: '운영',
-    inactive: '중지',
-    on_leave: '휴원',
-    graduated: '졸업',
-    dropped: '퇴원',
-    archived: '보관',
-    weak: '취약',
-    watch: '관찰',
-    insufficient: '표본 부족',
-    ok: '양호',
-    issued: '청구',
-    paid: '완납',
-    partial: '부분 납부',
-    overdue: '연체',
-    not_issued: '미발행',
-    scheduled: '예정',
-    completed: '완료',
-    pending: '대기',
-    failed: '실패',
-    refunded: '환불',
-    cancelled: '취소',
-    present: '출석',
-    late: '지각',
-    absent: '결석',
-    excused: '인정 결석',
-    makeup: '보강',
-  };
-
-  return (
-    <span
-      className={cn(
-        'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
-        ['weak', 'overdue', 'cancelled', 'absent', 'failed', 'dropped'].includes(status) && 'bg-red-50 text-red-700',
-        ['watch', 'partial', 'issued', 'late', 'makeup'].includes(status) && 'bg-amber-50 text-amber-700',
-        ['active', 'paid', 'ok', 'completed', 'scheduled', 'present'].includes(status) && 'bg-emerald-50 text-emerald-700',
-        ['not_issued', 'inactive', 'archived', 'insufficient', 'excused', 'pending', 'refunded', 'on_leave', 'graduated'].includes(status) && 'bg-slate-100 text-slate-600',
-      )}
-    >
-      {label[status] || status}
-    </span>
-  );
-}
-
-function SelectBox(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={cn('h-10 w-full rounded-md border border-input bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring', props.className)}
-    />
-  );
+  return <StatCard label={label} value={value} hint={hint} icon={Icon} />;
 }
 
 export function LearningHomePage() {
@@ -388,7 +300,7 @@ export function LearningHomePage() {
       }
     >
       {!loading && refreshing && (
-        <div className="mb-3 flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
           <RefreshCw className="h-3.5 w-3.5 animate-spin" />
           최신 데이터 동기화 중
         </div>
@@ -410,38 +322,38 @@ export function LearningHomePage() {
                 <CardTitle>우선 확인할 취약 유형</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-hidden rounded-lg border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 text-left text-slate-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">학생</th>
-                        <th className="px-4 py-3 font-medium">유형</th>
-                        <th className="px-4 py-3 font-medium">점수</th>
-                        <th className="px-4 py-3 font-medium">상태</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y bg-white">
+                <DataTable>
+                    <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="px-4 py-3 font-medium">학생</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">유형</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">점수</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">상태</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {data.weakTypes.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-8 text-center text-slate-400">
+                        <TableRow>
+                          <TableCell colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                             표시할 취약 유형 데이터가 없습니다.
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ) : (
                         data.weakTypes.map((row) => (
-                          <tr key={`${row.studentId}-${row.typeName}`} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 font-medium">{row.studentName}</td>
-                            <td className="px-4 py-3 text-slate-600">{row.typeName}</td>
-                            <td className="px-4 py-3 tabular-nums">{row.score === null ? '-' : `${row.score}%`}</td>
-                            <td className="px-4 py-3">
+                          <TableRow key={`${row.studentId}-${row.typeName}`} className="hover:bg-muted/60">
+                            <TableCell className="px-4 py-3 font-medium">{row.studentName}</TableCell>
+                            <TableCell className="px-4 py-3 text-muted-foreground">{row.typeName}</TableCell>
+                            <TableCell className="px-4 py-3 tabular-nums">{row.score === null ? '-' : `${row.score}%`}</TableCell>
+                            <TableCell className="px-4 py-3">
                               <StatusBadge status={row.status} />
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))
                       )}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                  </DataTable>
               </CardContent>
             </Card>
 
@@ -450,16 +362,16 @@ export function LearningHomePage() {
                 <CardTitle>이번 달 운영 알림</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
-                  <span className="text-slate-600">미납 또는 미발행</span>
+                <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
+                  <span className="text-muted-foreground">미납 또는 미발행</span>
                   <strong>{unpaid}명</strong>
                 </div>
-                <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
-                  <span className="text-slate-600">학습 위험 학생</span>
+                <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
+                  <span className="text-muted-foreground">학습 위험 학생</span>
                   <strong>{new Set(data.weakTypes.map((row) => row.studentId)).size}명</strong>
                 </div>
-                <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
-                  <span className="text-slate-600">반별 취약 유형 합계</span>
+                <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
+                  <span className="text-muted-foreground">반별 취약 유형 합계</span>
                   <strong>{data.classes.reduce((sum, row) => sum + row.weakTypeCount, 0)}개</strong>
                 </div>
               </CardContent>
@@ -492,14 +404,14 @@ export function ClassesPage() {
   const [grade, setGrade] = useState('');
   const [classStatus, setClassStatus] = useState<ClassStatus>('active');
   const [capacity, setCapacity] = useState('');
-  const [classColor, setClassColor] = useState('#059669');
+  const [classColor, setClassColor] = useState(DEFAULT_CLASS_COLOR);
   const [defaultInstructorId, setDefaultInstructorId] = useState('');
   const [defaultClassroomId, setDefaultClassroomId] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
   const [editingClassroomId, setEditingClassroomId] = useState('');
   const [classroomName, setClassroomName] = useState('');
   const [classroomCapacity, setClassroomCapacity] = useState('');
-  const [classroomColor, setClassroomColor] = useState('#64748b');
+  const [classroomColor, setClassroomColor] = useState(DEFAULT_CLASSROOM_COLOR);
   const [classroomActive, setClassroomActive] = useState(true);
   const [editingRuleId, setEditingRuleId] = useState('');
   const [ruleActive, setRuleActive] = useState(true);
@@ -629,7 +541,7 @@ export function ClassesPage() {
     setGrade('');
     setClassStatus('active');
     setCapacity('');
-    setClassColor('#059669');
+    setClassColor(DEFAULT_CLASS_COLOR);
     setDefaultInstructorId('');
     setDefaultClassroomId('');
   };
@@ -641,7 +553,7 @@ export function ClassesPage() {
     setGrade(row.grade || '');
     setClassStatus((row.status as ClassStatus) || (row.active ? 'active' : 'inactive'));
     setCapacity(row.capacity === null ? '' : String(row.capacity));
-    setClassColor(row.color || '#059669');
+    setClassColor(row.color || DEFAULT_CLASS_COLOR);
     setDefaultInstructorId(row.defaultInstructorId || '');
     setDefaultClassroomId(row.defaultClassroomId || '');
   };
@@ -650,7 +562,7 @@ export function ClassesPage() {
     setEditingClassroomId('');
     setClassroomName('');
     setClassroomCapacity('');
-    setClassroomColor('#64748b');
+    setClassroomColor(DEFAULT_CLASSROOM_COLOR);
     setClassroomActive(true);
   };
 
@@ -658,7 +570,7 @@ export function ClassesPage() {
     setEditingClassroomId(row.id);
     setClassroomName(row.name);
     setClassroomCapacity(row.capacity === null ? '' : String(row.capacity));
-    setClassroomColor(row.color || '#64748b');
+    setClassroomColor(row.color || DEFAULT_CLASSROOM_COLOR);
     setClassroomActive(row.active);
   };
 
@@ -906,32 +818,30 @@ export function ClassesPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {classes.map((row) => (
-                <button
+                <SelectableCard
                   key={row.id}
                   type="button"
+                  selected={selectedClassId === row.id}
                   onClick={() => setSelectedClassId(row.id)}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-lg border bg-white p-4 text-left transition hover:border-emerald-300',
-                    selectedClassId === row.id && 'border-emerald-500 bg-emerald-50/50',
-                  )}
+                  className="flex w-full items-center justify-between gap-4 p-4 text-left"
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: row.color || '#d1d5db' }} />
+                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: row.color || CLASS_SWATCH_FALLBACK }} />
                       <span className="font-semibold">{row.name}</span>
                       <StatusBadge status={row.status} />
                     </div>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       {row.grade || '학년 미지정'} · 학생 {row.studentCount}명 · 정원 {row.capacity ?? '-'}명 · 취약 유형 {row.weakTypeCount}개
                     </p>
                   </div>
-                  <div className="text-right text-sm text-slate-500">
+                  <div className="text-right text-sm text-muted-foreground">
                     <div>{row.instructorName || '강사 미지정'}</div>
                     <div>{row.classroomName || '강의실 미지정'}</div>
                   </div>
-                </button>
+                </SelectableCard>
               ))}
-              {classes.length === 0 && <p className="py-8 text-center text-sm text-slate-400">등록된 반이 없습니다.</p>}
+              {classes.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">등록된 반이 없습니다.</p>}
             </CardContent>
           </Card>
 
@@ -958,11 +868,11 @@ export function ClassesPage() {
                   {editingClassId && (
                     <div>
                       <Label>상태</Label>
-                      <SelectBox value={classStatus} onChange={(event) => setClassStatus(event.target.value as ClassStatus)}>
+                      <SelectField value={classStatus} onChange={(event) => setClassStatus(event.target.value as ClassStatus)}>
                         <option value="active">운영</option>
                         <option value="inactive">중지</option>
                         <option value="archived">보관</option>
-                      </SelectBox>
+                      </SelectField>
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2">
@@ -977,21 +887,21 @@ export function ClassesPage() {
                   </div>
                   <div>
                     <Label>담당강사</Label>
-                    <SelectBox value={defaultInstructorId} onChange={(event) => setDefaultInstructorId(event.target.value)}>
+                    <SelectField value={defaultInstructorId} onChange={(event) => setDefaultInstructorId(event.target.value)}>
                       <option value="">미지정</option>
                       {staff.filter((row) => row.status === 'active').map((row) => (
                         <option key={row.id} value={row.id}>{row.name}</option>
                       ))}
-                    </SelectBox>
+                    </SelectField>
                   </div>
                   <div>
                     <Label>기본 강의실</Label>
-                    <SelectBox value={defaultClassroomId} onChange={(event) => setDefaultClassroomId(event.target.value)}>
+                    <SelectField value={defaultClassroomId} onChange={(event) => setDefaultClassroomId(event.target.value)}>
                       <option value="">미지정</option>
                       {classrooms.filter((row) => row.active).map((row) => (
                         <option key={row.id} value={row.id}>{row.name}</option>
                       ))}
-                    </SelectBox>
+                    </SelectField>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Button type="submit" className="w-full" disabled={!canManageClassSetup}>
@@ -1029,10 +939,10 @@ export function ClassesPage() {
                   {editingClassroomId && (
                     <div>
                       <Label>상태</Label>
-                      <SelectBox value={classroomActive ? 'active' : 'inactive'} onChange={(event) => setClassroomActive(event.target.value === 'active')}>
+                      <SelectField value={classroomActive ? 'active' : 'inactive'} onChange={(event) => setClassroomActive(event.target.value === 'active')}>
                         <option value="active">운영</option>
                         <option value="inactive">중지</option>
-                      </SelectBox>
+                      </SelectField>
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2">
@@ -1042,13 +952,13 @@ export function ClassesPage() {
                 </form>
                 <div className="mt-4 space-y-2">
                   {classrooms.map((room) => (
-                    <div key={room.id} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3 text-sm">
+                    <div key={room.id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 text-sm">
                       <div>
                         <div className="flex items-center gap-2 font-medium">
-                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: room.color || '#94a3b8' }} />
+                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: room.color || CLASSROOM_SWATCH_FALLBACK }} />
                           {room.name}
                         </div>
-                        <div className="text-xs text-slate-500">정원 {room.capacity ?? '-'}명</div>
+                        <div className="text-xs text-muted-foreground">정원 {room.capacity ?? '-'}명</div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <StatusBadge status={room.active ? 'active' : 'inactive'} />
@@ -1057,7 +967,7 @@ export function ClassesPage() {
                     </div>
                   ))}
                   {classrooms.length === 0 && (
-                    <p className="rounded-lg border bg-white p-3 text-sm text-slate-400">등록된 강의실이 없습니다.</p>
+                    <p className="rounded-xl border bg-card p-3 text-sm text-muted-foreground">등록된 강의실이 없습니다.</p>
                   )}
                 </div>
               </CardContent>
@@ -1071,16 +981,16 @@ export function ClassesPage() {
                 <form onSubmit={submitRule} className="space-y-3">
                   <div>
                     <Label>반</Label>
-                    <SelectBox value={selectedClassId} onChange={(event) => setSelectedClassId(event.target.value)}>
+                    <SelectField value={selectedClassId} onChange={(event) => setSelectedClassId(event.target.value)}>
                       {classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                    </SelectBox>
+                    </SelectField>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <div>
                       <Label>요일</Label>
-                      <SelectBox value={dayOfWeek} onChange={(event) => setDayOfWeek(Number(event.target.value))}>
+                      <SelectField value={dayOfWeek} onChange={(event) => setDayOfWeek(Number(event.target.value))}>
                         {dayLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}
-                      </SelectBox>
+                      </SelectField>
                     </div>
                     <div>
                       <Label>시작</Label>
@@ -1102,10 +1012,10 @@ export function ClassesPage() {
                     </div>
                     <div>
                       <Label>상태</Label>
-                      <SelectBox value={ruleActive ? 'active' : 'inactive'} onChange={(event) => setRuleActive(event.target.value === 'active')}>
+                      <SelectField value={ruleActive ? 'active' : 'inactive'} onChange={(event) => setRuleActive(event.target.value === 'active')}>
                         <option value="active">운영</option>
                         <option value="inactive">중지</option>
-                      </SelectBox>
+                      </SelectField>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -1115,12 +1025,12 @@ export function ClassesPage() {
                 </form>
                 <div className="mt-4 space-y-2">
                   {classRules.map((rule) => (
-                    <div key={rule.id} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3 text-sm">
+                    <div key={rule.id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 text-sm">
                       <div>
                         <div className="font-medium">
                           {dayLabels[rule.dayOfWeek]} {rule.startTime}-{rule.endTime}
                         </div>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-muted-foreground">
                           {rule.startDate}부터{rule.endDate ? ` ${rule.endDate}까지` : ''} · {rule.instructorName || '-'} · {rule.classroomName || '-'}
                         </div>
                       </div>
@@ -1132,7 +1042,7 @@ export function ClassesPage() {
                     </div>
                   ))}
                   {classRules.length === 0 && (
-                    <p className="rounded-lg border bg-white p-3 text-sm text-slate-400">등록된 반복 시간표가 없습니다.</p>
+                    <p className="rounded-xl border bg-card p-3 text-sm text-muted-foreground">등록된 반복 시간표가 없습니다.</p>
                   )}
                 </div>
               </CardContent>
@@ -1149,10 +1059,10 @@ export function ClassesPage() {
               ) : (
                 <div className="grid gap-5 lg:grid-cols-3">
                   <div className="space-y-3">
-                    <div className="text-sm font-medium text-slate-700">재원 학생</div>
-                    <div className="rounded-lg border bg-white">
+                    <div className="text-sm font-medium text-foreground">재원 학생</div>
+                    <div className="rounded-xl border bg-card">
                       {classStudents.length === 0 ? (
-                        <p className="p-4 text-sm text-slate-400">배정된 학생이 없습니다.</p>
+                        <p className="p-4 text-sm text-muted-foreground">배정된 학생이 없습니다.</p>
                       ) : (
                         classStudents.map((student) => (
                           <div key={student.id} className="flex items-center justify-between border-b px-4 py-3 last:border-0">
@@ -1165,16 +1075,16 @@ export function ClassesPage() {
                   </div>
 
                   <div className="space-y-3">
-                    <div className="text-sm font-medium text-slate-700">교재 배정</div>
+                    <div className="text-sm font-medium text-foreground">교재 배정</div>
                     <form onSubmit={submitBook} className="flex gap-2">
-                      <SelectBox value={selectedBookId} onChange={(event) => setSelectedBookId(event.target.value)}>
+                      <SelectField value={selectedBookId} onChange={(event) => setSelectedBookId(event.target.value)}>
                         <option value="">교재 선택</option>
                         {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
-                      </SelectBox>
+                      </SelectField>
                       <Button type="submit" disabled={!canManageClassSetup || !selectedClassId || !selectedBookId}>배정</Button>
                     </form>
-                    <form onSubmit={submitBookRecord} className="space-y-2 rounded-lg border bg-white p-3">
-                      <div className="text-sm font-medium text-slate-700">{editingBookId ? '교재 수정' : '교재 추가'}</div>
+                    <form onSubmit={submitBookRecord} className="space-y-2 rounded-xl border bg-card p-3">
+                      <div className="text-sm font-medium text-foreground">{editingBookId ? '교재 수정' : '교재 추가'}</div>
                       <Input value={bookTitle} onChange={(event) => setBookTitle(event.target.value)} placeholder="교재명" />
                       <div className="grid grid-cols-2 gap-2">
                         <Input value={bookSubject} onChange={(event) => setBookSubject(event.target.value)} placeholder="과목" />
@@ -1191,15 +1101,15 @@ export function ClassesPage() {
                         <Button type="button" variant="outline" className="w-full" onClick={resetBookForm}>새 입력</Button>
                       </div>
                     </form>
-                    <div className="rounded-lg border bg-white">
+                    <div className="rounded-xl border bg-card">
                       {classBooks.length === 0 ? (
-                        <p className="p-4 text-sm text-slate-400">배정된 교재가 없습니다.</p>
+                        <p className="p-4 text-sm text-muted-foreground">배정된 교재가 없습니다.</p>
                       ) : (
                         classBooks.map((book) => (
                           <div key={book.id} className="flex items-center justify-between border-b px-4 py-3 last:border-0">
                             <div>
                               <div className="text-sm font-medium">{book.title}</div>
-                              <div className="text-xs text-slate-400">{book.subject || '-'} · {book.grade || '-'}</div>
+                              <div className="text-xs text-muted-foreground">{book.subject || '-'} · {book.grade || '-'}</div>
                             </div>
                             <div className="flex gap-2">
                               {canManageClassSetup && <Button type="button" variant="outline" size="sm" onClick={() => editBook(book)}>수정</Button>}
@@ -1216,24 +1126,24 @@ export function ClassesPage() {
                   </div>
 
                   <div className="space-y-3">
-                    <div className="text-sm font-medium text-slate-700">출결 기록</div>
-                    <form onSubmit={submitAttendance} className="space-y-2 rounded-lg border bg-white p-3">
-                      <SelectBox value={selectedSchedule?.id || ''} onChange={(event) => setSelectedScheduleId(event.target.value)}>
+                    <div className="text-sm font-medium text-foreground">출결 기록</div>
+                    <form onSubmit={submitAttendance} className="space-y-2 rounded-xl border bg-card p-3">
+                      <SelectField value={selectedSchedule?.id || ''} onChange={(event) => setSelectedScheduleId(event.target.value)}>
                         {classSchedule.map((item) => (
                           <option key={item.id} value={item.id}>
                             {item.date} {item.startTime}-{item.endTime}
                           </option>
                         ))}
-                      </SelectBox>
-                      <SelectBox value={attendanceStudentId} onChange={(event) => setAttendanceStudentId(event.target.value)}>
+                      </SelectField>
+                      <SelectField value={attendanceStudentId} onChange={(event) => setAttendanceStudentId(event.target.value)}>
                         {classStudents.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}
-                      </SelectBox>
+                      </SelectField>
                       <div className="grid grid-cols-3 gap-2">
-                        <SelectBox value={attendanceStatus} onChange={(event) => setAttendanceStatus(event.target.value as AttendanceStatus)}>
+                        <SelectField value={attendanceStatus} onChange={(event) => setAttendanceStatus(event.target.value as AttendanceStatus)}>
                           {(['present', 'late', 'absent', 'excused', 'makeup'] as AttendanceStatus[]).map((status) => (
                             <option key={status} value={status}>{attendanceStatusLabel(status)}</option>
                           ))}
-                        </SelectBox>
+                        </SelectField>
                         <Input
                           type="number"
                           min="0"
@@ -1252,13 +1162,13 @@ export function ClassesPage() {
                       <Input value={attendanceNotes} onChange={(event) => setAttendanceNotes(event.target.value)} placeholder="메모" />
                       <Button type="submit" className="w-full" disabled={!selectedSchedule || !attendanceStudentId}>출결 저장</Button>
                     </form>
-                    <form onSubmit={submitLessonStatus} className="space-y-2 rounded-lg border bg-white p-3">
-                      <div className="text-sm font-medium text-slate-700">수업 상태</div>
-                      <SelectBox value={lessonStatus} onChange={(event) => setLessonStatus(event.target.value as LessonOccurrenceStatus)}>
+                    <form onSubmit={submitLessonStatus} className="space-y-2 rounded-xl border bg-card p-3">
+                      <div className="text-sm font-medium text-foreground">수업 상태</div>
+                      <SelectField value={lessonStatus} onChange={(event) => setLessonStatus(event.target.value as LessonOccurrenceStatus)}>
                         {(['scheduled', 'completed', 'cancelled', 'makeup', 'substitute'] as LessonOccurrenceStatus[]).map((status) => (
                           <option key={status} value={status}>{lessonStatusLabel(status)}</option>
                         ))}
-                      </SelectBox>
+                      </SelectField>
                       <Input
                         value={lessonCancelReason}
                         onChange={(event) => setLessonCancelReason(event.target.value)}
@@ -1277,33 +1187,33 @@ export function ClassesPage() {
               <CardTitle>앞으로 2주 수업</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-hidden rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">일자</th>
-                      <th className="px-4 py-3 font-medium">시간</th>
-                      <th className="px-4 py-3 font-medium">반</th>
-                      <th className="px-4 py-3 font-medium">강사/강의실</th>
-                      <th className="px-4 py-3 font-medium">상태</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y bg-white">
+              <DataTable>
+                    <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="px-4 py-3 font-medium">일자</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">시간</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">반</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">강사/강의실</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">상태</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {schedule.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-4 py-3">{item.date}</td>
-                        <td className="px-4 py-3 tabular-nums">{item.startTime} - {item.endTime}</td>
-                        <td className="px-4 py-3 font-medium">{item.className}</td>
-                        <td className="px-4 py-3 text-slate-500">{item.instructorName || '-'} · {item.classroomName || '-'}</td>
-                        <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
-                      </tr>
+                      <TableRow key={item.id}>
+                        <TableCell className="px-4 py-3">{item.date}</TableCell>
+                        <TableCell className="px-4 py-3 tabular-nums">{item.startTime} - {item.endTime}</TableCell>
+                        <TableCell className="px-4 py-3 font-medium">{item.className}</TableCell>
+                        <TableCell className="px-4 py-3 text-muted-foreground">{item.instructorName || '-'} · {item.classroomName || '-'}</TableCell>
+                        <TableCell className="px-4 py-3"><StatusBadge status={item.status} /></TableCell>
+                      </TableRow>
                     ))}
                     {schedule.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">예정된 수업이 없습니다.</td></tr>
+                      <TableRow><TableCell colSpan={5} className="px-4 py-8 text-center text-muted-foreground">예정된 수업이 없습니다.</TableCell></TableRow>
                     )}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+                  </DataTable>
             </CardContent>
           </Card>
 
@@ -1312,33 +1222,33 @@ export function ClassesPage() {
               <CardTitle>최근 출결</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-hidden rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">일자</th>
-                      <th className="px-4 py-3 font-medium">학생</th>
-                      <th className="px-4 py-3 font-medium">상태</th>
-                      <th className="px-4 py-3 font-medium">출석/청구</th>
-                      <th className="px-4 py-3 font-medium">메모</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y bg-white">
+              <DataTable>
+                    <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="px-4 py-3 font-medium">일자</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">학생</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">상태</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">출석/청구</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">메모</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {classAttendance.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-4 py-3">{row.date}</td>
-                        <td className="px-4 py-3 font-medium">{row.studentName}</td>
-                        <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
-                        <td className="px-4 py-3 text-slate-600">{row.attendedMinutes ?? 0}분 / {row.billableMinutes ?? 0}분</td>
-                        <td className="px-4 py-3 text-slate-500">{row.notes || '-'}</td>
-                      </tr>
+                      <TableRow key={row.id}>
+                        <TableCell className="px-4 py-3">{row.date}</TableCell>
+                        <TableCell className="px-4 py-3 font-medium">{row.studentName}</TableCell>
+                        <TableCell className="px-4 py-3"><StatusBadge status={row.status} /></TableCell>
+                        <TableCell className="px-4 py-3 text-muted-foreground">{row.attendedMinutes ?? 0}분 / {row.billableMinutes ?? 0}분</TableCell>
+                        <TableCell className="px-4 py-3 text-muted-foreground">{row.notes || '-'}</TableCell>
+                      </TableRow>
                     ))}
                     {classAttendance.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">기록된 출결이 없습니다.</td></tr>
+                      <TableRow><TableCell colSpan={5} className="px-4 py-8 text-center text-muted-foreground">기록된 출결이 없습니다.</TableCell></TableRow>
                     )}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+                  </DataTable>
             </CardContent>
           </Card>
         </div>
@@ -1468,41 +1378,43 @@ export function StudentsOperationsPage() {
         <div className="grid gap-5 xl:grid-cols-[1.4fr_0.8fr]">
           <Card>
             <CardHeader><CardTitle>학생 목록</CardTitle></CardHeader>
-            <CardContent className="overflow-hidden rounded-lg border p-0">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">학생</th>
-                    <th className="px-4 py-3 font-medium">상태</th>
-                    <th className="px-4 py-3 font-medium">반</th>
-                    <th className="px-4 py-3 font-medium">청구</th>
-                    <th className="px-4 py-3 font-medium">연락처</th>
-                    <th className="px-4 py-3 font-medium">작업</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y bg-white">
+            <CardContent className="p-0">
+              <DataTable>
+                    <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="px-4 py-3 font-medium">학생</TableHead>
+                    <TableHead className="px-4 py-3 font-medium">상태</TableHead>
+                    <TableHead className="px-4 py-3 font-medium">반</TableHead>
+                    <TableHead className="px-4 py-3 font-medium">청구</TableHead>
+                    <TableHead className="px-4 py-3 font-medium">연락처</TableHead>
+                    <TableHead className="px-4 py-3 font-medium">작업</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {students.map((student) => (
-                    <tr key={student.id}>
-                      <td className="px-4 py-3 font-medium">{student.name}<div className="text-xs text-slate-400">{student.grade || '-'}</div></td>
-                      <td className="px-4 py-3"><StatusBadge status={student.status} /></td>
-                      <td className="px-4 py-3 text-slate-600">{student.classNames.join(', ') || '-'}</td>
-                      <td className="px-4 py-3 text-slate-600">
+                    <TableRow key={student.id}>
+                      <TableCell className="px-4 py-3 font-medium">{student.name}<div className="text-xs text-muted-foreground">{student.grade || '-'}</div></TableCell>
+                      <TableCell className="px-4 py-3"><StatusBadge status={student.status} /></TableCell>
+                      <TableCell className="px-4 py-3 text-muted-foreground">{student.classNames.join(', ') || '-'}</TableCell>
+                      <TableCell className="px-4 py-3 text-muted-foreground">
                         {student.billingMode === 'usage_based' ? `시간제 ${currency(student.hourlyRate)}` : currency(student.baseMonthlyFee)}
-                        <div className="text-xs text-slate-400">{billingModeLabel(student.billingMode)}</div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">{student.phone || '-'}<div className="text-xs">{student.parentPhone || '-'}</div></td>
-                      <td className="px-4 py-3">
+                        <div className="text-xs text-muted-foreground">{billingModeLabel(student.billingMode)}</div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-muted-foreground">{student.phone || '-'}<div className="text-xs">{student.parentPhone || '-'}</div></TableCell>
+                      <TableCell className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
                           <Button type="button" variant="outline" size="sm" onClick={() => editStudent(student)}>
                             수정
                           </Button>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                  {students.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">등록된 학생이 없습니다.</td></tr>}
-                </tbody>
-              </table>
+                  {students.length === 0 && <TableRow><TableCell colSpan={6} className="px-4 py-8 text-center text-muted-foreground">등록된 학생이 없습니다.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+                  </DataTable>
             </CardContent>
           </Card>
 
@@ -1519,21 +1431,21 @@ export function StudentsOperationsPage() {
                 {editingStudentId && (
                   <div>
                     <Label>상태</Label>
-                    <SelectBox value={studentStatus} onChange={(event) => setStudentStatus(event.target.value as StudentStatus)}>
+                    <SelectField value={studentStatus} onChange={(event) => setStudentStatus(event.target.value as StudentStatus)}>
                       <option value="active">재원</option>
                       <option value="on_leave">휴원</option>
                       <option value="inactive">비활성</option>
                       <option value="graduated">졸업</option>
                       <option value="dropped">퇴원</option>
-                    </SelectBox>
+                    </SelectField>
                   </div>
                 )}
                 <div>
                   <Label>반 배정</Label>
                   <div className="mt-2 grid gap-2">
                     {classes.map((row) => (
-                      <label key={row.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
-                        <input type="checkbox" checked={selectedClassIds.has(row.id)} onChange={() => toggleClass(row.id)} />
+                      <label key={row.id} className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                        <Checkbox checked={selectedClassIds.has(row.id)} onCheckedChange={() => toggleClass(row.id)} />
                         {row.name}
                       </label>
                     ))}
@@ -1541,11 +1453,11 @@ export function StudentsOperationsPage() {
                 </div>
                 <div>
                   <Label>청구 방식</Label>
-                  <SelectBox value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}>
+                  <SelectField value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}>
                     <option value="monthly_plus_classes">월 기본료 + 추가반</option>
                     <option value="usage_based">시간제</option>
                     <option value="manual">수동 청구</option>
-                  </SelectBox>
+                  </SelectField>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div><Label>월 기본료</Label><Input type="number" value={baseFee} onChange={(event) => setBaseFee(event.target.value)} /></div>
@@ -1656,19 +1568,19 @@ export function StaffOperationsPage() {
             <CardHeader><CardTitle>강사/직원 목록</CardTitle></CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2">
               {staff.map((row) => (
-                <div key={row.id} className="rounded-lg border bg-white p-4">
+                <div key={row.id} className="rounded-xl border bg-card p-4">
                   <div className="flex items-center justify-between">
                     <strong>{row.name}</strong>
                     <StatusBadge status={row.status} />
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">{row.role} · {row.phone || '-'}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{row.role} · {row.phone || '-'}</p>
                   <p className="mt-2 text-sm font-medium">{row.hourlyRate ? `${currency(row.hourlyRate)} / 시간` : '시급 미설정'}</p>
                   <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => editStaff(row)} disabled={row.role === 'owner'}>
                     수정
                   </Button>
                 </div>
               ))}
-              {staff.length === 0 && <p className="py-8 text-center text-sm text-slate-400 md:col-span-2">등록된 강사/직원이 없습니다.</p>}
+              {staff.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground md:col-span-2">등록된 강사/직원이 없습니다.</p>}
             </CardContent>
           </Card>
           <Card>
@@ -1679,21 +1591,21 @@ export function StaffOperationsPage() {
                 <div><Label>연락처</Label><Input value={phone} onChange={(event) => setPhone(event.target.value)} /></div>
                 <div>
                   <Label>역할</Label>
-                  <SelectBox value={role} onChange={(event) => setRole(event.target.value as CreateStaffRole)}>
+                  <SelectField value={role} onChange={(event) => setRole(event.target.value as CreateStaffRole)}>
                     <option value="instructor">강사</option>
                     <option value="teacher">교사</option>
                     <option value="staff">직원</option>
                     <option value="admin">관리자</option>
-                  </SelectBox>
+                  </SelectField>
                 </div>
                 {editingStaffId && (
                   <div>
                     <Label>상태</Label>
-                    <SelectBox value={staffStatus} onChange={(event) => setStaffStatus(event.target.value as StaffStatus)}>
+                    <SelectField value={staffStatus} onChange={(event) => setStaffStatus(event.target.value as StaffStatus)}>
                       <option value="active">재직</option>
                       <option value="on_leave">휴직</option>
                       <option value="inactive">퇴직/비활성</option>
-                    </SelectBox>
+                    </SelectField>
                   </div>
                 )}
                 <div><Label>시급</Label><Input type="number" value={hourlyRate} onChange={(event) => setHourlyRate(event.target.value)} /></div>
@@ -1908,38 +1820,40 @@ export function AccountingOperationsPage() {
           <div className="grid gap-5 xl:grid-cols-[1.3fr_0.9fr]">
             <Card>
               <CardHeader><CardTitle>학생별 청구 상태</CardTitle></CardHeader>
-              <CardContent className="overflow-hidden rounded-lg border p-0">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">학생</th>
-                      <th className="px-4 py-3 font-medium">방식</th>
-                      <th className="px-4 py-3 font-medium">예상액</th>
-                      <th className="px-4 py-3 font-medium">청구액</th>
-                      <th className="px-4 py-3 font-medium">입금액</th>
-                      <th className="px-4 py-3 font-medium">상태</th>
-                      <th className="px-4 py-3 font-medium">처리</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y bg-white">
+              <CardContent className="p-0">
+                <DataTable>
+                    <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="px-4 py-3 font-medium">학생</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">방식</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">예상액</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">청구액</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">입금액</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">상태</TableHead>
+                      <TableHead className="px-4 py-3 font-medium">처리</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {rows.map((row) => (
-                      <tr key={row.studentId}>
-                        <td className="px-4 py-3 font-medium">{row.studentName}</td>
-                        <td className="px-4 py-3 text-slate-500">{billingModeLabel(row.billingMode)}</td>
-                        <td className="px-4 py-3 tabular-nums">{currency(row.expectedAmount)}</td>
-                        <td className="px-4 py-3 tabular-nums">{currency(row.invoicedAmount)}</td>
-                        <td className="px-4 py-3 tabular-nums">{currency(row.paidAmount)}</td>
-                        <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
-                        <td className="px-4 py-3">
+                      <TableRow key={row.studentId}>
+                        <TableCell className="px-4 py-3 font-medium">{row.studentName}</TableCell>
+                        <TableCell className="px-4 py-3 text-muted-foreground">{billingModeLabel(row.billingMode)}</TableCell>
+                        <TableCell className="px-4 py-3 tabular-nums">{currency(row.expectedAmount)}</TableCell>
+                        <TableCell className="px-4 py-3 tabular-nums">{currency(row.invoicedAmount)}</TableCell>
+                        <TableCell className="px-4 py-3 tabular-nums">{currency(row.paidAmount)}</TableCell>
+                        <TableCell className="px-4 py-3"><StatusBadge status={row.status} /></TableCell>
+                        <TableCell className="px-4 py-3">
                           <Button type="button" size="sm" variant="outline" onClick={() => selectPaymentTarget(row)}>
                             입금
                           </Button>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                    {rows.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">학생 청구 데이터가 없습니다.</td></tr>}
-                  </tbody>
-                </table>
+                    {rows.length === 0 && <TableRow><TableCell colSpan={7} className="px-4 py-8 text-center text-muted-foreground">학생 청구 데이터가 없습니다.</TableCell></TableRow>}
+                  </TableBody>
+                </Table>
+                  </DataTable>
               </CardContent>
             </Card>
 
@@ -1949,11 +1863,11 @@ export function AccountingOperationsPage() {
                 <form onSubmit={submitPayment} className="space-y-3">
                   <div>
                     <Label>학생</Label>
-                    <SelectBox value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}>
+                    <SelectField value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}>
                       {rows.map((row) => (
                         <option key={row.studentId} value={row.studentId}>{row.studentName}</option>
                       ))}
-                    </SelectBox>
+                    </SelectField>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><Label>납부일</Label><Input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></div>
@@ -1983,12 +1897,12 @@ export function AccountingOperationsPage() {
                   <div><Label>거래처/수령인</Label><Input value={expenseRecipient} onChange={(event) => setExpenseRecipient(event.target.value)} /></div>
                   <div><Label>내용</Label><Input value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} /></div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
-                    <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
-                      <input type="checkbox" checked={expenseTaxDeductible} onChange={(event) => setExpenseTaxDeductible(event.target.checked)} />
+                    <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2">
+                      <Checkbox checked={expenseTaxDeductible} onCheckedChange={(checked) => setExpenseTaxDeductible(checked === true)} />
                       세무 반영
                     </label>
-                    <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
-                      <input type="checkbox" checked={expenseHasReceipt} onChange={(event) => setExpenseHasReceipt(event.target.checked)} />
+                    <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2">
+                      <Checkbox checked={expenseHasReceipt} onCheckedChange={(checked) => setExpenseHasReceipt(checked === true)} />
                       증빙 있음
                     </label>
                   </div>
@@ -2003,12 +1917,12 @@ export function AccountingOperationsPage() {
                 <form onSubmit={submitPayroll} className="space-y-3">
                   <div>
                     <Label>강사/직원</Label>
-                    <SelectBox value={payrollInstructorId} onChange={(event) => setPayrollInstructorId(event.target.value)}>
+                    <SelectField value={payrollInstructorId} onChange={(event) => setPayrollInstructorId(event.target.value)}>
                       <option value="">직접 입력</option>
                       {staff.map((row) => (
                         <option key={row.id} value={row.id}>{row.name}</option>
                       ))}
-                    </SelectBox>
+                    </SelectField>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><Label>수령인명</Label><Input value={payrollRecipientName} onChange={(event) => setPayrollRecipientName(event.target.value)} placeholder="직접 입력 시 필요" /></div>
@@ -2022,11 +1936,11 @@ export function AccountingOperationsPage() {
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <Label>원천징수</Label>
-                      <SelectBox value={payrollWithholdingType} onChange={(event) => setPayrollWithholdingType(event.target.value as WithholdingType)}>
+                      <SelectField value={payrollWithholdingType} onChange={(event) => setPayrollWithholdingType(event.target.value as WithholdingType)}>
                         <option value="freelance_3.3">프리랜서 3.3%</option>
                         <option value="none">없음</option>
                         <option value="custom">직접 계산</option>
-                      </SelectBox>
+                      </SelectField>
                     </div>
                     <div><Label>지급수단</Label><Input value={payrollMethod} onChange={(event) => setPayrollMethod(event.target.value)} /></div>
                   </div>
@@ -2045,10 +1959,10 @@ export function AccountingOperationsPage() {
               <CardHeader><CardTitle>최근 입금</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {payments.map((row) => (
-                  <div key={row.id} className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+                  <div key={row.id} className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
                     <div>
                       <strong>{row.studentName}</strong>
-                      <div className="text-xs text-slate-500">{row.paymentDate} · {row.paymentMethod || '-'}</div>
+                      <div className="text-xs text-muted-foreground">{row.paymentDate} · {row.paymentMethod || '-'}</div>
                     </div>
                     <div className="text-right">
                       <div className="font-semibold">{currency(row.amount)}</div>
@@ -2056,7 +1970,7 @@ export function AccountingOperationsPage() {
                     </div>
                   </div>
                 ))}
-                {payments.length === 0 && <p className="py-8 text-center text-slate-400">입금 기록이 없습니다.</p>}
+                {payments.length === 0 && <p className="py-8 text-center text-muted-foreground">입금 기록이 없습니다.</p>}
               </CardContent>
             </Card>
 
@@ -2064,18 +1978,18 @@ export function AccountingOperationsPage() {
               <CardHeader><CardTitle>최근 지출</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {expenses.map((row) => (
-                  <div key={row.id} className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+                  <div key={row.id} className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
                     <div>
                       <strong>{row.category}</strong>
-                      <div className="text-xs text-slate-500">{row.expenseDate} · {row.recipient || row.description || '-'}</div>
+                      <div className="text-xs text-muted-foreground">{row.expenseDate} · {row.recipient || row.description || '-'}</div>
                     </div>
                     <div className="text-right">
                       <div className="font-semibold">{currency(row.amount)}</div>
-                      <div className="text-xs text-slate-500">{row.hasReceipt ? '증빙 있음' : '증빙 없음'}</div>
+                      <div className="text-xs text-muted-foreground">{row.hasReceipt ? '증빙 있음' : '증빙 없음'}</div>
                     </div>
                   </div>
                 ))}
-                {expenses.length === 0 && <p className="py-8 text-center text-slate-400">지출 기록이 없습니다.</p>}
+                {expenses.length === 0 && <p className="py-8 text-center text-muted-foreground">지출 기록이 없습니다.</p>}
               </CardContent>
             </Card>
 
@@ -2083,10 +1997,10 @@ export function AccountingOperationsPage() {
               <CardHeader><CardTitle>강사 지급 내역</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {payroll.map((row) => (
-                  <div key={row.id} className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+                  <div key={row.id} className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
                     <div>
                       <strong>{row.recipientName || row.instructorName || '-'}</strong>
-                      <div className="text-xs text-slate-500">{row.paymentDate} · 원천 {currency(row.withholdingTax + row.localTax)}</div>
+                      <div className="text-xs text-muted-foreground">{row.paymentDate} · 원천 {currency(row.withholdingTax + row.localTax)}</div>
                     </div>
                     <div className="text-right">
                       <div className="font-semibold">{currency(row.netAmount)}</div>
@@ -2094,7 +2008,7 @@ export function AccountingOperationsPage() {
                     </div>
                   </div>
                 ))}
-                {payroll.length === 0 && <p className="py-8 text-center text-slate-400">지급 기록이 없습니다.</p>}
+                {payroll.length === 0 && <p className="py-8 text-center text-muted-foreground">지급 기록이 없습니다.</p>}
               </CardContent>
             </Card>
           </div>
@@ -2233,20 +2147,20 @@ export function SettingsOperationsPage() {
         <div className="space-y-5">
           <Card>
             <CardHeader><CardTitle>현재 연결</CardTitle></CardHeader>
-            <CardContent className="space-y-3 text-sm text-slate-600">
-              <div className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 p-3">
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div className="flex items-center justify-between gap-4 rounded-xl bg-muted/60 p-3">
                 <span>Academy ID</span>
                 <code className="break-all text-right text-xs">{academyId}</code>
               </div>
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+              <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
                 <span>학생/반 기준</span>
                 <strong>core.students / core.classes</strong>
               </div>
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+              <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
                 <span>교재 권한</span>
                 <strong>core.class_books</strong>
               </div>
-              <div className="flex items-start gap-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-emerald-800">
+              <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary-soft p-3 text-primary-strong">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
                 <p>민감한 관리 작업은 서버에서 같은 academy 권한과 최근 로그인 여부를 다시 확인합니다.</p>
               </div>
@@ -2287,10 +2201,10 @@ export function SettingsOperationsPage() {
               <div className="grid gap-3 md:grid-cols-3">
                 <div>
                   <Label>유형</Label>
-                  <SelectBox value={exportType} onChange={(event) => setExportType(event.target.value as AdminExportType)}>
+                  <SelectField value={exportType} onChange={(event) => setExportType(event.target.value as AdminExportType)}>
                     <option value="tax">세무 리포트</option>
                     <option value="payroll">강사 급여</option>
-                  </SelectBox>
+                  </SelectField>
                 </div>
                 <div>
                   <Label>시작일</Label>
@@ -2303,20 +2217,20 @@ export function SettingsOperationsPage() {
               </div>
               {exportType === 'tax' && (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
-                    <input type="checkbox" checked={includeRevenue} onChange={(event) => setIncludeRevenue(event.target.checked)} />
+                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                    <Checkbox checked={includeRevenue} onCheckedChange={(checked) => setIncludeRevenue(checked === true)} />
                     매출 포함
                   </label>
-                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
-                    <input type="checkbox" checked={includePayroll} onChange={(event) => setIncludePayroll(event.target.checked)} />
+                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                    <Checkbox checked={includePayroll} onCheckedChange={(checked) => setIncludePayroll(checked === true)} />
                     급여 포함
                   </label>
-                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
-                    <input type="checkbox" checked={includeExpenses} onChange={(event) => setIncludeExpenses(event.target.checked)} />
+                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                    <Checkbox checked={includeExpenses} onCheckedChange={(checked) => setIncludeExpenses(checked === true)} />
                     비용 포함
                   </label>
-                  <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm">
-                    <input type="checkbox" checked={includeProfitLoss} onChange={(event) => setIncludeProfitLoss(event.target.checked)} />
+                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                    <Checkbox checked={includeProfitLoss} onCheckedChange={(checked) => setIncludeProfitLoss(checked === true)} />
                     손익 요약 포함
                   </label>
                 </div>
@@ -2328,20 +2242,20 @@ export function SettingsOperationsPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-red-200">
+          <Card className="border-destructive/30">
             <CardHeader><CardTitle>운영 데이터 초기화</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                 초기화는 되돌릴 수 없습니다. 원격 `nextum-data` 전환 전에는 교재/문제 데이터 백업과 범위를 먼저 확정해야 합니다.
               </div>
               <div>
                 <Label>초기화 범위</Label>
-                <SelectBox value={resetTarget} onChange={(event) => setResetTarget(event.target.value as AdminResetTarget)}>
+                <SelectField value={resetTarget} onChange={(event) => setResetTarget(event.target.value as AdminResetTarget)}>
                   {resetTargets.map((target) => (
                     <option key={target.value} value={target.value}>{target.label}</option>
                   ))}
-                </SelectBox>
-                <p className="mt-2 text-sm text-slate-500">{selectedResetTarget.description}</p>
+                </SelectField>
+                <p className="mt-2 text-sm text-muted-foreground">{selectedResetTarget.description}</p>
               </div>
               <div>
                 <Label>확인 문구</Label>
@@ -2356,9 +2270,9 @@ export function SettingsOperationsPage() {
 
           <Card>
             <CardHeader><CardTitle>개발용 관리자</CardTitle></CardHeader>
-            <CardContent className="space-y-3 text-sm text-slate-600">
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
               <p>개발 DB에서만 `admin / 1234` 계정을 생성합니다. 실수 방지를 위해 명시 플래그가 필요합니다.</p>
-              <pre className="overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">$env:LMS_DEV_SEED_ALLOW='true'; npm run seed:dev-admin</pre>
+              <pre className="overflow-x-auto rounded-xl bg-foreground p-3 text-xs text-primary-foreground">$env:LMS_DEV_SEED_ALLOW='true'; npm run seed:dev-admin</pre>
             </CardContent>
           </Card>
         </div>

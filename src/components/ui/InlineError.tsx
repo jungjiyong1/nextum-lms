@@ -38,12 +38,15 @@ export function InlineError({
                 <AlertCircle className="h-4 w-4 text-destructive" />
                 <span>{message}</span>
                 {onRetry && (
-                    <button
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
                         onClick={onRetry}
-                        className="text-primary underline hover:no-underline"
+                        className="h-auto px-1 py-0 text-primary underline hover:no-underline"
                     >
                         다시 시도
-                    </button>
+                    </Button>
                 )}
             </div>
         );
@@ -51,7 +54,7 @@ export function InlineError({
 
     return (
         <div className={cn(
-            "flex flex-col items-center justify-center gap-3 p-6 text-center rounded-lg border border-destructive/20 bg-destructive/5",
+            "flex flex-col items-center justify-center gap-3 p-6 text-center rounded-xl border border-destructive/20 bg-destructive/5",
             className
         )}>
             <AlertCircle className="h-8 w-8 text-destructive" />

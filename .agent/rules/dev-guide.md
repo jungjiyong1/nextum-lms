@@ -25,6 +25,19 @@ trigger: always_on
 
 ---
 
+## 2.5. LMS UI System
+> "Shared UI first. Local one-offs need a reason."
+
+```
+# [Rule] LMS UI System
+1. Before changing LMS UI, read `docs/lms-ui-system.md`.
+2. Use shared primitives from `src/components/ui` before creating local controls.
+3. Do not add raw `button`, `select`, `table`, checkbox inputs, hard-coded colors, or local `PageShell`/`StatusBadge`/`SelectBox` helpers in governed UI files.
+4. Run `npm run ui:check` for UI changes and fix violations before handoff.
+```
+
+---
+
 ## 3. Defensive Coding
 > "Prevent bugs at the source, not in production."
 
