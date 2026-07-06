@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr';
+import { randomBytes } from 'crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isProtectedAppPath, isPublicAuthPath } from '@/lib/lms/routes';
+import { csrfCookieOptions, LMS_CSRF_COOKIE } from '@/lib/lms/csrf';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -23,13 +25,24 @@ function redirectWithSessionCookies(request: NextRequest, response: NextResponse
     return redirect;
 }
 
+function withCsrfCookie(request: NextRequest, response: NextResponse) {
+    if (!request.cookies.get(LMS_CSRF_COOKIE)?.value) {
+        response.cookies.set({
+            name: LMS_CSRF_COOKIE,
+            value: randomBytes(32).toString('base64url'),
+            ...csrfCookieOptions(),
+        });
+    }
+    return response;
+}
+
 export async function updateSession(request: NextRequest) {
     let response = NextResponse.next({
         request,
     });
 
     if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-        return response;
+        return withCsrfCookie(request, response);
     }
 
     const supabase = createServerClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -56,12 +69,12 @@ export async function updateSession(request: NextRequest) {
 
     const pathname = request.nextUrl.pathname;
     if (!data?.claims && isProtectedAppPath(pathname)) {
-        return redirectWithSessionCookies(request, response, '/login');
+        return withCsrfCookie(request, redirectWithSessionCookies(request, response, '/login'));
     }
 
     if (data?.claims && isPublicAuthPath(pathname)) {
-        return redirectWithSessionCookies(request, response, '/');
+        return withCsrfCookie(request, redirectWithSessionCookies(request, response, '/'));
     }
 
-    return response;
+    return withCsrfCookie(request, response);
 }

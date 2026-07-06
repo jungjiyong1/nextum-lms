@@ -3,6 +3,7 @@ import { assertReauthCookie } from '@/lib/lms/reauth';
 import { recordAdminAction } from '@/lib/lms/audit';
 import { assertAdminConfirmToken } from '@/lib/lms/admin-confirm';
 import { resetLmsData, type ResetTarget } from '@/lib/lms/admin-operations';
+import { assertCsrfToken } from '@/lib/lms/csrf-server';
 
 const resetTargets = new Set<ResetTarget>([
     'classrooms',
@@ -26,6 +27,7 @@ interface ResetRequestBody {
 export async function POST(request: Request) {
     try {
         assertSameOrigin(request);
+        assertCsrfToken(request);
         let body: ResetRequestBody;
         try {
             body = await request.json() as ResetRequestBody;

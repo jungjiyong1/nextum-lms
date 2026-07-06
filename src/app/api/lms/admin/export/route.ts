@@ -1,6 +1,7 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { assertReauthCookie } from '@/lib/lms/reauth';
 import { recordAdminAction } from '@/lib/lms/audit';
+import { assertCsrfToken } from '@/lib/lms/csrf-server';
 import {
     buildPayrollExport,
     buildTaxReportExport,
@@ -40,6 +41,7 @@ function exportAuditPayload(type: 'tax' | 'payroll', options: TaxReportExportOpt
 export async function POST(request: Request) {
     try {
         assertSameOrigin(request);
+        assertCsrfToken(request);
         const body = await request.json() as {
             academyId?: string;
             type?: 'tax' | 'payroll';

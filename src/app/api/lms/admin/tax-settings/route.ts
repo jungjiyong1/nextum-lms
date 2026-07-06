@@ -2,10 +2,12 @@ import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/
 import { assertReauthCookie } from '@/lib/lms/reauth';
 import { recordAdminAction } from '@/lib/lms/audit';
 import { updateTaxSettingsForAcademy } from '@/lib/lms/admin-operations';
+import { assertCsrfToken } from '@/lib/lms/csrf-server';
 
 export async function POST(request: Request) {
     try {
         assertSameOrigin(request);
+        assertCsrfToken(request);
         const body = await request.json() as { academyId?: string; settings?: Record<string, unknown> };
         if (!body.academyId || !body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
             return Response.json({ success: false, error: 'Invalid settings payload.' }, { status: 400 });

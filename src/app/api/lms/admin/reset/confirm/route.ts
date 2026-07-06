@@ -2,6 +2,7 @@ import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/
 import { assertReauthCookie } from '@/lib/lms/reauth';
 import { createAdminConfirmToken } from '@/lib/lms/admin-confirm';
 import type { ResetTarget } from '@/lib/lms/admin-operations';
+import { assertCsrfToken } from '@/lib/lms/csrf-server';
 
 const RESET_CONFIRM_TEXT = '초기화';
 
@@ -27,6 +28,7 @@ interface ResetConfirmRequestBody {
 export async function POST(request: Request) {
     try {
         assertSameOrigin(request);
+        assertCsrfToken(request);
         let body: ResetConfirmRequestBody;
         try {
             body = await request.json() as ResetConfirmRequestBody;

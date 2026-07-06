@@ -98,6 +98,7 @@ LMS에서 학생을 삭제하거나 reset하면 core 학생 데이터, grade-app
 - 클라이언트 요청에는 현재 `academyId`를 포함하도록 수정했다.
 - 비밀번호 확인은 `/api/lms/admin/reauth`에서 서버가 검증하고, 5분짜리 httpOnly reauth 쿠키를 발급한다.
 - reset/export/tax-settings는 해당 reauth 쿠키가 없거나 사용자/학원이 다르면 거부한다.
+- reset/export/tax-settings/reauth는 form-level CSRF cookie/header가 맞지 않으면 거부한다.
 - reset은 reauth cookie와 별도로 60초짜리 user/academy/action/target scoped confirm token을 요구한다.
 - reset/export/tax-settings/reauth 성공은 `audit.admin_actions`에 기록한다.
 - reset은 테이블별 operation/affected row count를, export는 filename/date/section scope를 audit payload로 남긴다.

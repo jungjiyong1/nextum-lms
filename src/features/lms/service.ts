@@ -1,4 +1,5 @@
 import { aiDb, contentDb, coreDb, lmsDb, reportingDb } from '@/core/supabaseClient';
+import { jsonCsrfHeaders } from '@/lib/lms/csrf-client';
 import { calculateInvoiceDraft } from './billing';
 import { COMPLETED_PAYMENT_STATUS } from './status';
 import type {
@@ -132,7 +133,7 @@ async function fetchStaffPeople(staffRows: Row[]): Promise<Map<string, string>> 
 async function postLmsMutation<T = undefined>(path: string, payload: Record<string, unknown>): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonCsrfHeaders(),
     body: JSON.stringify(payload),
   });
   const result = await response.json().catch(() => null) as { success?: boolean; error?: string } & Record<string, unknown> | null;
@@ -160,7 +161,7 @@ function filenameFromDisposition(disposition: string | null, fallback: string): 
 async function postLmsCsvExport(path: string, payload: Record<string, unknown>): Promise<AdminCsvExport> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonCsrfHeaders(),
     body: JSON.stringify(payload),
   });
 

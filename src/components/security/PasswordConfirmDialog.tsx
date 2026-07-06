@@ -5,6 +5,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { jsonCsrfHeaders } from '../../lib/lms/csrf-client';
 
 interface PasswordConfirmDialogProps {
     open: boolean;
@@ -58,7 +59,7 @@ export function PasswordConfirmDialog({
         try {
             const response = await fetch('/api/lms/admin/reauth', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: jsonCsrfHeaders(),
                 body: JSON.stringify({ academyId: String(academyId), password })
             });
             const result = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;

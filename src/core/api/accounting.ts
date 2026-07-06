@@ -5,6 +5,7 @@ import { ok, err } from './shared/result';
 import { calculateInstructorMonthlySalary } from './instructors';
 import { resetAccounting as resetAccountingViaAdmin } from './reset';
 import { requireCurrentAcademyId } from './currentAcademy';
+import { jsonCsrfHeaders } from '@/lib/lms/csrf-client';
 import { calculateWithholding, type WithholdingType } from '../../modules/accounting/utils/taxCalculations';
 import { getPayrollGrossAmount, getPayrollNetAmount } from '../../modules/accounting/utils/payrollAmounts';
 import {
@@ -166,7 +167,7 @@ async function downloadAdminCsv(
     const academyId = await requireCurrentAcademyId();
     const response = await fetch('/api/lms/admin/export', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonCsrfHeaders(),
         body: JSON.stringify({ academyId, type, options }),
     });
 
@@ -715,7 +716,7 @@ export const accountingApi = {
             const academyId = await requireCurrentAcademyId();
             const response = await fetch('/api/lms/admin/tax-settings', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: jsonCsrfHeaders(),
                 body: JSON.stringify({ academyId, settings: newSettings }),
             });
 

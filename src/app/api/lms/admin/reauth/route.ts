@@ -3,6 +3,7 @@ import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/
 import { createAdminClient } from '@/lib/supabase/admin';
 import { setReauthCookie } from '@/lib/lms/reauth';
 import { recordAdminAction } from '@/lib/lms/audit';
+import { assertCsrfToken } from '@/lib/lms/csrf-server';
 
 function authClient() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,6 +21,7 @@ function authClient() {
 export async function POST(request: Request) {
     try {
         assertSameOrigin(request);
+        assertCsrfToken(request);
         const body = await request.json().catch(() => null) as {
             academyId?: unknown;
             password?: unknown;

@@ -3,6 +3,7 @@
 import { ok, err } from './shared/result';
 import type { Result } from './shared/types';
 import { requireCurrentAcademyId } from './currentAcademy';
+import { jsonCsrfHeaders } from '@/lib/lms/csrf-client';
 
 type ResetTarget =
     | 'classrooms'
@@ -18,7 +19,7 @@ type ResetTarget =
 async function prepareAdminReset(academyId: string, target: ResetTarget): Promise<string> {
     const response = await fetch('/api/lms/admin/reset/confirm', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonCsrfHeaders(),
         body: JSON.stringify({ academyId, target, confirmText: '초기화' }),
     });
     const payload = await response.json().catch(() => null) as {
@@ -40,7 +41,7 @@ async function runAdminReset(target: ResetTarget): Promise<Result<void>> {
         const confirmToken = await prepareAdminReset(academyId, target);
         const response = await fetch('/api/lms/admin/reset', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: jsonCsrfHeaders(),
             body: JSON.stringify({ academyId, target, confirmToken }),
         });
 
