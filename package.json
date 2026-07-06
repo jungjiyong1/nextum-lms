@@ -14,7 +14,8 @@
     "db:check": "node scripts/check-lms-db-health.mjs",
     "db:backup-content": "node scripts/backup-grade-content.mjs",
     "db:backup-preservation": "node scripts/backup-nextum-data-preservation.mjs",
-    "seed:dev-admin": "node scripts/seed-lms-dev-admin.mjs"
+    "seed:dev-admin": "node scripts/seed-lms-dev-admin.mjs",
+    "smoke:lms": "node scripts/smoke-lms-runtime.mjs"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.2.9",
@@ -53,7 +54,8 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.10",
     "jsdom": "^27.4.0",
-    "postcss": "^8.5.6",
+    "playwright": "^1.61.1",
+    "postcss": "^8.5.16",
     "rimraf": "^5.0.7",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",

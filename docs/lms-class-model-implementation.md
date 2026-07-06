@@ -122,6 +122,7 @@
 - PDF report generation is not included. The current target is reliable data structures and LMS views for future report generation.
 - Student analysis and parent report requirements for the future grade-app/reporting phase are tracked in `docs/grade-app-reporting-requirements.md`.
 - Supabase Auth leaked password protection is still a dashboard-side setting, not a SQL migration. The security advisor now only reports that remaining Auth setting.
+- `npm audit --omit=dev` still reports the latest `next@16.2.10` internal `postcss@8.4.31` advisory. A package override was not committed because it left the dependency tree invalid; recheck this after a Next release updates its internal PostCSS dependency.
 - Full grade-app code migration to the shared `core/content/learning/ai` contract is still pending.
 
 ## Cutover Requirements Before Production Use
@@ -141,13 +142,16 @@ npm test -- --run
 npm run lint
 npm run build
 npm run db:check
+npm run smoke:lms
 ```
 
 `npm run db:check` is the read-only cutover gate for the target Supabase project. It should pass only after the clean LMS baseline has been applied or repaired on that project.
+`npm run smoke:lms` expects a running LMS server and uses Playwright to verify admin login, protected page rendering, and the class/student API contract. Defaults target `http://localhost:3102`, `admin / 1234`, the `nextum-data` academy, and July 2026; override with `LMS_SMOKE_BASE_URL`, `LMS_SMOKE_LOGIN_ID`, `LMS_SMOKE_PASSWORD`, `LMS_SMOKE_ACADEMY_ID`, `LMS_SMOKE_START_DATE`, and `LMS_SMOKE_END_DATE`.
 
 Remote `nextum-data` verification on 2026-07-06:
 
 - `npm run db:check` passed all 40 database contract checks.
+- `npm run smoke:lms` passed against `http://localhost:3102` as the repeatable runtime smoke command for browser/API verification.
 - Supabase security advisor only reported Auth leaked password protection disabled.
 - Playwright browser smoke on `http://localhost:3102` verified `admin / 1234` login, `넥섬학원` academy selection, dashboard counts, and `/classrooms`, `/students`, `/instructors`, `/accounting`, `/settings` page loads without DB error text.
 - Class overview API smoke verified 1 class, 3 shared books, 4 students, and 4 base-fee contracts after the operational defaults backfill.
