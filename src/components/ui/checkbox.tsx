@@ -10,7 +10,7 @@ const Checkbox = React.forwardRef<
     <CheckboxPrimitive.Root
         ref={ref}
         className={cn(
-            "h-5 w-5 shrink-0 appearance-none rounded-md border border-input bg-card transition-colors",
+            "h-5 w-5 shrink-0 appearance-none rounded-sm border border-input bg-card transition-colors",
             "hover:border-primary/60",
             "data-[state=checked]:border-primary data-[state=checked]:bg-primary",
             "disabled:cursor-not-allowed disabled:opacity-50",
@@ -25,7 +25,7 @@ const Checkbox = React.forwardRef<
             <svg
                 viewBox="0 0 20 20"
                 fill="currentColor"
-                className="h-4 w-4"
+                className="h-3.5 w-3.5"
             >
                 <path d="M0 11l2-2 5 5L18 3l2 2L7 18z" />
             </svg>

@@ -160,7 +160,7 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
         userProfile={profile}
         academyName={academyName}
       />
-      <main className="relative flex flex-1 flex-col overflow-hidden">
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
         {mainContent}
       </main>
       <Toaster position="top-right" />
