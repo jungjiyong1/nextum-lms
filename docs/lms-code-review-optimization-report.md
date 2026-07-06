@@ -330,22 +330,25 @@
 - substitute는 `substitute_instructor_id`로 별도 query 후 merge한다.
 - 장기적으로는 `lms.instructor_month_schedules(instructor_id, month)` RPC/view를 둔다.
 
-### 19. CSV export가 unbounded memory build이고 formula injection 방어가 없음
+### 19. CSV export가 아직 전체 문자열을 메모리에 만든다
 
 근거:
-- `src/app/api/lms/admin/export/route.ts:26-27`은 날짜 존재만 검증한다.
-- `src/lib/lms/admin-operations.ts:147-158`의 `csvEscape()`는 comma/quote/newline만 처리한다.
-- `src/lib/lms/admin-operations.ts:165-217`, `220-250`은 전체 CSV를 메모리 문자열로 만든다.
+- `src/lib/lms/admin-operations.ts`는 export 기간과 detail row 수를 제한한다.
+- `src/lib/lms/csv.ts`는 CSV delimiter와 formula-like cell을 escape한다.
+- `src/app/api/lms/admin/export/route.ts`는 `Cache-Control: no-store`를 내려준다.
+- 다만 `csvSection()`과 export builder는 아직 전체 CSV를 메모리 문자열로 만든다.
 
 영향:
 - 큰 기간 export가 서버 메모리를 크게 쓸 수 있다.
-- Excel에서 `=`, `+`, `-`, `@`로 시작하는 값이 formula로 해석될 수 있다.
 
 권장 수정:
-- export 기간과 row limit를 제한한다.
 - paging/streaming으로 생성한다.
-- formula-leading cell은 `'` prefix 같은 방어를 적용한다.
-- `Cache-Control: no-store`를 추가한다.
+- row limit 초과 시 UI에서 기간 축소 안내를 더 명확하게 보여준다.
+
+적용 상태:
+- 완료: 기간/row limit, `Cache-Control: no-store`, formula-like cell escape.
+- 완료: `=`, `+`, `-`, `@`, leading whitespace/control character 뒤 formula marker 방어를 `src/lib/lms/csv.test.ts`로 검증한다.
+- 남음: 대용량 export의 streaming/paging 전환.
 
 ### 20. `window.api` shim과 `any` 타입이 contract bug를 숨김
 

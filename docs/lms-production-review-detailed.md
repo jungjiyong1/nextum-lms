@@ -458,22 +458,25 @@ Fix:
 - empty view와 unavailable view를 다르게 처리한다.
 - 선택된 source와 row count를 observability에 기록한다.
 
-### P2-6. CSV export가 unbounded memory build이고 formula injection 방어가 없음
+### P2-6. CSV export가 대용량 메모리 생성 방식임
 
 Evidence:
-- `src/app/api/lms/admin/export/route.ts:26-27`은 날짜 존재만 검증한다.
-- `src/lib/lms/admin-operations.ts:147-158`의 `csvEscape()`는 comma/quote/newline만 처리한다.
-- `src/lib/lms/admin-operations.ts:165-217`은 전체 CSV 문자열을 메모리에 만든다.
+- `src/lib/lms/admin-operations.ts`는 export 기간과 detail row 수를 제한한다.
+- `src/lib/lms/csv.ts`는 CSV delimiter와 formula-like cell을 escape한다.
+- `src/app/api/lms/admin/export/route.ts`는 `Cache-Control: no-store`를 내려준다.
+- 다만 `csvSection()`과 export builder는 아직 전체 CSV 문자열을 메모리에 만든다.
 
 Risk:
-- 큰 export가 서버 메모리를 압박한다.
-- Excel formula injection 가능성이 있다.
+- 큰 export가 서버 메모리를 압박할 수 있다.
 
 Fix:
-- 기간/row limit.
 - paging 또는 streaming export.
-- `=`, `+`, `-`, `@` 시작 cell escape.
-- `Cache-Control: no-store`.
+- export row limit 초과 시 사용자에게 기간 축소 UI를 명확히 안내한다.
+
+Implementation status:
+- 완료: 기간/row limit, `Cache-Control: no-store`, formula-like cell escape를 적용했다.
+- 완료: `=`, `+`, `-`, `@`, leading whitespace/control character 뒤 formula marker를 `src/lib/lms/csv.test.ts`로 고정했다.
+- 남음: 대용량 export를 streaming 또는 paged response로 바꾸는 작업.
 
 ## P3 Findings - 운영 / 배포 / 유지보수
 

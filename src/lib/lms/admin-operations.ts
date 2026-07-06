@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { COMPLETED_PAYMENT_STATUS, PAID_PAYROLL_STATUS } from '@/features/lms/status';
+import { csvEscape, type CsvValue } from '@/lib/lms/csv';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -30,8 +31,6 @@ export interface TaxReportExportOptions extends ExportDateRange {
     includeExpenses?: boolean;
     includeProfitLoss?: boolean;
 }
-
-type CsvValue = string | number | boolean | null | undefined;
 
 export interface ResetTableSummary {
     schema: 'core' | 'lms';
@@ -153,13 +152,6 @@ export async function resetLmsData(target: ResetTarget, academyId: string): Prom
     ensureNoError(error, 'Failed to reset LMS data');
 
     return parseResetSummary(data);
-}
-
-function csvEscape(value: CsvValue): string {
-    const rawText = value === null || value === undefined ? '' : String(value);
-    const text = /^[=+\-@\t\r]/.test(rawText) ? `'${rawText}` : rawText;
-    if (!/[",\r\n]/.test(text)) return text;
-    return `"${text.replace(/"/g, '""')}"`;
 }
 
 function csvSection(title: string, headers: string[], rows: CsvValue[][]): string {
