@@ -110,6 +110,11 @@
   - added compatibility columns/views for `core`, `content`, `learning`, `ai`, `data`, `reporting`, and `audit`
   - fixed recursive `core.classes`/`core.class_students`/`core.class_books` policies
   - aligned the `admin / 1234` account with the existing `넥섬학원` academy data
+- Backfilled LMS operational defaults for pre-existing data:
+  - one `lms.class_profiles` row for the existing active class
+  - four active `lms.student_billing_contracts` rows with `base_monthly_fee = 0`
+  - included class billing rules for current active class enrollments
+- Updated the class operations book list so academy-owned books and shared grade-app books (`academy_id is null`) are both available for assignment.
 
 ## Deliberately Not Done Yet
 
@@ -145,6 +150,7 @@ Remote `nextum-data` verification on 2026-07-06:
 - `npm run db:check` passed all 40 database contract checks.
 - Supabase security advisor only reported Auth leaked password protection disabled.
 - Playwright browser smoke on `http://localhost:3102` verified `admin / 1234` login, `넥섬학원` academy selection, dashboard counts, and `/classrooms`, `/students`, `/instructors`, `/accounting`, `/settings` page loads without DB error text.
+- Class overview API smoke verified 1 class, 3 shared books, 4 students, and 4 base-fee contracts after the operational defaults backfill.
 
 SQL baseline syntax was checked with an ephemeral Postgres 17 Docker container plus minimal Supabase stubs:
 

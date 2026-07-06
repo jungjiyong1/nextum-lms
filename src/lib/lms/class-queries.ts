@@ -472,7 +472,7 @@ async function loadBooks(content: SchemaClient, academyId: string): Promise<Book
     const { data, error } = await content
         .from('books')
         .select('id,book_key,title,subject,grade')
-        .eq('academy_id', academyId)
+        .or(`academy_id.is.null,academy_id.eq.${academyId}`)
         .order('title');
     ensureNoError(error, 'Failed to load books');
 
