@@ -23,6 +23,7 @@ renderer/styles/files/
 .env.local
 .env.*
 !.env.example
+.vercel/
 
 # IDE and AI
 .vscode/

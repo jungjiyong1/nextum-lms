@@ -1,0 +1,22 @@
+.git
+.vercel
+.env
+.env.*
+node_modules
+node_modules (1)
+.next
+.turbo
+coverage
+output
+backups
+dist
+release
+out
+.playwright-cli
+.playwright-mcp
+planning
+renderer/bundle.js
+renderer/styles/tailwind.out.css
+renderer/styles/files
+*.tsbuildinfo
+npm-debug.log
