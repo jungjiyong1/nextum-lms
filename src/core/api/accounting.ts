@@ -11,6 +11,7 @@ import {
     LEGACY_COMPLETED_STUDENT_PAYMENT_STATUSES,
     isLegacyCompletedStudentPaymentStatus,
 } from '../../features/lms/status';
+import { BILLABLE_LESSON_SCHEDULE_STATUSES } from './scheduleStatus';
 
 function toCurrencyNumber(value: unknown): number {
     const numeric = Number(value ?? 0);
@@ -257,7 +258,7 @@ export const accountingApi = {
             .select('start_time, end_time, lessons!inner(instructor_id), substitute_instructor_id')
             .gte('date', startDate)
             .lte('date', endDate)
-            .in('status', ['scheduled', 'completed', 'substitute']);
+            .in('status', BILLABLE_LESSON_SCHEDULE_STATUSES);
 
         if (schedulesError) return err(new Error(schedulesError.message));
 

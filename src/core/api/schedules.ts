@@ -4,6 +4,7 @@ import { slotToTime, timeToSlot } from '../utils/time';
 import type { Result } from './shared/types';
 import { ok, err } from './shared/result';
 import { resetSchedules as resetSchedulesViaAdmin } from './reset';
+import { BILLABLE_LESSON_SCHEDULE_STATUSES } from './scheduleStatus';
 
 interface ScheduleData {
     id: number;
@@ -355,7 +356,7 @@ export const schedulesApi = {
             .select('start_time, end_time, status, substitute_instructor_id, lessons!inner(instructor_id)')
             .gte('date', startDate)
             .lte('date', endDate)
-            .in('status', ['scheduled', 'completed', 'substitute']);
+            .in('status', BILLABLE_LESSON_SCHEDULE_STATUSES);
 
         if (schedulesError) return err(new Error(schedulesError.message));
 

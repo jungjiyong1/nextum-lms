@@ -7,6 +7,7 @@ import { ok, err } from './shared/result';
 import { logger } from '../logger';
 import { listInstructorsFromCoreProjection, mapLegacyInstructor } from './directoryAdapters';
 import { resetInstructors as resetInstructorsViaAdmin } from './reset';
+import { buildLessonScheduleKey, isBillableLessonScheduleStatus } from './scheduleStatus';
 
 async function tryListInstructorsFromCore(filter?: { status?: string; search?: string }): Promise<InstructorType[] | null> {
     try {
@@ -297,7 +298,7 @@ export async function getInstructorMonthlySchedule(
 
     // Track existing schedules to avoid duplicates
     const existingScheduleKeys = new Set(
-        scheduleResults.map(s => `${s.lesson_id}-${s.date}`)
+        scheduleResults.map(s => buildLessonScheduleKey(s.lesson_id, s.date, s.start_time, s.end_time))
     );
 
     const ruleResults: InstructorScheduleItem[] = [];
@@ -320,11 +321,11 @@ export async function getInstructorMonthlySchedule(
 
             if (dayOfWeek === rule.day) {
                 const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-                const key = `${rule.lesson_id}-${dateStr}`;
+                const startTime = slotToTime(rule.start_slot);
+                const endTime = slotToTime(rule.end_slot);
+                const key = buildLessonScheduleKey(rule.lesson_id, dateStr, startTime, endTime);
 
                 if (!existingScheduleKeys.has(key)) {
-                    const startTime = slotToTime(rule.start_slot);
-                    const endTime = slotToTime(rule.end_slot);
                     const durationMinutes = (rule.end_slot - rule.start_slot) * 30;
 
                     ruleResults.push({
@@ -470,6 +471,7 @@ export async function calculateInstructorMonthlySalary(
         const { data: ownSchedules, error: ownError } = await supabase
             .from('lesson_schedules')
             .select(`
+        id,
         lesson_id,
         date,
         start_time,
@@ -480,8 +482,7 @@ export async function calculateInstructorMonthlySalary(
       `)
             .in('lesson_id', lessonIds)
             .gte('date', startDate)
-            .lte('date', endDate)
-            .neq('status', 'cancelled');
+            .lte('date', endDate);
 
         if (ownError) {
             console.error('Failed to get own schedules:', ownError);
@@ -493,6 +494,7 @@ export async function calculateInstructorMonthlySalary(
     const { data: substituteSchedules, error: subError } = await supabase
         .from('lesson_schedules')
         .select(`
+      id,
       lesson_id,
       date,
       start_time,
@@ -503,8 +505,7 @@ export async function calculateInstructorMonthlySalary(
     `)
         .eq('substitute_instructor_id', instructorId)
         .gte('date', startDate)
-        .lte('date', endDate)
-        .neq('status', 'cancelled');
+        .lte('date', endDate);
 
     if (subError) {
         console.error('Failed to get substitute schedules:', subError);
@@ -512,8 +513,7 @@ export async function calculateInstructorMonthlySalary(
     }
 
     for (const sub of substituteSchedules || []) {
-        const key = `${sub.lesson_id}-${sub.date}`;
-        const existsInOwn = schedulesData.some((s: { lesson_id: number; date: string }) => `${s.lesson_id}-${s.date}` === key);
+        const existsInOwn = schedulesData.some((s: { id: number }) => s.id === sub.id);
         if (!existsInOwn) {
             schedulesData.push(sub);
         }
@@ -522,13 +522,16 @@ export async function calculateInstructorMonthlySalary(
     logger.debug('calculateInstructorMonthlySalary', 'Found', schedulesData.length, 'schedules from lesson_schedules');
 
     const existingScheduleKeys = new Set(
-        schedulesData.map((s: { lesson_id: number; date: string }) => `${s.lesson_id}-${s.date}`)
+        schedulesData.map((s: { lesson_id: number; date: string; start_time: string; end_time: string }) =>
+            buildLessonScheduleKey(s.lesson_id, s.date, s.start_time, s.end_time)
+        )
     );
 
     let totalMinutes = 0;
 
     schedulesData.forEach((s) => {
         const lesson = Array.isArray(s.lessons) ? s.lessons[0] : s.lessons;
+        if (!isBillableLessonScheduleStatus(s.status)) return;
         const isSubstitute = s.substitute_instructor_id === instructorId;
         const isOriginal = lesson?.instructor_id === instructorId && !s.substitute_instructor_id;
 
@@ -592,7 +595,9 @@ export async function calculateInstructorMonthlySalary(
 
             if (dayOfWeek === rule.day) {
                 const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-                const key = `${rule.lesson_id}-${dateStr}`;
+                const startTime = slotToTime(rule.start_slot);
+                const endTime = slotToTime(rule.end_slot);
+                const key = buildLessonScheduleKey(rule.lesson_id, dateStr, startTime, endTime);
 
                 if (!existingScheduleKeys.has(key)) {
                     const durationMinutes = (rule.end_slot - rule.start_slot) * 30;

@@ -8,6 +8,7 @@ import { getDayIndex } from '../utils/date';
 import { timeToSlot } from '../utils/time';
 import { logger } from '../logger';
 import { resetLessons as resetLessonsViaAdmin } from './reset';
+import { buildLessonScheduleKey } from './scheduleStatus';
 
 export async function listLessons(): Promise<Result<Lesson[]>> {
     const { data, error } = await supabase
@@ -127,7 +128,7 @@ export async function listScheduleLessons(startDate: string, endDate: string): P
 
     // 실제 스케줄이 있는 날짜/수업 조합을 추적 (중복 방지)
     const existingScheduleKeys = new Set(
-        scheduleResults.map(s => `${s.lessonId}-${s.date}`)
+        scheduleResults.map(s => buildLessonScheduleKey(s.lessonId, s.date, s.startTime, s.endTime))
     );
 
     const ruleResults: ScheduleLesson[] = [];
@@ -172,14 +173,13 @@ export async function listScheduleLessons(startDate: string, endDate: string): P
                 const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
 
                 // 이미 실제 스케줄이 있으면 가상 스케줄 생성하지 않음
-                const key = `${rule.lesson_id}-${dateStr}`;
+                const startTime = slotToTime(rule.start_slot);
+                const endTime = slotToTime(rule.end_slot);
+                const key = buildLessonScheduleKey(rule.lesson_id, dateStr, startTime, endTime);
                 if (existingScheduleKeys.has(key)) {
                     current.setDate(current.getDate() + 1);
                     continue;
                 }
-
-                const startTime = slotToTime(rule.start_slot);
-                const endTime = slotToTime(rule.end_slot);
 
                 ruleResults.push({
                     id: -(rule.id * 1000 + ruleResults.length), // 가상 ID (음수)

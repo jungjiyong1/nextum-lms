@@ -315,6 +315,12 @@ Fix:
 - 해당 기간의 recurring occurrence를 exception row로 materialize한다.
 - transaction으로 cancel rows를 생성/업데이트한다.
 
+Implementation status:
+- 2026-07-06 기준 legacy 일정/강사 일정 목록은 materialized schedule key를 `lesson + date`가 아니라 `lesson + date + start_time + end_time`으로 판단한다.
+- 같은 수업이 같은 날짜에 다른 시간대로 여러 번 있을 때 한 row가 다른 recurring occurrence를 숨기지 않도록 보정했다.
+- 강사 급여 계산은 `cancelled` materialized row도 먼저 읽어 recurring 가상 수업 생성을 막고, 실제 시간 합산에서는 billable status만 포함한다.
+- 남은 작업은 period cancel/create schedule을 DB transaction/RPC로 이동하는 것이다.
+
 ### P1-8. 보강/대강 workflow가 선택값을 버리고 status enum이 불일치
 
 Evidence:
@@ -331,6 +337,12 @@ Fix:
 - schedule status enum을 단일 타입/DB constraint/상수로 통일한다.
 - makeup override classroom/instructor를 DB에 저장한다.
 - salary 계산은 모든 유효 status를 명시적으로 처리한다.
+
+Implementation status:
+- 2026-07-06 기준 `createMakeup`은 선택한 classroom/instructor override를 `lesson_schedules`에 저장한다.
+- legacy 일정 급여/대시보드 계산은 `scheduled`, `completed`, `substitute`, `makeup`을 공통 billable status로 사용한다.
+- `substituted`/`substitute` 불일치 문자열은 현재 legacy 일정 API에서 발견되지 않았다.
+- billable status와 materialized schedule key helper 테스트를 추가했다.
 
 ### P1-9. React hook order 위반 가능
 
@@ -572,8 +584,8 @@ LMS legacy:
 1. payment status enum 통일. 완료: 2026-07-06 LMS 상태 helper/legacy 호환 집계 적용.
 2. payroll DTO/schema 통일. 완료: 2026-07-06 gross/net/tax 저장 및 회계 계산 보정 적용.
 3. StudentDetailPanel hook order 수정. 완료: 2026-07-06 회귀 테스트 추가.
-4. period cancel transaction API.
-5. makeup/substitute model 수정.
+4. period cancel transaction API. 부분 완료: materialized schedule key/급여 계산 보정, transaction/RPC 이전은 남음.
+5. makeup/substitute model 수정. 부분 완료: billable status/helper 통일, DB 제약/RPC 정리는 남음.
 6. `lms.settings` `(academy_id,key)` migration.
 
 ### Week 2-4 - Shared DB rearchitecture
