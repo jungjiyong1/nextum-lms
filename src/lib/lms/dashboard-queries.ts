@@ -343,7 +343,7 @@ async function loadBilling(
 ): Promise<BillingRow[]> {
     const [drafts, { data: invoicesData, error: invoicesError }] = await Promise.all([
         buildBillingDrafts(core, lms, academyId, serviceMonth),
-        lms.from('invoices').select('id,student_id,total_amount,paid_amount,status').eq('academy_id', academyId).eq('service_month', serviceMonth),
+        lms.from('invoices').select('id,student_id,total_amount,paid_amount,status,student_name_snapshot').eq('academy_id', academyId).eq('service_month', serviceMonth),
     ]);
     ensureNoError(invoicesError, 'Failed to load invoices');
 
@@ -370,7 +370,7 @@ async function loadBilling(
         const actualPaidAmount = invoice?.id ? paidByInvoice.get(invoice.id) : undefined;
         return {
             studentId: student.id,
-            studentName: student.name,
+            studentName: invoice?.student_name_snapshot || student.name,
             billingMode: student.billingMode,
             expectedAmount,
             invoicedAmount: toNumber(invoice?.total_amount, expectedAmount),

@@ -192,6 +192,33 @@ async function fetchClassNames(core: SchemaClient, classIds: string[]) {
     return new Map((data || []).map((row: Row) => [row.id, row.name]));
 }
 
+async function fetchPeopleNames(core: SchemaClient, personIds: string[]) {
+    const ids = [...new Set(personIds.filter(Boolean))];
+    if (ids.length === 0) return new Map<string, string>();
+
+    const { data, error } = await core
+        .from('people')
+        .select('id,full_name,display_name')
+        .in('id', ids);
+    ensureNoError(error, 'Failed to load people names');
+
+    return new Map((data || []).map((row: Row) => [row.id, row.display_name || row.full_name || 'Unknown student']));
+}
+
+async function loadStudentName(core: SchemaClient, academyId: string, studentId: string) {
+    const { data, error } = await core
+        .from('students')
+        .select('id,person_id,people(id,full_name,display_name)')
+        .eq('academy_id', academyId)
+        .eq('id', studentId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to verify student');
+    if (!data?.id) throw new Error('Selected student does not belong to this academy.');
+
+    const person = Array.isArray((data as Row).people) ? (data as Row).people[0] : (data as Row).people;
+    return person?.display_name || person?.full_name || 'Unknown student';
+}
+
 async function assertBookAssignableToAcademy(content: SchemaClient, academyId: string, bookId: string) {
     const { data, error } = await content
         .from('books')
@@ -1045,7 +1072,7 @@ export async function recordPaymentForAcademy(academyId: string, input: RecordPa
     const client = createAdminClient();
     const core = client.schema('core');
     const lms = client.schema('lms');
-    await assertStudentBelongsToAcademy(core, academyId, input.studentId);
+    const studentName = await loadStudentName(core, academyId, input.studentId);
 
     if (input.invoiceId) {
         const { data: invoice, error: invoiceError } = await lms
@@ -1066,6 +1093,8 @@ export async function recordPaymentForAcademy(academyId: string, input: RecordPa
             academy_id: academyId,
             invoice_id: input.invoiceId || null,
             student_id: input.studentId,
+            student_name_snapshot: studentName,
+            payer_name_snapshot: input.payerName?.trim() || studentName,
             payment_date: input.paymentDate,
             amount,
             payment_method: input.paymentMethod || null,
@@ -1189,14 +1218,19 @@ export async function createInstructorPaymentForAcademy(academyId: string, input
     ensureNoError(error, 'Failed to create instructor payment');
 }
 
-async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: string, serviceMonth: string) {
+type BillingDraftForAcademy = {
+    student: Row & { id: string; name: string };
+    draft: ReturnType<typeof calculateInvoiceDraft> | null;
+};
+
+async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: string, serviceMonth: string): Promise<BillingDraftForAcademy[]> {
     const core = client.schema('core');
     const lms = client.schema('lms');
     const range = monthRange(serviceMonth);
 
     const { data: studentsData, error: studentsError } = await core
         .from('students')
-        .select('id')
+        .select('id,person_id')
         .eq('academy_id', academyId)
         .eq('status', 'active');
     ensureNoError(studentsError, 'Failed to load students');
@@ -1204,6 +1238,7 @@ async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: s
     const students = (studentsData || []) as Row[];
     const studentIds = students.map((student) => student.id);
     if (studentIds.length === 0) return [];
+    const peopleNames = await fetchPeopleNames(core, students.map((student) => student.person_id));
 
     const [
         { data: contractsData, error: contractsError },
@@ -1265,8 +1300,12 @@ async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: s
     }
 
     return students.map((student) => {
+        const studentWithName = {
+            ...student,
+            name: peopleNames.get(student.person_id) || 'Unknown student',
+        } as Row & { id: string; name: string };
         const contract = contractMap.get(student.id);
-        if (!contract) return { student, draft: null };
+        if (!contract) return { student: studentWithName, draft: null };
 
         const draft = calculateInvoiceDraft({
             contract: {
@@ -1293,7 +1332,10 @@ async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: s
             }),
         });
 
-        return { student, draft };
+        return {
+            student: studentWithName,
+            draft,
+        };
     });
 }
 
@@ -1352,7 +1394,7 @@ export async function generateMonthlyInvoicesForAcademy(academyId: string, servi
 
     const { data: existingInvoices, error: existingError } = await lms
         .from('invoices')
-        .select('id,student_id,paid_amount')
+        .select('id,student_id,paid_amount,student_name_snapshot')
         .eq('academy_id', academyId)
         .eq('service_month', serviceMonth);
     ensureNoError(existingError, 'Failed to load existing invoices');
@@ -1376,6 +1418,7 @@ export async function generateMonthlyInvoicesForAcademy(academyId: string, servi
             .upsert({
                 academy_id: academyId,
                 student_id: student.id,
+                student_name_snapshot: existing?.student_name_snapshot || student.name || 'Unknown student',
                 service_month: serviceMonth,
                 due_date: dueDate,
                 subtotal_amount: draft.subtotalAmount,

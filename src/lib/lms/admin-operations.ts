@@ -246,7 +246,7 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
     if (options.includeRevenue) {
         const { data, error } = await schema(client, 'lms')
             .from('payments')
-            .select('payment_date, student_id, amount, payment_method, status, notes')
+            .select('payment_date, student_id, amount, payment_method, status, notes, student_name_snapshot, payer_name_snapshot')
             .eq('academy_id', academyId)
             .gte('payment_date', options.startDate)
             .lte('payment_date', options.endDate)
@@ -258,7 +258,7 @@ export async function buildTaxReportExport(options: TaxReportExportOptions, acad
         const names = await studentNameMap(client, academyId);
         sections.push(csvSection('Revenue', ['Date', 'Student', 'Amount', 'Method', 'Status', 'Notes'], (data || []).map((row: Row) => [
             row.payment_date,
-            names.get(row.student_id),
+            row.payer_name_snapshot || row.student_name_snapshot || names.get(row.student_id),
             row.amount,
             row.payment_method,
             row.status,

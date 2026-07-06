@@ -20,7 +20,7 @@ export async function GET(request: Request) {
             return noStoreJson({ success: false, error: 'Invalid student overview request.' }, { status: 400 });
         }
 
-        const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
         const data = await loadStudentOperationsOverview(actor);
 
         return noStoreJson({ success: true, data });

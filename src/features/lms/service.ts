@@ -19,6 +19,9 @@ import type {
   RecordAttendanceInput,
   RecordPaymentInput,
   StaffSummary,
+  StudentDetail,
+  StudentHardDeletePreview,
+  StudentMutationResult,
   StudentOperationsOverview,
   UpdateBookInput,
   UpdateClassInput,
@@ -145,6 +148,29 @@ export async function updateStudent(academyId: string, studentId: string, input:
 export async function loadStudentOperationsOverview(academyId: string): Promise<StudentOperationsOverview> {
   const params = new URLSearchParams({ academyId });
   return getLmsJson<StudentOperationsOverview>(`/api/lms/students?${params.toString()}`);
+}
+
+export async function loadStudentDetail(academyId: string, studentId: string): Promise<StudentDetail> {
+  const params = new URLSearchParams({ academyId, studentId });
+  return getLmsJson<StudentDetail>(`/api/lms/students/detail?${params.toString()}`);
+}
+
+export async function archiveStudent(academyId: string, studentId: string): Promise<StudentMutationResult> {
+  const result = await postLmsMutation<{ data?: StudentMutationResult }>('/api/lms/students/archive', { academyId, studentId });
+  if (!result.data) throw new Error('학생 보관 처리 결과를 확인할 수 없습니다.');
+  return result.data;
+}
+
+export async function previewHardDeleteStudent(academyId: string, studentId: string): Promise<StudentHardDeletePreview> {
+  const result = await postLmsMutation<{ data?: StudentHardDeletePreview }>('/api/lms/students/hard-delete-preview', { academyId, studentId });
+  if (!result.data) throw new Error('완전삭제 가능 여부를 확인할 수 없습니다.');
+  return result.data;
+}
+
+export async function hardDeleteStudent(academyId: string, studentId: string, confirmName: string): Promise<StudentMutationResult> {
+  const result = await postLmsMutation<{ data?: StudentMutationResult }>('/api/lms/students/hard-delete', { academyId, studentId, confirmName });
+  if (!result.data) throw new Error('완전삭제 결과를 확인할 수 없습니다.');
+  return result.data;
 }
 
 export async function listStaff(academyId: string): Promise<StaffSummary[]> {

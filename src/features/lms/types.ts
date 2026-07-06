@@ -71,6 +71,9 @@ export interface StudentSummary {
   baseMonthlyFee: number;
   hourlyRate: number | null;
   extraClassFee: number;
+  weakTypeCount?: number;
+  avgTypeScore?: number | null;
+  lastLearningAt?: string | null;
 }
 
 export interface StudentClassBillingInput {
@@ -79,9 +82,99 @@ export interface StudentClassBillingInput {
   amount: number;
 }
 
+export interface StudentOperationsPermissions {
+  canCreate: boolean;
+  canEdit: boolean;
+  canArchive: boolean;
+  canViewBilling: boolean;
+  canHardDelete: boolean;
+  scopedToAssignedClasses: boolean;
+}
+
 export interface StudentOperationsOverview {
   students: StudentSummary[];
   classes: ClassSummary[];
+  permissions: StudentOperationsPermissions;
+}
+
+export interface StudentLearningAttemptRow {
+  id: number;
+  problemId: string;
+  correct: boolean;
+  unsure: boolean;
+  attemptNo: number;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+export interface StudentAttendanceSummary {
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  makeup: number;
+  total: number;
+}
+
+export interface StudentAiConversationRow {
+  id: string;
+  title: string | null;
+  status: string;
+  sourceApp: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudentReportRow {
+  id: string;
+  reportType: string;
+  title: string | null;
+  status: string;
+  generatedAt: string;
+}
+
+export interface StudentDeletionBlocker {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface StudentHardDeletePreview {
+  studentId: string;
+  studentName: string;
+  canHardDelete: boolean;
+  historicalRecordCount: number;
+  sharedIdentityCount: number;
+  blockers: StudentDeletionBlocker[];
+}
+
+export interface StudentMutationTableSummary {
+  schema: string;
+  table: string;
+  operation: string;
+  affectedRows: number;
+}
+
+export interface StudentMutationResult {
+  studentId: string;
+  studentName: string;
+  tables: StudentMutationTableSummary[];
+  totalAffectedRows: number;
+  authUserIds?: string[];
+}
+
+export interface StudentDetail {
+  summary: StudentSummary;
+  permissions: StudentOperationsPermissions;
+  weakTypes: WeakTypeRow[];
+  recentAttempts: StudentLearningAttemptRow[];
+  attendanceSummary: StudentAttendanceSummary;
+  recentAttendance: AttendanceRow[];
+  billing: BillingRow | null;
+  recentPayments: PaymentRow[];
+  aiConversations: StudentAiConversationRow[];
+  reports: StudentReportRow[];
+  hardDeletePreview: StudentHardDeletePreview | null;
 }
 
 export interface StaffSummary {
@@ -358,6 +451,7 @@ export interface RecordPaymentInput {
   paymentDate: string;
   amount: number;
   paymentMethod?: string | null;
+  payerName?: string | null;
   status?: PaymentStatus;
   notes?: string | null;
 }

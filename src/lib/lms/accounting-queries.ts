@@ -188,7 +188,7 @@ async function loadBillingRows(
 ): Promise<BillingRow[]> {
     const [drafts, { data: invoicesData, error: invoicesError }] = await Promise.all([
         buildBillingDrafts(core, lms, academyId, serviceMonth),
-        lms.from('invoices').select('id,student_id,total_amount,paid_amount,status').eq('academy_id', academyId).eq('service_month', serviceMonth),
+        lms.from('invoices').select('id,student_id,total_amount,paid_amount,status,student_name_snapshot').eq('academy_id', academyId).eq('service_month', serviceMonth),
     ]);
     ensureNoError(invoicesError, 'Failed to load invoices');
 
@@ -215,7 +215,7 @@ async function loadBillingRows(
         const actualPaidAmount = invoice?.id ? paidByInvoice.get(invoice.id) : undefined;
         return {
             studentId: student.id,
-            studentName: student.name,
+            studentName: invoice?.student_name_snapshot || student.name,
             billingMode: student.billingMode,
             expectedAmount,
             invoicedAmount: toNumber(invoice?.total_amount, expectedAmount),
@@ -235,7 +235,7 @@ async function loadPaymentRows(
 ): Promise<PaymentRow[]> {
     const { data, error } = await lms
         .from('payments')
-        .select('id,invoice_id,student_id,payment_date,amount,payment_method,status,notes')
+        .select('id,invoice_id,student_id,payment_date,amount,payment_method,status,notes,student_name_snapshot,payer_name_snapshot')
         .eq('academy_id', academyId)
         .gte('payment_date', startDate)
         .lte('payment_date', endDate)
@@ -263,7 +263,7 @@ async function loadPaymentRows(
             id: row.id,
             invoiceId: row.invoice_id ?? null,
             studentId: row.student_id,
-            studentName: person?.display_name || person?.full_name || 'Unknown student',
+            studentName: row.payer_name_snapshot || row.student_name_snapshot || person?.display_name || person?.full_name || 'Unknown student',
             paymentDate: row.payment_date,
             amount: toNumber(row.amount),
             paymentMethod: row.payment_method ?? null,
