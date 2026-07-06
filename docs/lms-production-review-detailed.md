@@ -541,19 +541,23 @@ Implementation status:
 ### P3-4. 운영 audit/observability 부족
 
 Evidence:
-- admin reset/export/tax settings는 console error만 남긴다.
-- `audit.audit_logs` schema는 있지만 LMS admin route에서 적극적으로 쓰지 않는다.
-- debug log에 user email 등 개인 정보가 출력될 수 있다.
+- admin reset/export/tax settings/reauth는 `audit.admin_actions`에 actor, academy, action, target, payload를 기록한다.
+- 일반 LMS route와 client error는 아직 대부분 `console.error` 중심이다.
+- debug log에 user email/full profile이 출력되던 부분은 축소했지만, 전체 앱 차원의 PII redaction 정책은 아직 없다.
 
 Risk:
-- 누가 언제 학생/회계 데이터를 export/reset했는지 추적하기 어렵다.
+- 일반 장애를 request id 기준으로 추적하기 어렵다.
 - 개인정보 로그 노출 가능성이 있다.
 
 Fix:
-- admin action audit log.
 - structured logs with request id, actor id, academy id.
 - PII redaction.
 - error tracking/SLO dashboard.
+
+Implementation status:
+- 완료: 민감 admin action은 audit log를 남긴다.
+- 완료: `AuthContext`의 user id/email/full profile debug log를 제거하고 non-PII summary로 바꿨다.
+- 남음: request id 기반 structured logging, 중앙 error tracking, 전체 앱 PII redaction rule.
 
 ### P3-5. backup/restore, data retention, privacy policy가 코드에 반영되어 있지 않음
 

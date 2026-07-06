@@ -44,7 +44,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // 프로필 로드
     const loadProfile = async (authUser: User): Promise<Profile | null> => {
-        logger.debug('Auth', 'Loading profile for user:', authUser.id);
+        logger.debug('Auth', 'Loading profile for current user');
         try {
             const data = await loadAuthProfile(authUser);
 
@@ -53,11 +53,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setIdleTimeout(data?.idle_timeout ?? 10);
 
             if (!data) {
-                console.warn('[Auth] No LMS/core profile found for user:', authUser.id);
+                console.warn('[Auth] No LMS/core profile found for current user.');
                 return null;
             }
 
-            logger.debug('Auth', 'Profile loaded successfully:', data);
+            logger.debug('Auth', 'Profile loaded successfully', {
+                hasAcademy: Boolean(data.current_academy_id),
+                role: data.role ?? null,
+            });
 
             return data;
         } catch (err) {
@@ -102,7 +105,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 if (currentSession && isMounted) {
                     setSession(currentSession);
                     setUser(currentSession.user);
-                    logger.debug('Auth', 'User set:', currentSession.user.email);
+                    logger.debug('Auth', 'User session loaded');
 
                     const userProfile = await loadProfile(currentSession.user);
                     if (isMounted) {
@@ -125,7 +128,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // 인증 상태 변경 리스너
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event: string, newSession: Session | null) => {
-                logger.debug('Auth', 'Auth state changed:', event, newSession?.user?.email);
+                logger.debug('Auth', 'Auth state changed', {
+                    event,
+                    hasSession: Boolean(newSession),
+                });
 
                 if (!isMounted) return;
 
