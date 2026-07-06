@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { setReauthCookie } from '@/lib/lms/reauth';
 import { recordAdminAction } from '@/lib/lms/audit';
 import { assertCsrfToken } from '@/lib/lms/csrf-server';
+import { shouldUseSecureCookies } from '@/lib/lms/secure-cookie';
 
 function authClient() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -45,10 +46,10 @@ export async function POST(request: Request) {
 
         const { data: verified, error: verifyError } = await authClient().auth.signInWithPassword({ email, password });
         if (verifyError || verified.user?.id !== adminContext.userId) {
-            return Response.json({ success: false, error: '비밀번호가 올바르지 않습니다.' }, { status: 403 });
+            return Response.json({ success: false, error: 'Password confirmation failed.' }, { status: 403 });
         }
 
-        await setReauthCookie(adminContext.userId, academyId);
+        await setReauthCookie(adminContext.userId, academyId, { secure: shouldUseSecureCookies(request) });
         await recordAdminAction({
             academyId,
             actorPersonId: adminContext.personId,

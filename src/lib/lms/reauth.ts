@@ -82,14 +82,14 @@ function parseReauthToken(token: string): ReauthPayload {
     return parsed;
 }
 
-export async function setReauthCookie(userId: string, academyId: string) {
+export async function setReauthCookie(userId: string, academyId: string, options: { secure?: boolean } = {}) {
     const cookieStore = await cookies();
     cookieStore.set({
         name: COOKIE_NAME,
         value: createReauthToken(userId, academyId),
         httpOnly: true,
         sameSite: 'strict',
-        secure: process.env.NODE_ENV === 'production',
+        secure: options.secure ?? process.env.NODE_ENV === 'production',
         path: '/',
         maxAge: MAX_AGE_SECONDS,
     });

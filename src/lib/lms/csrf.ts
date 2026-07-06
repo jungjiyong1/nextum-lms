@@ -1,10 +1,10 @@
 export const LMS_CSRF_COOKIE = 'nextum_lms_csrf';
 export const LMS_CSRF_HEADER = 'x-nextum-lms-csrf';
 
-export function csrfCookieOptions() {
+export function csrfCookieOptions(secure = process.env.NODE_ENV === 'production') {
     return {
         sameSite: 'strict' as const,
-        secure: process.env.NODE_ENV === 'production',
+        secure,
         path: '/',
         maxAge: 60 * 60 * 8,
     };

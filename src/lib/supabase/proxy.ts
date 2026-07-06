@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isProtectedAppPath, isPublicAuthPath } from '@/lib/lms/routes';
 import { csrfCookieOptions, LMS_CSRF_COOKIE } from '@/lib/lms/csrf';
+import { shouldUseSecureCookies } from '@/lib/lms/secure-cookie';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -30,7 +31,7 @@ function withCsrfCookie(request: NextRequest, response: NextResponse) {
         response.cookies.set({
             name: LMS_CSRF_COOKIE,
             value: randomBytes(32).toString('base64url'),
-            ...csrfCookieOptions(),
+            ...csrfCookieOptions(shouldUseSecureCookies(request)),
         });
     }
     return response;
