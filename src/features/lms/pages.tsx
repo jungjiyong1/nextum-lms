@@ -39,12 +39,8 @@ import {
   exportAdminCsv,
   generateMonthlyInvoices,
   getDashboardData,
-  listBilling,
-  listExpenses,
-  listInstructorPayments,
-  listPayments,
   listStaff,
-  listWeakTypes,
+  loadAccountingOperationsOverview,
   loadClassOperationsDetail,
   loadClassOperationsOverview,
   loadStudentOperationsOverview,
@@ -1728,20 +1724,13 @@ export function AccountingOperationsPage() {
     if (!academyId) return;
     setLoading(true);
     try {
-      const range = serviceMonthRange(month);
-      const [billingRows, paymentRows, expenseRows, payrollRows, staffRows] = await Promise.all([
-        listBilling(academyId, month),
-        listPayments(academyId, range.startDate, range.endDate),
-        listExpenses(academyId, range.startDate, range.endDate),
-        listInstructorPayments(academyId, month),
-        listStaff(academyId),
-      ]);
-      setRows(billingRows);
-      setPayments(paymentRows);
-      setExpenses(expenseRows);
-      setPayroll(payrollRows);
-      setStaff(staffRows);
-      setSelectedStudentId((current) => billingRows.some((row) => row.studentId === current) ? current : billingRows[0]?.studentId || '');
+      const data = await loadAccountingOperationsOverview(academyId, month);
+      setRows(data.billing);
+      setPayments(data.payments);
+      setExpenses(data.expenses);
+      setPayroll(data.payroll);
+      setStaff(data.staff);
+      setSelectedStudentId((current) => data.billing.some((row) => row.studentId === current) ? current : data.billing[0]?.studentId || '');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '청구 정보를 불러오지 못했습니다.');
     } finally {

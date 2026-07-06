@@ -8,6 +8,7 @@ import type {
   AdminExportType,
   AdminResetTarget,
   AttendanceRow,
+  AccountingOperationsOverview,
   BillingClassRuleType,
   BillingMode,
   BillingRow,
@@ -1022,6 +1023,14 @@ export async function createExpense(academyId: string, input: CreateExpenseInput
 
 export async function createInstructorPayment(academyId: string, input: CreateInstructorPaymentInput): Promise<void> {
   await postLmsMutation('/api/lms/payroll', { academyId, input });
+}
+
+export async function loadAccountingOperationsOverview(
+  academyId: string,
+  serviceMonth: string,
+): Promise<AccountingOperationsOverview> {
+  const params = new URLSearchParams({ academyId, serviceMonth });
+  return getLmsJson<AccountingOperationsOverview>(`/api/lms/accounting?${params.toString()}`);
 }
 
 export async function updateTaxSettings(academyId: string, settings: Record<string, unknown>): Promise<void> {

@@ -209,6 +209,14 @@ export interface InstructorPaymentRow {
   notes: string | null;
 }
 
+export interface AccountingOperationsOverview {
+  billing: BillingRow[];
+  payments: PaymentRow[];
+  expenses: ExpenseRow[];
+  payroll: InstructorPaymentRow[];
+  staff: StaffSummary[];
+}
+
 export interface BookSummary {
   id: string;
   bookKey: string;

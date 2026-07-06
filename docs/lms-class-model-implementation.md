@@ -62,6 +62,9 @@
 - Moved staff roster reads behind authenticated `GET /api/lms/staff`:
   - owner/admin/staff can load staff summaries for instructor management and accounting payroll forms.
   - staff creation/update remains limited to owner/admin through the existing POST route.
+- Moved accounting screen reads behind authenticated `GET /api/lms/accounting`:
+  - owner/admin/staff receive billing, payment, expense, payroll, and staff form DTOs from a single server-scoped read.
+  - accounting page no longer fans out direct browser Supabase reads for financial data.
 - Expanded accounting operations beyond invoice generation:
   - record student payments and recompute invoice paid/status
   - record operating expenses
