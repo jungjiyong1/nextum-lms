@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import {
     Calculator,
+    ClipboardList,
     GraduationCap,
     Home,
     LayoutGrid,
@@ -23,7 +24,8 @@ interface SidebarProps {
 
 const navItems: Array<{ id: AppPage; label: string; href: string; icon: React.ComponentType<{ size?: number }> }> = [
     { id: 'home', label: '홈', href: appPageHref.home, icon: Home },
-    { id: 'classrooms', label: '반·시간표', href: appPageHref.classrooms, icon: LayoutGrid },
+    { id: 'assignments', label: '과제', href: appPageHref.assignments, icon: ClipboardList },
+    { id: 'classrooms', label: '반/시간표', href: appPageHref.classrooms, icon: LayoutGrid },
     { id: 'instructors', label: '강사', href: appPageHref.instructors, icon: Users },
     { id: 'students', label: '학생', href: appPageHref.students, icon: GraduationCap },
     { id: 'accounting', label: '회계', href: appPageHref.accounting, icon: Calculator },

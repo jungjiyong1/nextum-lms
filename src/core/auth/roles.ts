@@ -1,10 +1,11 @@
 export type AppRole = 'owner' | 'admin' | 'staff' | 'teacher' | 'instructor' | 'student' | 'guardian';
 
-export const appPages = ['home', 'classrooms', 'instructors', 'students', 'accounting', 'settings'] as const;
+export const appPages = ['home', 'assignments', 'classrooms', 'instructors', 'students', 'accounting', 'settings'] as const;
 export type AppPage = typeof appPages[number];
 
 export const appPageHref: Record<AppPage, string> = {
     home: '/',
+    assignments: '/assignments',
     classrooms: '/classrooms',
     instructors: '/instructors',
     students: '/students',
@@ -14,6 +15,7 @@ export const appPageHref: Record<AppPage, string> = {
 
 const pageAccess: Record<AppPage, readonly AppRole[]> = {
     home: ['owner', 'admin', 'staff', 'teacher', 'instructor'],
+    assignments: ['owner', 'admin', 'staff'],
     classrooms: ['owner', 'admin', 'staff', 'teacher', 'instructor'],
     instructors: ['owner', 'admin'],
     students: ['owner', 'admin', 'staff', 'teacher', 'instructor'],
@@ -59,6 +61,7 @@ export function getRoleLabel(role: AppRole | string): string {
 }
 
 export function appPageFromPath(pathname: string): AppPage {
+    if (pathname.startsWith('/assignments')) return 'assignments';
     if (pathname.startsWith('/classrooms')) return 'classrooms';
     if (pathname.startsWith('/instructors')) return 'instructors';
     if (pathname.startsWith('/students')) return 'students';

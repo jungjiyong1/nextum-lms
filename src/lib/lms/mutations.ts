@@ -13,6 +13,7 @@ import type {
     BillingMode,
     CreateExpenseInput,
     CreateInstructorPaymentInput,
+    CreateLearningAssignmentInput,
     CreateBookInput,
     CreateClassInput,
     CreateClassroomInput,
@@ -531,6 +532,40 @@ export async function createStudentForAcademy(academyId: string, input: CreateSt
         await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
         throw error;
     }
+}
+
+async function resolveAssignmentProblemIds(
+    content: SchemaClient,
+    input: Pick<CreateLearningAssignmentInput, 'bookId' | 'unitIds' | 'problemTypeIds' | 'problemIds'>,
+): Promise<string[]> {
+    if (!input.bookId) return uniqueStrings(input.problemIds || []);
+
+    const unitIds = uniqueStrings(input.unitIds || []);
+    const problemTypeIds = uniqueStrings(input.problemTypeIds || []);
+    const explicitProblemIds = uniqueStrings(input.problemIds || []);
+
+    const { data, error } = await content
+        .from('problems')
+        .select('id,book_id,unit_id,problem_type_id,type_id,is_example')
+        .eq('book_id', input.bookId)
+        .eq('is_example', false);
+    ensureNoError(error, 'Failed to load assignment problem scope');
+
+    const selected = new Set(explicitProblemIds);
+    const wholeBook = unitIds.length === 0 && problemTypeIds.length === 0 && explicitProblemIds.length === 0;
+    for (const row of (data || []) as Row[]) {
+        const typeId = row.problem_type_id || row.type_id || null;
+        if (
+            wholeBook
+            || unitIds.includes(row.unit_id)
+            || (typeId && problemTypeIds.includes(typeId))
+            || explicitProblemIds.includes(row.id)
+        ) {
+            selected.add(row.id);
+        }
+    }
+
+    return [...selected];
 }
 
 export async function updateClassForAcademy(academyId: string, classId: string, input: UpdateClassInput) {
@@ -1056,18 +1091,7 @@ export async function issueStudentInvitationForAcademy(
 
 export async function createLearningAssignmentForAcademy(
     academyId: string,
-    input: {
-        title?: string;
-        description?: string | null;
-        bookId?: string | null;
-        unitId?: string | null;
-        problemIds?: string[];
-        classIds?: string[];
-        studentIds?: string[];
-        dueAt?: string | null;
-        context?: string | null;
-        sourceType?: 'content_scope' | 'worksheet';
-    },
+    input: CreateLearningAssignmentInput,
 ) {
     const title = input.title?.trim();
     if (!title) throw new Error('Assignment title is required.');
@@ -1089,17 +1113,19 @@ export async function createLearningAssignmentForAcademy(
     ]);
     if (input.bookId) await assertBookAssignableToAcademy(content, academyId, input.bookId);
 
-    const problemIds = uniqueStrings(input.problemIds || []);
+    const problemIds = await resolveAssignmentProblemIds(content, input);
+    let problemRows: Row[] = [];
     if (problemIds.length > 0) {
         const { data, error } = await content
             .from('problems')
-            .select('id,book_id')
+            .select('id,book_id,unit_id')
             .in('id', problemIds);
         ensureNoError(error, 'Failed to verify assignment problems');
-        if ((data || []).length !== problemIds.length) {
+        problemRows = (data || []) as Row[];
+        if (problemRows.length !== problemIds.length) {
             throw new Error('One or more selected problems do not exist.');
         }
-        if (input.bookId && (data || []).some((row: Row) => row.book_id !== input.bookId)) {
+        if (input.bookId && problemRows.some((row) => row.book_id !== input.bookId)) {
             throw new Error('Selected problems do not belong to the selected book.');
         }
     }
@@ -1109,7 +1135,7 @@ export async function createLearningAssignmentForAcademy(
         .insert({
             academy_id: academyId,
             book_id: input.bookId || null,
-            unit_id: input.unitId || null,
+            unit_id: input.unitIds?.length === 1 ? input.unitIds[0] : null,
             problem_id: problemIds.length === 1 ? problemIds[0] : null,
             title,
             description: input.description?.trim() || null,
@@ -1132,6 +1158,7 @@ export async function createLearningAssignmentForAcademy(
             target_type: 'class',
             class_id: classId,
             student_id: null,
+            lms_lesson_id: null,
             active: true,
         })),
         ...studentIds.map((studentId) => ({
@@ -1139,6 +1166,7 @@ export async function createLearningAssignmentForAcademy(
             target_type: 'student',
             class_id: null,
             student_id: studentId,
+            lms_lesson_id: null,
             active: true,
         })),
     ];
@@ -1149,7 +1177,7 @@ export async function createLearningAssignmentForAcademy(
         const itemRows = problemIds.map((problemId, index) => ({
             assignment_id: assignmentId,
             book_id: input.bookId || null,
-            unit_id: input.unitId || null,
+            unit_id: problemRows.find((row) => row.id === problemId)?.unit_id || null,
             problem_id: problemId,
             sort_order: index,
             required: true,

@@ -1,6 +1,7 @@
-import { jsonCsrfHeaders } from '@/lib/lms/csrf-client';
+import { csrfHeaders, jsonCsrfHeaders } from '@/lib/lms/csrf-client';
 import type {
   AccountingOperationsOverview,
+  AssignmentManagementData,
   AdminCsvExport,
   AdminExportOptions,
   AdminExportType,
@@ -12,6 +13,7 @@ import type {
   CreateClassroomInput,
   CreateExpenseInput,
   CreateInstructorPaymentInput,
+  CreateLearningAssignmentInput,
   CreateStudentResult,
   CreateScheduleRuleInput,
   CreateStaffInput,
@@ -115,6 +117,20 @@ async function postLmsCsvExport(path: string, payload: Record<string, unknown>):
     filename: filenameFromDisposition(response.headers.get('Content-Disposition'), 'nextum-lms-export.csv'),
     csv: await response.text(),
   };
+}
+
+async function postLmsForm<T = undefined>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: csrfHeaders(),
+    body: form,
+  });
+  const result = await response.json().catch(() => null) as { success?: boolean; error?: string } & Record<string, unknown> | null;
+  if (!response.ok || !result?.success) {
+    throw new Error(result?.error || '요청 처리에 실패했습니다.');
+  }
+  clearLmsGetCache();
+  return result as T;
 }
 
 export async function getAcademyName(academyId: string): Promise<string | null> {
@@ -249,6 +265,35 @@ export async function createBook(academyId: string, input: CreateBookInput): Pro
 
 export async function updateBook(academyId: string, bookId: string, input: UpdateBookInput): Promise<void> {
   await postLmsMutation('/api/lms/books', { academyId, bookId, input });
+}
+
+export async function loadAssignmentManagementData(academyId: string): Promise<AssignmentManagementData> {
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<AssignmentManagementData>(`/api/lms/assignments?${params.toString()}`);
+}
+
+export async function createLearningAssignment(
+  academyId: string,
+  input: CreateLearningAssignmentInput,
+): Promise<void> {
+  await postLmsMutation('/api/lms/assignments', { academyId, ...input });
+}
+
+export async function importWorksheetAssignment(
+  academyId: string,
+  input: CreateLearningAssignmentInput,
+  file: File,
+): Promise<void> {
+  const form = new FormData();
+  form.set('academyId', academyId);
+  form.set('title', input.title);
+  form.set('description', input.description || '');
+  form.set('dueAt', input.dueAt || '');
+  form.set('context', input.context || 'homework');
+  form.set('classIds', JSON.stringify(input.classIds || []));
+  form.set('studentIds', JSON.stringify(input.studentIds || []));
+  form.set('file', file);
+  await postLmsForm('/api/lms/assignments/import', form);
 }
 
 export async function setClassBook(academyId: string, classId: string, bookId: string, active: boolean): Promise<void> {

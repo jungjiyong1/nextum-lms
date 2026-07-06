@@ -325,6 +325,71 @@ export interface BookSummary {
   grade: string | null;
 }
 
+export interface AssignmentProblemSummary {
+  id: string;
+  bookId: string;
+  unitId: string;
+  problemTypeId: string | null;
+  number: string;
+  pagePrinted: number;
+  typeName: string | null;
+}
+
+export interface AssignmentProblemTypeSummary {
+  id: string;
+  unitId: string | null;
+  name: string;
+  problemCount: number;
+}
+
+export interface AssignmentUnitSummary {
+  id: string;
+  name: string;
+  partName: string | null;
+  problemCount: number;
+}
+
+export interface AssignmentBookSummary extends BookSummary {
+  units: AssignmentUnitSummary[];
+  problemTypes: AssignmentProblemTypeSummary[];
+  problems: AssignmentProblemSummary[];
+}
+
+export interface LearningAssignmentSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  dueAt: string | null;
+  sourceType: 'content_scope' | 'worksheet';
+  status: string;
+  active: boolean;
+  bookTitle: string | null;
+  problemCount: number;
+  targetLabels: string[];
+  createdAt: string;
+}
+
+export interface AssignmentManagementData {
+  assignments: LearningAssignmentSummary[];
+  books: AssignmentBookSummary[];
+  classes: ClassSummary[];
+  students: StudentSummary[];
+}
+
+export interface CreateLearningAssignmentInput {
+  title: string;
+  description?: string | null;
+  bookId?: string | null;
+  unitIds?: string[];
+  problemTypeIds?: string[];
+  problemIds?: string[];
+  classIds?: string[];
+  studentIds?: string[];
+  dueAt?: string | null;
+  context?: string | null;
+  sourceType?: 'content_scope' | 'worksheet';
+}
+
 export interface CreateBookInput {
   bookKey?: string | null;
   title: string;

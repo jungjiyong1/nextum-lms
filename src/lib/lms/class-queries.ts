@@ -516,12 +516,14 @@ async function loadScheduleRules(
 async function loadBooks(content: SchemaClient, academyId: string): Promise<BookSummary[]> {
     const { data, error } = await content
         .from('books')
-        .select('id,book_key,title,subject,grade')
+        .select('id,book_key,title,subject,grade,metadata')
         .or(`academy_id.is.null,academy_id.eq.${academyId}`)
         .order('title');
     ensureNoError(error, 'Failed to load books');
 
-    return ((data || []) as Row[]).map((row) => ({
+    return ((data || []) as Row[])
+        .filter((row) => row.metadata?.visibility !== 'assignment_hidden')
+        .map((row) => ({
         id: row.id,
         bookKey: row.book_key,
         title: row.title,

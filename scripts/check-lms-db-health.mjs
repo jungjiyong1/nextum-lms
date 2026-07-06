@@ -55,6 +55,10 @@ const checks = [
 
   ['learning', 'sessions', ['id', 'academy_id', 'core_student_id', 'book_id', 'scope', 'scope_label', 'context', 'started_at']],
   ['learning', 'attempts', ['id', 'academy_id', 'session_id', 'core_student_id', 'problem_id', 'correct', 'attempt_no', 'created_at']],
+  ['learning', 'assignments', ['id', 'academy_id', 'book_id', 'title', 'description', 'context', 'due_at', 'source_type', 'status']],
+  ['learning', 'assignment_targets', ['id', 'assignment_id', 'target_type', 'class_id', 'student_id', 'active']],
+  ['learning', 'assignment_items', ['id', 'assignment_id', 'book_id', 'unit_id', 'problem_id', 'sort_order']],
+  ['learning', 'assignment_files', ['id', 'assignment_id', 'storage_path', 'file_name', 'media_type', 'display_order']],
   ['learning', 'wrong_notes', ['academy_id', 'core_student_id', 'problem_id', 'status']],
   ['learning', 'reports', ['id', 'academy_id', 'core_student_id', 'report_type', 'status', 'generated_at', 'payload']],
 
