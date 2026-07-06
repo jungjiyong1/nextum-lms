@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+    appPageFromPath,
+    canAccessAppPage,
+    firstAccessibleAppPage,
+    getRoleLabel,
+    normalizeAppRole,
+} from './roles';
+
+describe('LMS app roles', () => {
+    it('preserves canonical LMS roles', () => {
+        expect(normalizeAppRole('owner')).toBe('owner');
+        expect(normalizeAppRole('teacher')).toBe('teacher');
+        expect(normalizeAppRole('student')).toBe('student');
+        expect(normalizeAppRole('guardian')).toBe('guardian');
+    });
+
+    it('normalizes legacy manager and defaults unknown roles to least privilege', () => {
+        expect(normalizeAppRole('manager')).toBe('admin');
+        expect(normalizeAppRole('unexpected')).toBe('student');
+        expect(normalizeAppRole(null)).toBe('student');
+    });
+
+    it('limits operational pages by role', () => {
+        expect(canAccessAppPage('owner', 'settings')).toBe(true);
+        expect(canAccessAppPage('admin', 'instructors')).toBe(true);
+        expect(canAccessAppPage('staff', 'students')).toBe(true);
+        expect(canAccessAppPage('staff', 'settings')).toBe(false);
+        expect(canAccessAppPage('instructor', 'classrooms')).toBe(true);
+        expect(canAccessAppPage('instructor', 'students')).toBe(false);
+        expect(canAccessAppPage('student', 'home')).toBe(false);
+        expect(canAccessAppPage('guardian', 'home')).toBe(false);
+    });
+
+    it('finds the first allowed page or null for non-operational roles', () => {
+        expect(firstAccessibleAppPage('staff')).toBe('home');
+        expect(firstAccessibleAppPage('student')).toBeNull();
+    });
+
+    it('maps paths to app pages', () => {
+        expect(appPageFromPath('/')).toBe('home');
+        expect(appPageFromPath('/students/123')).toBe('students');
+        expect(appPageFromPath('/settings')).toBe('settings');
+    });
+
+    it('returns Korean labels for visible roles', () => {
+        expect(getRoleLabel('owner')).toBe('소유자');
+        expect(getRoleLabel('student')).toBe('학생');
+    });
+});

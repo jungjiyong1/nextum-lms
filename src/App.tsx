@@ -8,31 +8,20 @@ import { Sidebar } from './components/layout/Sidebar';
 import { LoginPage } from './screens/LoginPage';
 import { PinLockScreen } from './components/security/PinLockScreen';
 import { NoAcademyScreen } from './components/security/NoAcademyScreen';
+import { AccessDeniedScreen } from './components/security/AccessDeniedScreen';
 import { useIdleTimer } from './core/hooks/useIdleTimer';
 import { pinApi } from './core/api/pin';
 import { logger } from './core/logger';
+import {
+  appPageFromPath,
+  appPageHref,
+  canAccessAppPage,
+  firstAccessibleAppPage,
+  getRoleLabel,
+  type AppPage,
+} from './core/auth/roles';
 import { getAcademyName } from './features/lms/service';
 import './pointer-safety';
-
-export type AppPage = 'home' | 'classrooms' | 'instructors' | 'students' | 'accounting' | 'settings';
-
-const pageHref: Record<AppPage, string> = {
-  home: '/',
-  classrooms: '/classrooms',
-  instructors: '/instructors',
-  students: '/students',
-  accounting: '/accounting',
-  settings: '/settings',
-};
-
-function pageFromPath(pathname: string): AppPage {
-  if (pathname.startsWith('/classrooms')) return 'classrooms';
-  if (pathname.startsWith('/instructors')) return 'instructors';
-  if (pathname.startsWith('/students')) return 'students';
-  if (pathname.startsWith('/accounting')) return 'accounting';
-  if (pathname.startsWith('/settings')) return 'settings';
-  return 'home';
-}
 
 function LoadingScreen() {
   return (
@@ -51,7 +40,12 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [academyName, setAcademyName] = useState<string | null>(null);
   const { signOut, profile, user, isLocked, hasPin, idleTimeout, setLocked } = useAuth();
-  const activePage = useMemo(() => pageFromPath(pathname), [pathname]);
+  const activePage = useMemo(() => appPageFromPath(pathname), [pathname]);
+  const canAccessCurrentPage = useMemo(
+    () => canAccessAppPage(profile?.role, activePage),
+    [activePage, profile?.role],
+  );
+  const fallbackPage = useMemo(() => firstAccessibleAppPage(profile?.role), [profile?.role]);
 
   useEffect(() => {
     const fetchAcademyName = async () => {
@@ -67,6 +61,11 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
     };
     void fetchAcademyName();
   }, [profile?.current_academy_id]);
+
+  useEffect(() => {
+    if (!profile?.role || canAccessCurrentPage || !fallbackPage || fallbackPage === activePage) return;
+    router.replace(appPageHref[fallbackPage]);
+  }, [activePage, canAccessCurrentPage, fallbackPage, profile?.role, router]);
 
   const handleIdle = useCallback(() => {
     if (hasPin) {
@@ -92,7 +91,7 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   const handleNavigate = useCallback((page: AppPage | string) => {
-    const href = pageHref[page as AppPage] ?? '/';
+    const href = appPageHref[page as AppPage] ?? '/';
     router.push(href);
   }, [router]);
 
@@ -109,6 +108,16 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const mainContent = canAccessCurrentPage
+    ? children
+    : (
+      <AccessDeniedScreen
+        roleLabel={profile?.role ? getRoleLabel(profile.role) : undefined}
+        userEmail={profile?.email}
+        onSignOut={signOut}
+      />
+    );
+
   return (
     <div className="app-layout flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <Sidebar
@@ -119,7 +128,7 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
         academyName={academyName}
       />
       <main className="relative flex flex-1 flex-col overflow-hidden">
-        {children}
+        {mainContent}
       </main>
       <Toaster position="top-right" />
     </div>

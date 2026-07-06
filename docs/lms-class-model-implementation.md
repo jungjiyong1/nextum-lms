@@ -67,6 +67,13 @@
   - settings
 - Updated login ID mapping to use `NEXT_PUBLIC_LMS_LOGIN_EMAIL_DOMAIN`.
 - Fixed auth restore flow so the app waits for profile/security loading before rendering protected screens.
+- Preserved the full LMS role set in the client auth profile instead of coercing unknown/student roles to staff.
+- Added a shared app-page access policy so the LMS sidebar and route guard only expose operational pages to allowed roles:
+  - owner/admin: all LMS operational pages
+  - staff: home, class, student, and accounting operations
+  - teacher/instructor: home and class operations
+  - student/guardian: no LMS operational page until a dedicated student/guardian LMS surface exists
+- Added an access-denied screen for non-operational LMS roles and cleaned up the broken Korean copy on the startup/sidebar/no-academy surfaces touched by this guard.
 - Added `supabase/config.toml` so local Supabase exposes the non-public schemas used by the browser client.
 - Hardened the baseline with same-academy foreign keys, active-contract uniqueness, attendance enrollment validation, and narrower delete policies for LMS operation tables.
 
@@ -76,6 +83,7 @@
 - The active remote `nextum-data` database is the intended final database, but the clean baseline was not applied destructively to that remote database in this phase.
 - PDF report generation is not included. The current target is reliable data structures and LMS views for future report generation.
 - Student analysis and parent report requirements for the future grade-app/reporting phase are tracked in `docs/grade-app-reporting-requirements.md`.
+- Instructor/teacher access is still broad at the page level. The next tightening step is class-scoped data filtering and controls so instructors only see their assigned classes and students.
 
 ## Cutover Requirements Before Production Use
 

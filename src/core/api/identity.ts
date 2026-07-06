@@ -1,9 +1,10 @@
 import { coreDb, lmsDb } from '../supabaseClient';
 import type { User } from '../supabaseClient';
+import { normalizeAppRole, type AppRole } from '../auth/roles';
 import { asSupabaseError, shouldFallbackToLegacy } from './shared/dbFallback';
 
 export type AcademyId = number | string;
-export type AppRole = 'admin' | 'instructor' | 'staff';
+export type { AppRole };
 
 export interface AuthProfile {
     id: string;
@@ -48,15 +49,6 @@ function pickString(row: RawRecord | null, keys: string[]): string | null {
 
 function pickDate(row: RawRecord | null, keys: string[]): string | null {
     return pickString(row, keys);
-}
-
-function normalizeRole(value: unknown): AppRole {
-    if (value === 'admin' || value === 'instructor' || value === 'staff') {
-        return value;
-    }
-    if (value === 'owner' || value === 'manager') return 'admin';
-    if (value === 'teacher') return 'instructor';
-    return 'staff';
 }
 
 function normalizeAcademyId(value: unknown): AcademyId | null {
@@ -278,7 +270,7 @@ async function loadCoreProfile(user: Pick<User, 'id' | 'email'>): Promise<AuthPr
         full_name: pickString(person, ['full_name', 'name'])
             ?? pickString(account, ['full_name', 'name'])
             ?? null,
-        role: normalizeRole(membership?.role),
+        role: normalizeAppRole(membership?.role),
         current_academy_id: normalizeAcademyId(
             membership?.academy_id ?? account.current_academy_id ?? account.academy_id,
         ),
@@ -304,7 +296,7 @@ async function loadLegacyProfile(user: Pick<User, 'id' | 'email'>): Promise<Auth
         id: user.id,
         email: pickString(row, ['email']) ?? user.email ?? null,
         full_name: pickString(row, ['full_name', 'name']),
-        role: normalizeRole(row.role),
+        role: normalizeAppRole(row.role),
         current_academy_id: normalizeAcademyId(row.current_academy_id),
         created_at: pickDate(row, ['created_at']) ?? nowIso(),
         updated_at: pickDate(row, ['updated_at']) ?? pickDate(row, ['created_at']) ?? nowIso(),
