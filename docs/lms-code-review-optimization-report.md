@@ -350,20 +350,24 @@
 - 완료: `=`, `+`, `-`, `@`, leading whitespace/control character 뒤 formula marker 방어를 `src/lib/lms/csv.test.ts`로 검증한다.
 - 남음: 대용량 export의 streaming/paging 전환.
 
-### 20. `window.api` shim과 `any` 타입이 contract bug를 숨김
+### 20. `window.api` shim이 legacy contract를 길게 끌고 간다
 
 근거:
 - `src/core/api/legacyShim.ts:6`에서 `window.api = supabaseApi`.
-- `src/types/window-api.d.ts:1`은 `api: any`.
-- payroll DTO mismatch가 타입 단계에서 잡히지 않았다.
+- `src/types/window-api.d.ts`는 현재 `api: typeof supabaseApi`로 선언되어 있다.
+- `src/core/types.ts`에는 더 이상 전역 선언에 쓰이지 않는 legacy `WindowApi` type이 남아 있다.
 
 영향:
 - Electron migration 호환층이 남아 신규 코드 품질을 낮춘다.
 
 권장 수정:
-- `window.api` 타입을 `typeof supabaseApi`로 바꾼다.
 - 신규 컴포넌트는 `window.api` 대신 typed API import를 사용한다.
 - 기능별 contract test를 추가한다.
+- 사용되지 않는 legacy `WindowApi` type을 정리한다.
+
+적용 상태:
+- 완료: 전역 `window.api` 타입은 `typeof supabaseApi`로 고정되어 있다.
+- 남음: 기존 컴포넌트의 `window.api` 직접 사용을 typed import/API hook으로 점진 전환한다.
 
 ## 권장 작업 순서
 

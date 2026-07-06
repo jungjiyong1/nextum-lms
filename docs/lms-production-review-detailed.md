@@ -515,17 +515,21 @@ Fix:
 ### P3-3. `window.api: any`가 contract bug를 숨김
 
 Evidence:
-- `src/types/window-api.d.ts:3`은 `api: any`.
+- `src/types/window-api.d.ts`는 현재 `api: typeof supabaseApi`로 선언되어 있다.
 - `src/core/api/legacyShim.ts:6`은 `window.api = supabaseApi`.
-- payroll DTO mismatch가 타입에서 잡히지 않았다.
+- `src/core/types.ts`에는 더 이상 전역 선언에 쓰이지 않는 legacy `WindowApi` type이 남아 있다.
 
 Risk:
 - Electron migration compatibility layer가 장기 유지보수 리스크가 된다.
 
 Fix:
-- `window.api` 타입을 `typeof supabaseApi`로 변경.
 - 신규 코드는 typed import/API hook 사용.
 - legacy shim 제거 계획 수립.
+- 사용되지 않는 legacy `WindowApi` type 정리.
+
+Implementation status:
+- 완료: 전역 `window.api` 타입은 `typeof supabaseApi`로 고정되어 있다.
+- 남음: 기존 컴포넌트의 `window.api` 직접 사용을 typed import/API hook으로 점진 전환한다.
 
 ### P3-4. 운영 audit/observability 부족
 
