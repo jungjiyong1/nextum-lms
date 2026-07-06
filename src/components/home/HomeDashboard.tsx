@@ -185,9 +185,13 @@ export function HomeDashboard({ onNavigate }: HomeDashboardProps) {
                         <CardTitle className="text-xl font-bold flex items-center gap-2">
                             {selectedDateLabel}
                         </CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                            {loading ? '일정 로딩 중...' : `총 ${dayLessons.length}개의 수업이 있습니다.`}
-                        </p>
+                        {loading ? (
+                            <Skeleton className="h-4 w-44" />
+                        ) : (
+                            <p className="text-sm text-muted-foreground">
+                                {`총 ${dayLessons.length}개의 수업이 있습니다.`}
+                            </p>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={handleBackToToday}>

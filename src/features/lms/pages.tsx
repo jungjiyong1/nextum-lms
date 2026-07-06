@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SkeletonPanel } from '@/components/ui/skeleton';
 import { canManageScheduleRules } from '@/core/auth/roles';
 import { cn } from '@/lib/utils';
 import {
@@ -215,14 +216,7 @@ function PageShell({
 }
 
 function LoadingBlock() {
-  return (
-    <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed bg-white">
-      <div className="flex items-center gap-3 text-sm text-slate-500">
-        <RefreshCw className="h-4 w-4 animate-spin" />
-        데이터를 불러오는 중입니다.
-      </div>
-    </div>
-  );
+  return <SkeletonPanel className="min-h-[320px]" rows={6} />;
 }
 
 function MissingAcademy() {

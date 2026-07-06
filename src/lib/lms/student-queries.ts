@@ -173,16 +173,22 @@ async function loadStudentSummaries(
         classRowsQuery = classRowsQuery.in('class_id', classIds);
     }
 
-    const [classRowsResult, contractsResult] = await Promise.all([
+    const peoplePromise = fetchPeople(core, students.map((row) => row.person_id));
+    const weakMetricsPromise = options.includeWeakMetrics
+        ? loadWeakMetrics(reporting, academyId, studentIds)
+        : Promise.resolve(new Map<string, { weakTypeCount: number; avgTypeScore: number | null; lastLearningAt: string | null }>());
+
+    const [classRowsResult, contractsResult, people, weakMetrics] = await Promise.all([
         classRowsQuery,
         options.includeBilling
             ? lms.from('student_billing_contracts').select('*').eq('academy_id', academyId).in('student_id', studentIds).eq('status', 'active')
             : Promise.resolve({ data: [], error: null }),
+        peoplePromise,
+        weakMetricsPromise,
     ]);
     ensureNoError(classRowsResult.error, 'Failed to load student classes');
     ensureNoError(contractsResult.error, 'Failed to load student contracts');
 
-    const people = await fetchPeople(core, students.map((row) => row.person_id));
     const contractMap = new Map(((contractsResult.data || []) as Row[]).map((row) => [row.student_id, row]));
     const contractIds = ((contractsResult.data || []) as Row[]).map((row) => row.id);
     const rulesByContract = new Map<string, Row[]>();
@@ -210,10 +216,6 @@ async function loadStudentSummaries(
         classNames.set(row.student_id, names);
         classIdsByStudent.set(row.student_id, [...(classIdsByStudent.get(row.student_id) || []), row.class_id]);
     }
-
-    const weakMetrics = options.includeWeakMetrics
-        ? await loadWeakMetrics(reporting, academyId, studentIds)
-        : new Map<string, { weakTypeCount: number; avgTypeScore: number | null; lastLearningAt: string | null }>();
 
     return students.map((row) => {
         const person = people.get(row.person_id);

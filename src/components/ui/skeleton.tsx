@@ -31,8 +31,9 @@ function Skeleton({
 }: SkeletonProps) {
     return (
         <div
+            aria-hidden="true"
             className={cn(
-                "animate-shimmer bg-gradient-to-r from-muted via-muted/50 to-muted bg-[length:200%_100%] rounded-md",
+                "animate-shimmer bg-gradient-to-r from-slate-100 via-slate-200 to-slate-100 bg-[length:200%_100%] rounded-md",
                 variantStyles[variant],
                 className
             )}

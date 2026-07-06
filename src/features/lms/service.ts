@@ -34,6 +34,13 @@ import type {
   UpdateStudentInput,
 } from './types';
 
+const GET_CACHE_MS = 1500;
+const getCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
+
+function clearLmsGetCache() {
+  getCache.clear();
+}
+
 async function postLmsMutation<T = undefined>(path: string, payload: Record<string, unknown>): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
@@ -44,10 +51,26 @@ async function postLmsMutation<T = undefined>(path: string, payload: Record<stri
   if (!response.ok || !result?.success) {
     throw new Error(result?.error || '요청 처리에 실패했습니다.');
   }
+  clearLmsGetCache();
   return result as T;
 }
 
 async function getLmsJson<T>(path: string): Promise<T> {
+  const now = Date.now();
+  const cached = getCache.get(path);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise as Promise<T>;
+  }
+
+  const promise = fetchLmsJson<T>(path);
+  getCache.set(path, { expiresAt: now + GET_CACHE_MS, promise });
+  promise.catch(() => {
+    if (getCache.get(path)?.promise === promise) getCache.delete(path);
+  });
+  return promise;
+}
+
+async function fetchLmsJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
     headers: { Accept: 'application/json' },
     cache: 'no-store',

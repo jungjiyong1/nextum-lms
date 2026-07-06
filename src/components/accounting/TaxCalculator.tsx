@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { PasswordConfirmDialog } from '../security/PasswordConfirmDialog';
+import { SkeletonPanel, SkeletonRows } from '../ui/skeleton';
 
 interface IncomeTaxResult {
     grossIncome: number;
@@ -198,7 +199,11 @@ export function TaxCalculator() {
                     <h4 className="text-lg font-semibold text-center my-4">{formatMonthLabel(yearMonth)} 손익계산서</h4>
 
                     {!incomeStatement ? (
-                        <p className="text-center text-muted-foreground py-8">데이터를 불러오는 중...</p>
+                        loading ? (
+                            <SkeletonPanel rows={4} />
+                        ) : (
+                            <p className="text-center text-muted-foreground py-8">손익 데이터가 없습니다.</p>
+                        )
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {/* Income/Expense Grid */}
@@ -365,7 +370,7 @@ export function TaxCalculator() {
                             </CardHeader>
                             <CardContent>
                                 {!incomeTax ? (
-                                    <p className="text-muted-foreground">데이터 불러오는 중...</p>
+                                    loading ? <SkeletonRows count={6} /> : <p className="text-muted-foreground">세금 데이터가 없습니다.</p>
                                 ) : (
                                     <div className="space-y-2 text-sm">
                                         <div className="flex justify-between"><span>총 수입</span><strong>{formatCurrency(incomeTax.grossIncome)}</strong></div>
@@ -395,7 +400,7 @@ export function TaxCalculator() {
                             </CardHeader>
                             <CardContent>
                                 {!vatSummary ? (
-                                    <p className="text-muted-foreground">데이터 불러오는 중...</p>
+                                    loading ? <SkeletonRows count={5} /> : <p className="text-muted-foreground">부가세 데이터가 없습니다.</p>
                                 ) : (
                                     <div className="space-y-2 text-sm">
                                         <div className="flex justify-between"><span>과세 유형</span><strong>{vatSummary.taxType}</strong></div>
@@ -414,7 +419,11 @@ export function TaxCalculator() {
                                 <CardTitle className="text-base">원천세 납부 요약</CardTitle>
                             </CardHeader>
                             <CardContent className="p-0">
-                                {!withholdingSummary || withholdingSummary.byMonth.length === 0 ? (
+                                {loading && !withholdingSummary ? (
+                                    <div className="p-6">
+                                        <SkeletonRows count={5} />
+                                    </div>
+                                ) : !withholdingSummary || withholdingSummary.byMonth.length === 0 ? (
                                     <p className="p-6 text-muted-foreground">원천세 납부 기록이 없습니다.</p>
                                 ) : (
                                     <div className="max-h-[300px] overflow-y-auto">

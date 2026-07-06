@@ -7,6 +7,7 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { SkeletonRows } from '../ui/skeleton';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { Search, UserPlus, UserMinus, Clock, MapPin, User } from 'lucide-react';
@@ -228,7 +229,7 @@ export function LessonStudentDialog({ open, onOpenChange, lesson, lessonId: prop
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 space-y-1">
                             {loading ? (
-                                <div className="text-center text-muted-foreground py-8">로딩 중...</div>
+                                <SkeletonRows count={4} rowClassName="p-2.5" />
                             ) : enrolledStudents.length === 0 ? (
                                 <div className="text-center text-muted-foreground py-8 text-sm">
                                     등록된 학생이 없습니다
@@ -286,7 +287,7 @@ export function LessonStudentDialog({ open, onOpenChange, lesson, lessonId: prop
                         {/* Student list */}
                         <div className="flex-1 overflow-y-auto p-2 space-y-1">
                             {loading ? (
-                                <div className="text-center text-muted-foreground py-8">로딩 중...</div>
+                                <SkeletonRows count={4} rowClassName="p-2.5" />
                             ) : availableStudents.length === 0 ? (
                                 <div className="text-center text-muted-foreground py-8 text-sm">
                                     {searchQuery ? '검색 결과가 없습니다' : '추가 가능한 학생이 없습니다'}

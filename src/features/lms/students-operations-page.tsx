@@ -9,7 +9,6 @@ import {
     GraduationCap,
     Pencil,
     Plus,
-    RefreshCw,
     Search,
     ShieldAlert,
     Trash2,
@@ -205,14 +204,7 @@ function PageShell({ children, action }: { children: React.ReactNode; action?: R
 }
 
 function LoadingBlock() {
-    return (
-        <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed bg-white">
-            <div className="flex items-center gap-3 text-sm text-slate-500">
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                데이터를 불러오는 중입니다.
-            </div>
-        </div>
-    );
+    return <SkeletonPanel className="min-h-[320px]" rows={6} />;
 }
 
 function StudentDetailSkeleton() {
