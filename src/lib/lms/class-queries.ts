@@ -644,10 +644,11 @@ async function loadClassStudents(core: SchemaClient, academyId: string, classId:
     });
 }
 
-async function loadClassBooks(core: SchemaClient, content: SchemaClient, classId: string): Promise<ClassBookSummary[]> {
-    const { data: assignments, error } = await core
-        .from('class_books')
+async function loadClassBooks(learning: SchemaClient, content: SchemaClient, classId: string): Promise<ClassBookSummary[]> {
+    const { data: assignments, error } = await learning
+        .from('book_assignments')
         .select('book_id,assigned_at,active')
+        .eq('target_type', 'class')
         .eq('class_id', classId)
         .eq('active', true)
         .order('assigned_at', { ascending: false });
@@ -761,13 +762,14 @@ export async function loadClassOperationsDetail(
     const client = createAdminClient();
     const core = client.schema('core');
     const content = client.schema('content');
+    const learning = client.schema('learning');
 
     await assertClassBelongsToAcademy(core, context.academyId, classId);
     await assertAssignedClassAccess(context, { classId });
 
     const [students, books] = await Promise.all([
         loadClassStudents(core, context.academyId, classId),
-        loadClassBooks(core, content, classId),
+        loadClassBooks(learning, content, classId),
     ]);
 
     return { students, books };

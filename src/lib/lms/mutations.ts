@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { randomBytes } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { calculateInvoiceDraft } from '@/features/lms/billing';
 import {
@@ -81,6 +81,24 @@ function uniqueClassIds(classIds: string[] | undefined) {
     return [...new Set((classIds || []).filter(Boolean))];
 }
 
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+    return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function inviteSecret(): string {
+    const secret = process.env.NEXTUM_INVITE_CODE_SECRET ?? process.env.INVITE_CODE_SECRET;
+    if (!secret) throw new Error('Invite code secret is not configured.');
+    return secret;
+}
+
+function hashInviteCode(code: string): string {
+    return createHmac('sha256', inviteSecret()).update(code.trim().toUpperCase()).digest('hex');
+}
+
+function newInviteCode(): string {
+    return randomBytes(4).toString('hex').toUpperCase();
+}
+
 function normalizeTime(value: string | null | undefined): string {
     return (value || '').slice(0, 5);
 }
@@ -154,6 +172,20 @@ async function assertStudentBelongsToAcademy(core: SchemaClient, academyId: stri
         .maybeSingle();
     ensureNoError(error, 'Failed to verify student');
     if (!data?.id) throw new Error('Selected student does not belong to this academy.');
+}
+
+async function assertStudentsBelongToAcademy(core: SchemaClient, academyId: string, studentIds: string[]) {
+    if (studentIds.length === 0) return;
+    const { data, error } = await core
+        .from('students')
+        .select('id')
+        .eq('academy_id', academyId)
+        .in('id', studentIds);
+    ensureNoError(error, 'Failed to verify students');
+
+    if ((data || []).length !== studentIds.length) {
+        throw new Error('One or more selected students do not belong to this academy.');
+    }
 }
 
 async function assertStaffBelongsToAcademy(core: SchemaClient, academyId: string, staffId: string) {
@@ -883,13 +915,201 @@ export async function setClassBookForAcademy(academyId: string, classId: string,
     const client = createAdminClient();
     const core = client.schema('core');
     const content = client.schema('content');
+    const learning = client.schema('learning');
     await assertClassesBelongToAcademy(core, academyId, [classId]);
     await assertBookAssignableToAcademy(content, academyId, bookId);
 
-    const { error } = await core
-        .from('class_books')
-        .upsert({ class_id: classId, book_id: bookId, active }, { onConflict: 'class_id,book_id' });
+    const { data: existing, error: existingError } = await learning
+        .from('book_assignments')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('target_type', 'class')
+        .eq('class_id', classId)
+        .eq('book_id', bookId)
+        .maybeSingle();
+    ensureNoError(existingError, 'Failed to load class book assignment');
+
+    if (existing?.id) {
+        const updatePayload: Row = { active };
+        if (active) updatePayload.assigned_at = new Date().toISOString();
+        const { error } = await learning
+            .from('book_assignments')
+            .update(updatePayload)
+            .eq('id', existing.id);
+        ensureNoError(error, 'Failed to update class book assignment');
+        return;
+    }
+
+    if (!active) return;
+
+    const { error } = await learning
+        .from('book_assignments')
+        .insert({
+            academy_id: academyId,
+            book_id: bookId,
+            target_type: 'class',
+            class_id: classId,
+            active: true,
+            assigned_at: new Date().toISOString(),
+        });
     ensureNoError(error, 'Failed to assign class book');
+}
+
+export async function issueStudentInvitationForAcademy(
+    academyId: string,
+    studentId: string,
+    loginHint?: string | null,
+) {
+    if (!studentId) throw new Error('Student is required.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    await assertStudentBelongsToAcademy(core, academyId, studentId);
+
+    const { data: student, error: studentError } = await core
+        .from('students')
+        .select('id,person_id')
+        .eq('academy_id', academyId)
+        .eq('id', studentId)
+        .maybeSingle();
+    ensureNoError(studentError, 'Failed to load student');
+    if (!student?.person_id) throw new Error('Student is not linked to a person record.');
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const inviteCode = newInviteCode();
+        const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+        const { error } = await core
+            .from('account_invitations')
+            .insert({
+                academy_id: academyId,
+                person_id: student.person_id,
+                student_id: studentId,
+                role: 'student',
+                invite_code_hash: hashInviteCode(inviteCode),
+                login_hint: loginHint?.trim() || null,
+                expires_at: expiresAt,
+            });
+
+        if (!error) {
+            return {
+                inviteCode,
+                expiresAt,
+                loginHint: loginHint?.trim() || null,
+            };
+        }
+        if (!String(error.message ?? '').toLowerCase().includes('duplicate')) {
+            ensureNoError(error, 'Failed to issue invitation');
+        }
+    }
+
+    throw new Error('Failed to generate a unique invite code.');
+}
+
+export async function createLearningAssignmentForAcademy(
+    academyId: string,
+    input: {
+        title?: string;
+        description?: string | null;
+        bookId?: string | null;
+        unitId?: string | null;
+        problemIds?: string[];
+        classIds?: string[];
+        studentIds?: string[];
+        dueAt?: string | null;
+        context?: string | null;
+        sourceType?: 'content_scope' | 'worksheet';
+    },
+) {
+    const title = input.title?.trim();
+    if (!title) throw new Error('Assignment title is required.');
+
+    const classIds = uniqueClassIds(input.classIds);
+    const studentIds = uniqueStrings(input.studentIds || []);
+    if (classIds.length === 0 && studentIds.length === 0) {
+        throw new Error('Assignment target is required.');
+    }
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const content = client.schema('content');
+    const learning = client.schema('learning');
+
+    await Promise.all([
+        assertClassesBelongToAcademy(core, academyId, classIds),
+        assertStudentsBelongToAcademy(core, academyId, studentIds),
+    ]);
+    if (input.bookId) await assertBookAssignableToAcademy(content, academyId, input.bookId);
+
+    const problemIds = uniqueStrings(input.problemIds || []);
+    if (problemIds.length > 0) {
+        const { data, error } = await content
+            .from('problems')
+            .select('id,book_id')
+            .in('id', problemIds);
+        ensureNoError(error, 'Failed to verify assignment problems');
+        if ((data || []).length !== problemIds.length) {
+            throw new Error('One or more selected problems do not exist.');
+        }
+        if (input.bookId && (data || []).some((row: Row) => row.book_id !== input.bookId)) {
+            throw new Error('Selected problems do not belong to the selected book.');
+        }
+    }
+
+    const { data: assignment, error: assignmentError } = await learning
+        .from('assignments')
+        .insert({
+            academy_id: academyId,
+            book_id: input.bookId || null,
+            unit_id: input.unitId || null,
+            problem_id: problemIds.length === 1 ? problemIds[0] : null,
+            title,
+            description: input.description?.trim() || null,
+            context: input.context || 'homework',
+            due_at: input.dueAt || null,
+            active: true,
+            source_type: input.sourceType || 'content_scope',
+            status: 'published',
+            published_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+    ensureNoError(assignmentError, 'Failed to create assignment');
+    if (!assignment?.id) throw new Error('Assignment was not created.');
+    const assignmentId = assignment.id as string;
+
+    const targetRows = [
+        ...classIds.map((classId) => ({
+            assignment_id: assignmentId,
+            target_type: 'class',
+            class_id: classId,
+            student_id: null,
+            active: true,
+        })),
+        ...studentIds.map((studentId) => ({
+            assignment_id: assignmentId,
+            target_type: 'student',
+            class_id: null,
+            student_id: studentId,
+            active: true,
+        })),
+    ];
+    const { error: targetError } = await learning.from('assignment_targets').insert(targetRows);
+    ensureNoError(targetError, 'Failed to create assignment targets');
+
+    if (problemIds.length > 0) {
+        const itemRows = problemIds.map((problemId, index) => ({
+            assignment_id: assignmentId,
+            book_id: input.bookId || null,
+            unit_id: input.unitId || null,
+            problem_id: problemId,
+            sort_order: index,
+            required: true,
+        }));
+        const { error: itemError } = await learning.from('assignment_items').insert(itemRows);
+        ensureNoError(itemError, 'Failed to create assignment items');
+    }
+
+    return { id: assignmentId };
 }
 
 async function ensureLessonOccurrence(
