@@ -1019,8 +1019,30 @@ export async function exportAdminCsv(
   return postLmsCsvExport('/api/lms/admin/export', { academyId, type, options });
 }
 
-export async function resetAdminData(academyId: string, target: AdminResetTarget): Promise<void> {
-  await postLmsMutation('/api/lms/admin/reset', { academyId, target });
+export async function prepareAdminReset(
+  academyId: string,
+  target: AdminResetTarget,
+  confirmText: string,
+): Promise<{ confirmToken: string; expiresAt: string }> {
+  const result = await postLmsMutation<{ confirmToken?: unknown; expiresAt?: unknown }>(
+    '/api/lms/admin/reset/confirm',
+    { academyId, target, confirmText },
+  );
+  if (typeof result.confirmToken !== 'string' || typeof result.expiresAt !== 'string') {
+    throw new Error('초기화 확인 토큰을 발급하지 못했습니다.');
+  }
+  return {
+    confirmToken: result.confirmToken,
+    expiresAt: result.expiresAt,
+  };
+}
+
+export async function resetAdminData(
+  academyId: string,
+  target: AdminResetTarget,
+  confirmToken: string,
+): Promise<void> {
+  await postLmsMutation('/api/lms/admin/reset', { academyId, target, confirmToken });
 }
 
 export async function getDashboardData(academyId: string, serviceMonth: string): Promise<DashboardData> {

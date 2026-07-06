@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { PasswordConfirmDialog } from '@/components/security/PasswordConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -52,6 +53,7 @@ import {
   listStaff,
   listStudents,
   listWeakTypes,
+  prepareAdminReset,
   recordAttendance,
   recordPayment,
   resetAdminData,
@@ -2117,14 +2119,19 @@ export function SettingsOperationsPage() {
   const [resetTarget, setResetTarget] = useState<AdminResetTarget>('schedules');
   const [resetConfirm, setResetConfirm] = useState('');
   const [resetting, setResetting] = useState(false);
+  const [pendingAdminAction, setPendingAdminAction] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
 
   if (!academyId) return <MissingAcademy />;
 
   const selectedResetTarget = resetTargets.find((target) => target.value === resetTarget) || resetTargets[0];
   const canReset = resetConfirm.trim() === '초기화' && !resetting;
 
-  const saveTaxSettings = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const executeTaxSettingsSave = async () => {
     setSavingTax(true);
     try {
       await updateTaxSettings(academyId, {
@@ -2140,7 +2147,17 @@ export function SettingsOperationsPage() {
     }
   };
 
-  const runExport = async () => {
+  const requestTaxSettingsSave = (event: React.FormEvent) => {
+    event.preventDefault();
+    setPendingAdminAction({
+      title: '세금/급여 기준 저장',
+      description: '세금과 급여 기준은 회계 리포트에 영향을 줍니다. 계속하려면 비밀번호를 입력하세요.',
+      confirmLabel: '기준 저장',
+      onConfirm: executeTaxSettingsSave,
+    });
+  };
+
+  const executeExport = async () => {
     setExporting(true);
     try {
       const output = await exportAdminCsv(academyId, exportType, {
@@ -2160,18 +2177,40 @@ export function SettingsOperationsPage() {
     }
   };
 
-  const runReset = async () => {
-    if (!canReset) return;
+  const requestExport = () => {
+    setPendingAdminAction({
+      title: 'CSV 내보내기',
+      description: '회계/급여 CSV에는 민감한 운영 데이터가 포함됩니다. 계속하려면 비밀번호를 입력하세요.',
+      confirmLabel: 'CSV 생성',
+      onConfirm: executeExport,
+    });
+  };
+
+  const executeReset = async (target: AdminResetTarget, confirmText: string, label: string) => {
     setResetting(true);
     try {
-      await resetAdminData(academyId, resetTarget);
+      const { confirmToken } = await prepareAdminReset(academyId, target, confirmText);
+      await resetAdminData(academyId, target, confirmToken);
       setResetConfirm('');
-      toast.success(`${selectedResetTarget.label} 데이터를 초기화했습니다.`);
+      toast.success(`${label} 데이터를 초기화했습니다.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '초기화에 실패했습니다.');
     } finally {
       setResetting(false);
     }
+  };
+
+  const requestReset = () => {
+    if (!canReset) return;
+    const target = resetTarget;
+    const confirmText = resetConfirm;
+    const label = selectedResetTarget.label;
+    setPendingAdminAction({
+      title: `${label} 초기화`,
+      description: '초기화는 되돌릴 수 없습니다. 계속하려면 비밀번호를 입력하세요.',
+      confirmLabel: '초기화 실행',
+      onConfirm: () => executeReset(target, confirmText, label),
+    });
   };
 
   return (
@@ -2203,7 +2242,7 @@ export function SettingsOperationsPage() {
           <Card>
             <CardHeader><CardTitle>세금/급여 기준</CardTitle></CardHeader>
             <CardContent>
-              <form onSubmit={saveTaxSettings} className="space-y-3">
+              <form onSubmit={requestTaxSettingsSave} className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
                     <Label>원천세율 (%)</Label>
@@ -2268,7 +2307,7 @@ export function SettingsOperationsPage() {
                   </label>
                 </div>
               )}
-              <Button type="button" onClick={runExport} disabled={exporting}>
+              <Button type="button" onClick={requestExport} disabled={exporting}>
                 {exporting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
                 CSV 생성
               </Button>
@@ -2294,7 +2333,7 @@ export function SettingsOperationsPage() {
                 <Label>확인 문구</Label>
                 <Input value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} placeholder="초기화" />
               </div>
-              <Button type="button" variant="destructive" onClick={runReset} disabled={!canReset}>
+              <Button type="button" variant="destructive" onClick={requestReset} disabled={!canReset}>
                 {resetting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                 선택 범위 초기화
               </Button>
@@ -2310,6 +2349,18 @@ export function SettingsOperationsPage() {
           </Card>
         </div>
       </div>
+      <PasswordConfirmDialog
+        open={Boolean(pendingAdminAction)}
+        onOpenChange={(open) => {
+          if (!open) setPendingAdminAction(null);
+        }}
+        title={pendingAdminAction?.title || ''}
+        description={pendingAdminAction?.description || ''}
+        confirmLabel={pendingAdminAction?.confirmLabel || '확인'}
+        onConfirm={async () => {
+          await pendingAdminAction?.onConfirm();
+        }}
+      />
     </PageShell>
   );
 }

@@ -15,13 +15,33 @@ type ResetTarget =
     | 'accounting'
     | 'all';
 
+async function prepareAdminReset(academyId: string, target: ResetTarget): Promise<string> {
+    const response = await fetch('/api/lms/admin/reset/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ academyId, target, confirmText: '초기화' }),
+    });
+    const payload = await response.json().catch(() => null) as {
+        success?: boolean;
+        error?: string;
+        confirmToken?: unknown;
+    } | null;
+
+    if (!response.ok || !payload?.success || typeof payload.confirmToken !== 'string') {
+        throw new Error(payload?.error || `Reset confirmation failed with HTTP ${response.status}`);
+    }
+
+    return payload.confirmToken;
+}
+
 async function runAdminReset(target: ResetTarget): Promise<Result<void>> {
     try {
         const academyId = await requireCurrentAcademyId();
+        const confirmToken = await prepareAdminReset(academyId, target);
         const response = await fetch('/api/lms/admin/reset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ academyId, target }),
+            body: JSON.stringify({ academyId, target, confirmToken }),
         });
 
         if (!response.ok) {

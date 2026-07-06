@@ -88,22 +88,23 @@
 - 학생 앱은 정답이 없는 `content.student_problems` view만 읽게 한다.
 - 채점은 answer를 반환하지 않는 RPC/server route로 처리한다.
 
-### 4. destructive admin route가 서버 재인증/CSRF 방어 없이 cookie POST만 신뢰
+### 4. destructive admin route는 재인증/confirm token을 사용하지만 CSRF 세분화가 더 필요
 
 근거:
-- `src/app/api/lms/admin/reset/route.ts:24-25`
-- `src/app/api/lms/admin/export/route.ts:30-35`
-- `src/app/api/lms/admin/tax-settings/route.ts:11-12`
-- `src/components/security/PasswordConfirmDialog.tsx:60-65`의 비밀번호 확인은 클라이언트 UI 단계다.
+- reset/export/tax-settings는 same-origin, owner/admin, reauth cookie를 검증한다.
+- reset은 `/api/lms/admin/reset/confirm`에서 60초짜리 user/academy/action/target scoped confirm token을 받은 뒤 실행된다.
+- 세금 저장, CSV export, reset UI는 `PasswordConfirmDialog`를 통해 서버 reauth 후 실행된다.
 
 영향:
-- 권한 모델이 뚫리면 reset/export/tax settings가 바로 노출된다.
 - cookie-auth POST route라서 origin/CSRF 검증이 필요하다.
 
 권장 수정:
-- reset/tax settings는 서버가 발급한 짧은 TTL의 reauth challenge token을 요구한다.
-- `Origin`/CSRF token 검증을 추가한다.
-- export도 날짜 범위와 row limit 검증을 둔다.
+- Origin 검사에 더해 form-level CSRF token까지 추가한다.
+- admin route 거절 케이스를 route-level test로 고정한다.
+
+적용 상태:
+- 완료: server reauth cookie, reset confirm token, export range/row limit.
+- 남음: form-level CSRF token, route-level rejection tests.
 
 ## P1 - 데이터 정합성 / 실제 기능 버그
 

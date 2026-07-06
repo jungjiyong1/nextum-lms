@@ -135,10 +135,10 @@ Evidence:
 - `src/app/api/lms/admin/reset/route.ts:24-25`
 - `src/app/api/lms/admin/export/route.ts:30-35`
 - `src/app/api/lms/admin/tax-settings/route.ts:11-12`
-- `src/components/security/PasswordConfirmDialog.tsx:60-65`는 클라이언트 재로그인 UI일 뿐 서버 challenge가 아니다.
+- `src/components/security/PasswordConfirmDialog.tsx`는 서버 `/api/lms/admin/reauth`를 호출해 httpOnly reauth cookie를 발급한다.
+- reset은 `/api/lms/admin/reset/confirm`에서 target-scoped confirm token을 받은 뒤 `/api/lms/admin/reset`을 호출한다.
 
 Risk:
-- admin session이 있으면 민감 POST가 바로 실행된다.
 - browser cookie 기반 route는 CSRF/origin 방어가 필요하다.
 - export는 학생/회계 개인정보 유출 표면이다.
 
@@ -157,11 +157,13 @@ Implementation status:
 - reset audit payload에는 target, 테이블별 operation/affected row count, 총 affected row count가 포함된다.
 - export는 최대 370일, 상세 섹션별 10,000행으로 제한하고 filename/date/section scope를 audit payload에 기록한다.
 - reset은 service-role 전용 `lms.reset_academy_data()` RPC로 실행되며, clean baseline 검증에서 authenticated 직접 실행이 거부됨을 확인했다.
-- 아직 남은 작업: reset 2단계 confirm token.
+- reset은 reauth cookie와 별도로 60초짜리 HMAC confirm token을 요구한다. token은 user/academy/action/target scope에 묶인다.
+- 새 LMS 설정 화면의 세금 저장, CSV export, reset은 모두 `PasswordConfirmDialog`를 통해 서버 reauth 후 실행된다.
 
 Acceptance:
 - reauth token 없이 reset/tax settings가 401/403.
 - 외부 origin POST가 403.
+- confirm token 없이 reset이 403.
 - reset 실행 시 audit log에 actor, academy, target, count, timestamp가 남는다.
 
 ### P0-5. Supabase Data API exposed schema/grant 정책이 앱별로 충돌
