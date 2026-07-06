@@ -9,6 +9,7 @@ import { LoginPage } from './screens/LoginPage';
 import { PinLockScreen } from './components/security/PinLockScreen';
 import { NoAcademyScreen } from './components/security/NoAcademyScreen';
 import { AccessDeniedScreen } from './components/security/AccessDeniedScreen';
+import { Skeleton, SkeletonPanel } from './components/ui/skeleton';
 import { useIdleTimer } from './core/hooks/useIdleTimer';
 import { pinApi } from './core/api/pin';
 import { logger } from './core/logger';
@@ -25,10 +26,37 @@ import './pointer-safety';
 
 function LoadingScreen() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="flex flex-col items-center gap-4">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-        <p className="text-white/70">초기화 중...</p>
+    <div className="flex h-screen w-screen overflow-hidden bg-background">
+      <aside className="hidden w-[220px] shrink-0 border-r bg-white p-4 sm:flex sm:flex-col">
+        <div className="mb-8 flex items-center gap-3">
+          <Skeleton className="h-10 w-10 rounded-lg" />
+          <Skeleton className="h-5 w-24" />
+        </div>
+        <div className="space-y-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="flex items-center gap-3 rounded-lg px-2 py-2">
+              <Skeleton className="h-5 w-5 rounded" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-auto space-y-3">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col p-6">
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-36" />
+            <Skeleton className="h-4 w-56 max-w-full" />
+          </div>
+          <Skeleton className="h-10 w-28" />
+        </div>
+        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.5fr]">
+          <SkeletonPanel rows={5} />
+          <SkeletonPanel rows={6} />
+        </div>
       </div>
       <Toaster position="top-right" />
     </div>

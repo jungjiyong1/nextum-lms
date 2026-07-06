@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Skeleton } from '../components/ui/skeleton';
 
 function resolveLoginEmail(identifier: string): string {
   const value = identifier.trim();
@@ -48,10 +49,24 @@ export function LoginPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#1a1f2c]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#1ea362] border-t-transparent" />
-          <p className="text-white/70">로딩 중...</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#1a1f2c] p-4">
+        <div className="w-full max-w-sm rounded-2xl border border-white/5 bg-[#242b3d] p-8 shadow-2xl">
+          <div className="mb-8 flex flex-col items-center">
+            <Skeleton className="mb-4 h-16 w-16 rounded-xl bg-white/15" />
+            <Skeleton className="mb-3 h-5 w-32 bg-white/15" />
+            <Skeleton className="h-4 w-40 bg-white/10" />
+          </div>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-12 bg-white/10" />
+              <Skeleton className="h-10 w-full bg-white/15" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-16 bg-white/10" />
+              <Skeleton className="h-10 w-full bg-white/15" />
+            </div>
+            <Skeleton className="h-10 w-full bg-white/15" />
+          </div>
         </div>
       </div>
     );
