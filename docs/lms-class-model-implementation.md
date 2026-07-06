@@ -56,6 +56,9 @@
   - owner/admin/staff keep the full operational dashboard.
   - teacher/instructor dashboard rows are scoped to assigned classes/students.
   - teacher/instructor dashboard finance rows are withheld instead of exposing billing data.
+- Moved the student operations read path behind authenticated `GET /api/lms/students`:
+  - owner/admin/staff receive the student roster and class assignment options from server-scoped DTOs.
+  - student contacts, parent contacts, and billing contract summaries are no longer loaded directly from browser Supabase queries on the student screen.
 - Expanded accounting operations beyond invoice generation:
   - record student payments and recompute invoice paid/status
   - record operating expenses

@@ -40,15 +40,14 @@ import {
   generateMonthlyInvoices,
   getDashboardData,
   listBilling,
-  listClassSummaries,
   listExpenses,
   listInstructorPayments,
   listPayments,
   listStaff,
-  listStudents,
   listWeakTypes,
   loadClassOperationsDetail,
   loadClassOperationsOverview,
+  loadStudentOperationsOverview,
   prepareAdminReset,
   recordAttendance,
   recordPayment,
@@ -1346,9 +1345,9 @@ export function StudentsOperationsPage() {
     if (!academyId) return;
     setLoading(true);
     try {
-      const [studentRows, classRows] = await Promise.all([listStudents(academyId), listClassSummaries(academyId)]);
-      setStudents(studentRows);
-      setClasses(classRows);
+      const data = await loadStudentOperationsOverview(academyId);
+      setStudents(data.students);
+      setClasses(data.classes);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '학생 정보를 불러오지 못했습니다.');
     } finally {

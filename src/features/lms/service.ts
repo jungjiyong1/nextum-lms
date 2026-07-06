@@ -35,6 +35,7 @@ import type {
   ScheduleItem,
   ScheduleRuleSummary,
   StaffSummary,
+  StudentOperationsOverview,
   StudentInvitationResult,
   StudentSummary,
   UpdateClassInput,
@@ -381,6 +382,11 @@ export async function createStudent(academyId: string, input: CreateStudentInput
 
 export async function updateStudent(academyId: string, studentId: string, input: UpdateStudentInput): Promise<void> {
   await postLmsMutation('/api/lms/students', { academyId, studentId, input });
+}
+
+export async function loadStudentOperationsOverview(academyId: string): Promise<StudentOperationsOverview> {
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<StudentOperationsOverview>(`/api/lms/students?${params.toString()}`);
 }
 
 export async function createStudentInvitation(academyId: string, studentId: string): Promise<StudentInvitationResult> {

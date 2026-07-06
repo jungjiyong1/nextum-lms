@@ -85,6 +85,11 @@ export interface StudentInvitationResult {
   loginHint: string | null;
 }
 
+export interface StudentOperationsOverview {
+  students: StudentSummary[];
+  classes: ClassSummary[];
+}
+
 export interface StaffSummary {
   id: string;
   personId: string;
