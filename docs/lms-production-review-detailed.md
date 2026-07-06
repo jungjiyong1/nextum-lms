@@ -344,6 +344,10 @@ Risk:
 Fix:
 - hooks를 early return 위로 이동하거나 empty/detail 컴포넌트를 분리한다.
 
+Implementation status:
+- 2026-07-06 기준 `StudentDetailPanel`의 state hook은 `student` null early return보다 위에서 호출된다.
+- null 선택 상태에서 학생 선택 상태로 `rerender`해도 hook order가 바뀌지 않는 회귀 테스트를 추가했다.
+
 ## P2 Findings - 성능 / 확장성
 
 ### P2-1. 강사 급여 계산 N+1
@@ -567,7 +571,7 @@ LMS legacy:
 
 1. payment status enum 통일. 완료: 2026-07-06 LMS 상태 helper/legacy 호환 집계 적용.
 2. payroll DTO/schema 통일. 완료: 2026-07-06 gross/net/tax 저장 및 회계 계산 보정 적용.
-3. StudentDetailPanel hook order 수정.
+3. StudentDetailPanel hook order 수정. 완료: 2026-07-06 회귀 테스트 추가.
 4. period cancel transaction API.
 5. makeup/substitute model 수정.
 6. `lms.settings` `(academy_id,key)` migration.
