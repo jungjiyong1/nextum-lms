@@ -262,6 +262,11 @@
 - upsert conflict target도 `academy_id,key`로 바꾼다.
 - read path는 academy context로 filter한다.
 
+상태:
+- 2026-07-06 기준 clean baseline의 `lms.settings`는 `(academy_id, key)` primary key를 사용한다.
+- tax settings 저장 경로는 `onConflict: 'academy_id,key'`를 사용한다.
+- legacy 회계 tax settings 읽기 경로도 현재 academy로 filter한다.
+
 ### 15. reset과 lesson create/update가 transaction이 아님
 
 근거:

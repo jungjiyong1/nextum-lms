@@ -675,9 +675,11 @@ export const accountingApi = {
 
     // 세금 설정 가져오기
     getTaxSettings: async (): Promise<Result<TaxSettings>> => {
+        const academyId = await requireCurrentAcademyId();
         const { data, error } = await supabase
             .from('settings')
             .select('key, value')
+            .eq('academy_id', academyId)
             .like('key', 'tax_%');
 
         if (error) {

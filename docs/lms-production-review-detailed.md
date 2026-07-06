@@ -586,7 +586,7 @@ LMS legacy:
 3. StudentDetailPanel hook order 수정. 완료: 2026-07-06 회귀 테스트 추가.
 4. period cancel transaction API. 부분 완료: materialized schedule key/급여 계산 보정, transaction/RPC 이전은 남음.
 5. makeup/substitute model 수정. 부분 완료: billable status/helper 통일, DB 제약/RPC 정리는 남음.
-6. `lms.settings` `(academy_id,key)` migration.
+6. `lms.settings` `(academy_id,key)` migration. 완료: 2026-07-06 baseline PK/upsert/read filter 확인 및 legacy read path 보정.
 
 ### Week 2-4 - Shared DB rearchitecture
 
