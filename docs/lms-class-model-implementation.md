@@ -104,24 +104,29 @@
   - sensitive helper functions explicitly revoke default PUBLIC/anon execute access before granting authenticated/service-role execution
 - Added `supabase/config.toml` so local Supabase exposes the non-public schemas used by the browser client.
 - Hardened the baseline with same-academy foreign keys, active-contract uniqueness, attendance enrollment validation, and narrower delete policies for LMS operation tables.
+- Applied the remote `nextum-data` LMS repair/cutover after a preservation backup:
+  - kept existing grade-app `content.books`, `content.problems`, and `learning.attempts` data intact
+  - replaced the legacy bigint-based `lms` schema with the UUID class-centered LMS operational schema
+  - added compatibility columns/views for `core`, `content`, `learning`, `ai`, `data`, `reporting`, and `audit`
+  - fixed recursive `core.classes`/`core.class_students`/`core.class_books` policies
+  - aligned the `admin / 1234` account with the existing `넥섬학원` academy data
 
 ## Deliberately Not Done Yet
 
 - grade-app code has not been changed in this LMS-only phase.
-- The active remote `nextum-data` database is the intended final database, but the clean baseline was not applied destructively to that remote database in this phase.
 - PDF report generation is not included. The current target is reliable data structures and LMS views for future report generation.
 - Student analysis and parent report requirements for the future grade-app/reporting phase are tracked in `docs/grade-app-reporting-requirements.md`.
-- Live remote RLS/advisor verification has not been run against `nextum-data` yet. Before production cutover, run the baseline on a disposable branch/project and verify owner/admin/staff, assigned teacher/instructor, unassigned teacher/instructor, student, and cross-academy access cases.
+- Supabase Auth leaked password protection is still a dashboard-side setting, not a SQL migration. The security advisor now only reports that remaining Auth setting.
+- Full grade-app code migration to the shared `core/content/learning/ai` contract is still pending.
 
 ## Cutover Requirements Before Production Use
 
-1. Backup/export any existing remote data that must be kept.
-2. Preserve grade-app book/problem data with `npm run db:backup-content` before removing old schema tables.
-3. Apply the clean baseline to a fresh Supabase database, a Supabase branch, or a confirmed disposable database.
-4. Run `$env:LMS_DEV_SEED_ALLOW = "true"; npm run seed:dev-admin` only for local/development access.
-5. Verify admin login, student invite signup, class book assignment, attendance, and billing generation.
-6. Modify grade-app to use `core.students`, `core.class_students`, `core.class_books`, `learning.*`, and `ai.*` from the same baseline.
-7. Only then switch both apps to the same Supabase project.
+1. Keep the preservation backup from `npm run db:backup-preservation` before any further destructive work.
+2. Run `npm run db:check` against `nextum-data` before authenticated LMS use.
+3. Verify admin login, student invite signup, class book assignment, attendance, and billing generation after each schema change.
+4. Enable Supabase Auth leaked password protection in the dashboard.
+5. Modify grade-app to use `core.students`, `core.class_students`, `core.class_books`, `learning.*`, and `ai.*` from the same baseline.
+6. After grade-app migration, remove or archive legacy duplicated learning tables only with a fresh backup.
 
 ## Verification Commands
 
@@ -130,9 +135,16 @@ npm run typecheck
 npm test -- --run
 npm run lint
 npm run build
+npm run db:check
 ```
 
 `npm run db:check` is the read-only cutover gate for the target Supabase project. It should pass only after the clean LMS baseline has been applied or repaired on that project.
+
+Remote `nextum-data` verification on 2026-07-06:
+
+- `npm run db:check` passed all 40 database contract checks.
+- Supabase security advisor only reported Auth leaked password protection disabled.
+- Playwright browser smoke on `http://localhost:3102` verified `admin / 1234` login, `넥섬학원` academy selection, dashboard counts, and `/classrooms`, `/students`, `/instructors`, `/accounting`, `/settings` page loads without DB error text.
 
 SQL baseline syntax was checked with an ephemeral Postgres 17 Docker container plus minimal Supabase stubs:
 
