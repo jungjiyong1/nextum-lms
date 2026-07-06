@@ -191,14 +191,8 @@ async function postLmsCsvExport(path: string, payload: Record<string, unknown>):
 }
 
 export async function getAcademyName(academyId: string): Promise<string | null> {
-  const { data, error } = await coreDb
-    .from('academies')
-    .select('name')
-    .eq('id', academyId)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  return data?.name ?? null;
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<string | null>(`/api/lms/academy?${params.toString()}`);
 }
 
 export async function listStaff(academyId: string): Promise<StaffSummary[]> {
