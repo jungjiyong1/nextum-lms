@@ -12,6 +12,7 @@ import type {
     StudentLearningMetric,
     StudentOperationsOverview,
     StudentOperationsPermissions,
+    StudentSignupInvitation,
     StudentSummary,
     WeakTypeRow,
 } from '@/features/lms/types';
@@ -531,6 +532,54 @@ export async function loadStudentHardDeletePreview(academyId: string, studentId:
     return parseHardDeletePreview(data);
 }
 
+async function loadStudentSignupState(
+    core: SchemaClient,
+    academyId: string,
+    studentId: string,
+    personId: string,
+): Promise<{ signupInvitation: StudentSignupInvitation | null; hasGradeAppAccount: boolean }> {
+    const [memberResult, inviteResult] = await Promise.all([
+        core
+            .from('academy_members')
+            .select('id,user_account_id')
+            .eq('academy_id', academyId)
+            .eq('person_id', personId)
+            .eq('role', 'student')
+            .eq('active', true)
+            .not('user_account_id', 'is', null)
+            .limit(1),
+        core
+            .from('account_invitations')
+            .select('id,invite_code_display,expires_at,login_hint,accepted_at,created_at')
+            .eq('academy_id', academyId)
+            .eq('student_id', studentId)
+            .eq('role', 'student')
+            .is('accepted_at', null)
+            .order('created_at', { ascending: false })
+            .limit(1),
+    ]);
+    ensureNoError(memberResult.error, 'Failed to load student account status');
+    ensureNoError(inviteResult.error, 'Failed to load student signup invitation');
+
+    const hasGradeAppAccount = ((memberResult.data || []) as Row[]).length > 0;
+    const invite = ((inviteResult.data || []) as Row[])[0];
+    const inviteCode = typeof invite?.invite_code_display === 'string' ? invite.invite_code_display : '';
+    const expiresAt = typeof invite?.expires_at === 'string' ? invite.expires_at : '';
+    const isUsable = inviteCode && expiresAt && new Date(expiresAt).getTime() > Date.now();
+
+    return {
+        hasGradeAppAccount,
+        signupInvitation: isUsable
+            ? {
+                id: invite.id,
+                inviteCode,
+                expiresAt,
+                loginHint: invite.login_hint ?? null,
+            }
+            : null,
+    };
+}
+
 function normalizeDetailSection(section?: string | null): StudentDetailSection {
     const value = section || 'full';
     return STUDENT_DETAIL_SECTIONS.has(value as StudentDetailSection) ? value as StudentDetailSection : 'full';
@@ -545,6 +594,8 @@ function blankStudentDetail(
         summary,
         permissions,
         loadedSections,
+        signupInvitation: null,
+        hasGradeAppAccount: false,
         weakTypes: [],
         recentAttempts: [],
         attendanceSummary: { ...EMPTY_ATTENDANCE_SUMMARY },
@@ -612,6 +663,11 @@ export async function loadStudentDetail(
         ? ['learning', 'attendance', 'billing', 'management', 'full']
         : [requestedSection];
     const detail = blankStudentDetail(summary, permissions, loadedSections);
+    if (permissions.canEdit) {
+        const signupState = await loadStudentSignupState(core, context.academyId, studentId, summary.personId);
+        detail.signupInvitation = signupState.signupInvitation;
+        detail.hasGradeAppAccount = signupState.hasGradeAppAccount;
+    }
 
     if (requestedSection === 'learning' || requestedSection === 'full') {
         const [weakTypes, recentAttempts, aiConversations, reports] = await Promise.all([

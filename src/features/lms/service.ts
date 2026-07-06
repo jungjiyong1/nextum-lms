@@ -12,6 +12,7 @@ import type {
   CreateClassroomInput,
   CreateExpenseInput,
   CreateInstructorPaymentInput,
+  CreateStudentResult,
   CreateScheduleRuleInput,
   CreateStaffInput,
   CreateStudentInput,
@@ -25,6 +26,7 @@ import type {
   StudentLearningMetric,
   StudentMutationResult,
   StudentOperationsOverview,
+  StudentSignupInvitation,
   UpdateBookInput,
   UpdateClassInput,
   UpdateClassroomInput,
@@ -162,12 +164,32 @@ export async function updateLessonOccurrence(academyId: string, input: UpdateLes
   await postLmsMutation('/api/lms/lesson-occurrences', { academyId, input });
 }
 
-export async function createStudent(academyId: string, input: CreateStudentInput): Promise<void> {
-  await postLmsMutation('/api/lms/students', { academyId, input });
+export async function createStudent(academyId: string, input: CreateStudentInput): Promise<CreateStudentResult> {
+  const result = await postLmsMutation<{ data?: CreateStudentResult }>('/api/lms/students', { academyId, input });
+  if (!result.data?.invitation?.inviteCode) {
+    throw new Error('가입 코드를 발행하지 못했습니다.');
+  }
+  return result.data;
 }
 
 export async function updateStudent(academyId: string, studentId: string, input: UpdateStudentInput): Promise<void> {
   await postLmsMutation('/api/lms/students', { academyId, studentId, input });
+}
+
+export async function issueStudentInvitation(
+  academyId: string,
+  studentId: string,
+  loginHint?: string | null,
+): Promise<StudentSignupInvitation> {
+  const result = await postLmsMutation<{ invitation?: StudentSignupInvitation }>('/api/lms/students/invitations', {
+    academyId,
+    studentId,
+    loginHint: loginHint || null,
+  });
+  if (!result.invitation?.inviteCode) {
+    throw new Error('가입 코드를 발행하지 못했습니다.');
+  }
+  return result.invitation;
 }
 
 export async function loadStudentOperationsOverview(academyId: string): Promise<StudentOperationsOverview> {

@@ -5,10 +5,13 @@ import {
     AlertTriangle,
     BarChart3,
     CalendarDays,
+    Copy,
     CreditCard,
     GraduationCap,
+    KeyRound,
     Pencil,
     Plus,
+    RefreshCw,
     Search,
     ShieldAlert,
     Trash2,
@@ -36,6 +39,7 @@ import {
     archiveStudent,
     createStudent,
     hardDeleteStudent,
+    issueStudentInvitation,
     loadStudentDetail,
     loadStudentLearningMetrics,
     loadStudentOperationsOverview,
@@ -45,6 +49,7 @@ import {
 import type {
     BillingMode,
     ClassSummary,
+    CreateStudentResult,
     StudentDetail,
     StudentDetailSection,
     StudentHardDeletePreview,
@@ -101,6 +106,8 @@ function mergeStudentDetail(current: StudentDetail | null, next: StudentDetail):
         },
         permissions: next.permissions,
         loadedSections,
+        signupInvitation: next.signupInvitation,
+        hasGradeAppAccount: next.hasGradeAppAccount,
         weakTypes: nextLoaded('learning') ? next.weakTypes : current.weakTypes,
         recentAttempts: nextLoaded('learning') ? next.recentAttempts : current.recentAttempts,
         aiConversations: nextLoaded('learning') ? next.aiConversations : current.aiConversations,
@@ -672,6 +679,9 @@ function ManagementTab({
     onStartEdit,
     onArchive,
     onHardDelete,
+    onCopyInviteCode,
+    onIssueInvitation,
+    issuingInvitation,
 }: {
     detail: StudentDetail;
     classes: ClassSummary[];
@@ -680,10 +690,66 @@ function ManagementTab({
     onStartEdit: () => void;
     onArchive: () => void;
     onHardDelete: () => void;
+    onCopyInviteCode: (code: string | null | undefined) => void;
+    onIssueInvitation: () => void;
+    issuingInvitation: boolean;
 }) {
     const preview = detail.hardDeletePreview;
     return (
         <div className="grid gap-4">
+            {detail.permissions.canEdit && (
+                <div className="rounded-lg border bg-white p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                                <KeyRound className="h-4 w-4" />
+                                Grade app 가입 코드
+                            </p>
+                            <p className="mt-1 text-xs text-slate-400">
+                                미사용 코드만 표시됩니다. 학생이 가입하면 코드는 더 이상 사용할 수 없습니다.
+                            </p>
+                        </div>
+                        {!detail.hasGradeAppAccount && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={onIssueInvitation}
+                                disabled={issuingInvitation}
+                            >
+                                <RefreshCw className={cn('mr-2 h-4 w-4', issuingInvitation && 'animate-spin')} />
+                                {detail.signupInvitation ? '재발급' : '발급'}
+                            </Button>
+                        )}
+                    </div>
+                    <div className="mt-4 rounded-lg bg-slate-50 p-3">
+                        {detail.hasGradeAppAccount ? (
+                            <p className="text-sm font-medium text-emerald-700">가입 완료</p>
+                        ) : detail.signupInvitation ? (
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <code className="select-all break-all text-xl font-semibold tracking-[0.18em] text-slate-950">
+                                        {detail.signupInvitation.inviteCode}
+                                    </code>
+                                    <p className="mt-1 text-xs text-slate-500">만료일 {shortDate(detail.signupInvitation.expiresAt)}</p>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => onCopyInviteCode(detail.signupInvitation?.inviteCode)}
+                                >
+                                    <Copy className="mr-2 h-4 w-4" />
+                                    복사
+                                </Button>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-slate-500">사용 가능한 가입 코드가 없습니다.</p>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {detail.permissions.canEdit && (
                 <div className="rounded-lg border bg-white p-4">
                     <div className="mb-4 flex items-center justify-between gap-3">
@@ -773,6 +839,8 @@ export function StudentsOperationsPage() {
     const [hardDeletePreview, setHardDeletePreview] = useState<StudentHardDeletePreview | null>(null);
     const [hardDeleteConfirmName, setHardDeleteConfirmName] = useState('');
     const [hardDeletePasswordOpen, setHardDeletePasswordOpen] = useState(false);
+    const [createdInvitation, setCreatedInvitation] = useState<CreateStudentResult | null>(null);
+    const [issuingInvitation, setIssuingInvitation] = useState(false);
 
     const [editingStudentId, setEditingStudentId] = useState('');
     const [name, setName] = useState('');
@@ -970,6 +1038,37 @@ export function StudentsOperationsPage() {
         });
     };
 
+    const copyInviteCode = async (code: string | null | undefined) => {
+        if (!code) return;
+        try {
+            await navigator.clipboard.writeText(code);
+            toast.success('가입 코드를 복사했습니다.');
+        } catch {
+            toast.error('가입 코드 복사에 실패했습니다.');
+        }
+    };
+
+    const issueInvitationForDetail = async () => {
+        if (!academyId || !detail) return;
+        setIssuingInvitation(true);
+        try {
+            const invitation = await issueStudentInvitation(academyId, detail.summary.id);
+            setDetail((current) => current && current.summary.id === detail.summary.id
+                ? { ...current, signupInvitation: invitation, hasGradeAppAccount: false }
+                : current);
+            setCreatedInvitation({
+                studentId: detail.summary.id,
+                studentName: detail.summary.name,
+                invitation,
+            });
+            toast.success('가입 코드를 발행했습니다.');
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : '가입 코드 발행에 실패했습니다.');
+        } finally {
+            setIssuingInvitation(false);
+        }
+    };
+
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
         if (!academyId || !permissions.canEdit && formMode === 'edit' || !permissions.canCreate && formMode === 'create') return;
@@ -1004,8 +1103,9 @@ export function StudentsOperationsPage() {
                 toast.success('학생 정보를 수정했습니다.');
                 setSelectedStudentId(editingStudentId);
             } else {
-                await createStudent(academyId, payload);
-                toast.success('학생을 등록했습니다.');
+                const result = await createStudent(academyId, payload);
+                setCreatedInvitation(result);
+                toast.success('학생을 등록하고 가입 코드를 발행했습니다.');
             }
             resetStudentForm();
             await load();
@@ -1212,6 +1312,9 @@ export function StudentsOperationsPage() {
                                                 onStartEdit={startEdit}
                                                 onArchive={() => setArchiveOpen(true)}
                                                 onHardDelete={openHardDelete}
+                                                onCopyInviteCode={(code) => void copyInviteCode(code)}
+                                                onIssueInvitation={() => void issueInvitationForDetail()}
+                                                issuingInvitation={issuingInvitation}
                                             />
                                         </TabsContent>
                                     )}
@@ -1223,6 +1326,46 @@ export function StudentsOperationsPage() {
                     )}
                 </div>
             )}
+
+            <Dialog open={Boolean(createdInvitation)} onOpenChange={(open) => {
+                if (!open) setCreatedInvitation(null);
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Grade app 가입 코드</DialogTitle>
+                        <DialogDescription>
+                            {createdInvitation?.studentName || '학생'} 학생에게 전달할 일회용 가입 코드입니다.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="rounded-lg border bg-slate-50 p-4">
+                            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">가입 코드</p>
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                                <code className="select-all break-all text-2xl font-semibold tracking-[0.2em] text-slate-950">
+                                    {createdInvitation?.invitation.inviteCode || '-'}
+                                </code>
+                                <Button type="button" variant="outline" size="sm" onClick={() => void copyInviteCode(createdInvitation?.invitation.inviteCode)}>
+                                    <Copy className="mr-2 h-4 w-4" />
+                                    복사
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="grid gap-2 text-sm text-slate-600">
+                            <div className="flex items-center justify-between gap-3">
+                                <span>학생</span>
+                                <strong className="text-slate-900">{createdInvitation?.studentName || '-'}</strong>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                                <span>만료일</span>
+                                <strong className="text-slate-900">{shortDate(createdInvitation?.invitation.expiresAt)}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" onClick={() => setCreatedInvitation(null)}>확인</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
                 <DialogContent>

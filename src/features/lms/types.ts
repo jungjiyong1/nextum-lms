@@ -177,6 +177,8 @@ export interface StudentDetail {
   summary: StudentSummary;
   permissions: StudentOperationsPermissions;
   loadedSections: StudentDetailSection[];
+  signupInvitation: StudentSignupInvitation | null;
+  hasGradeAppAccount: boolean;
   weakTypes: WeakTypeRow[];
   recentAttempts: StudentLearningAttemptRow[];
   attendanceSummary: StudentAttendanceSummary;
@@ -423,6 +425,19 @@ export interface CreateStudentInput {
   billingMode: BillingMode;
   baseMonthlyFee: number;
   hourlyRate?: number | null;
+}
+
+export interface StudentSignupInvitation {
+  id?: string;
+  inviteCode: string;
+  expiresAt: string;
+  loginHint: string | null;
+}
+
+export interface CreateStudentResult {
+  studentId: string;
+  studentName: string;
+  invitation: StudentSignupInvitation;
 }
 
 export interface UpdateStudentInput extends CreateStudentInput {

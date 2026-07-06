@@ -515,6 +515,13 @@ export async function createStudentForAcademy(academyId: string, input: CreateSt
             const { error } = await lms.from('billing_class_rules').insert(billingRules);
             ensureNoError(error, 'Failed to create billing class rules');
         }
+
+        const invitation = await issueStudentInvitationForAcademy(academyId, studentRow.id);
+        return {
+            studentId: studentRow.id as string,
+            studentName: name,
+            invitation,
+        };
     } catch (error) {
         await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
         throw error;
@@ -975,6 +982,42 @@ export async function issueStudentInvitationForAcademy(
     ensureNoError(studentError, 'Failed to load student');
     if (!student?.person_id) throw new Error('Student is not linked to a person record.');
 
+    const { data: existingMembers, error: existingMembersError } = await core
+        .from('academy_members')
+        .select('id,user_account_id')
+        .eq('academy_id', academyId)
+        .eq('person_id', student.person_id)
+        .eq('role', 'student')
+        .eq('active', true)
+        .not('user_account_id', 'is', null)
+        .limit(1);
+    ensureNoError(existingMembersError, 'Failed to verify student account');
+    if ((existingMembers || []).length > 0) {
+        throw new Error('This student already has a grade-app account.');
+    }
+
+    const { data: acceptedInvites, error: acceptedInviteError } = await core
+        .from('account_invitations')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('student_id', studentId)
+        .eq('role', 'student')
+        .not('accepted_at', 'is', null)
+        .limit(1);
+    ensureNoError(acceptedInviteError, 'Failed to verify student invitation');
+    if ((acceptedInvites || []).length > 0) {
+        throw new Error('This student already used a grade-app signup code.');
+    }
+
+    const { error: pendingDeleteError } = await core
+        .from('account_invitations')
+        .delete()
+        .eq('academy_id', academyId)
+        .eq('student_id', studentId)
+        .eq('role', 'student')
+        .is('accepted_at', null);
+    ensureNoError(pendingDeleteError, 'Failed to clear pending student invitations');
+
     for (let attempt = 0; attempt < 3; attempt += 1) {
         const inviteCode = newInviteCode();
         const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -986,6 +1029,7 @@ export async function issueStudentInvitationForAcademy(
                 student_id: studentId,
                 role: 'student',
                 invite_code_hash: hashInviteCode(inviteCode),
+                invite_code_display: inviteCode,
                 login_hint: loginHint?.trim() || null,
                 expires_at: expiresAt,
             });

@@ -48,7 +48,8 @@ export async function POST(request: Request) {
         if (body.studentId) {
             await updateStudentForAcademy(body.academyId, body.studentId, body.input as UpdateStudentInput);
         } else {
-            await createStudentForAcademy(body.academyId, body.input as CreateStudentInput);
+            const data = await createStudentForAcademy(body.academyId, body.input as CreateStudentInput);
+            return Response.json({ success: true, data });
         }
 
         return Response.json({ success: true });

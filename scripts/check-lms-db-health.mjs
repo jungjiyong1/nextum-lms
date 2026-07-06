@@ -28,7 +28,7 @@ const checks = [
   ['core', 'classes', ['id', 'academy_id', 'name', 'grade', 'active']],
   ['core', 'class_students', ['class_id', 'student_id', 'status', 'primary_class']],
   ['core', 'class_books', ['class_id', 'book_id', 'active', 'assigned_at']],
-  ['core', 'account_invitations', ['id', 'academy_id', 'person_id', 'student_id', 'role', 'invite_code_hash', 'login_hint', 'expires_at', 'accepted_at']],
+  ['core', 'account_invitations', ['id', 'academy_id', 'person_id', 'student_id', 'role', 'invite_code_hash', 'invite_code_display', 'login_hint', 'expires_at', 'accepted_at']],
   ['core', 'user_security_settings', ['user_account_id', 'idle_timeout']],
 
   ['content', 'books', ['id', 'academy_id', 'book_key', 'title', 'subject', 'grade']],
