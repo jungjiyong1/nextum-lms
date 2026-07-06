@@ -48,6 +48,10 @@
   - `/api/lms/expenses`
   - `/api/lms/payroll`
   - These routes authorize the exact academy before using the server-only Supabase secret key.
+- Moved the class operations read path behind role-aware server API routes:
+  - `/api/lms/classes/overview`
+  - `/api/lms/classes/detail`
+  - These routes return already-scoped class, schedule, roster, book, attendance, staff, and classroom DTOs.
 - Expanded accounting operations beyond invoice generation:
   - record student payments and recompute invoice paid/status
   - record operating expenses
@@ -77,7 +81,8 @@
 - Tightened teacher/instructor class operations:
   - recurring schedule rule create/update is limited to owner/admin/staff
   - attendance and single-lesson status mutations require teacher/instructor assignment to the target class
-  - class, schedule, rule, and attendance lists are filtered in the LMS class screen to the current teacher/instructor's assigned classes
+  - class overview/detail reads now go through server routes that filter teacher/instructor data to assigned classes before returning it to the browser
+  - teacher/instructor reference data is reduced to assigned-class staff/classrooms, and global book lists are withheld from those roles
 - Added `supabase/config.toml` so local Supabase exposes the non-public schemas used by the browser client.
 - Hardened the baseline with same-academy foreign keys, active-contract uniqueness, attendance enrollment validation, and narrower delete policies for LMS operation tables.
 
@@ -87,7 +92,7 @@
 - The active remote `nextum-data` database is the intended final database, but the clean baseline was not applied destructively to that remote database in this phase.
 - PDF report generation is not included. The current target is reliable data structures and LMS views for future report generation.
 - Student analysis and parent report requirements for the future grade-app/reporting phase are tracked in `docs/grade-app-reporting-requirements.md`.
-- The clean baseline RLS still grants broad read access to teacher/instructor roles inside an academy. The next DB tightening step is class-scoped teacher/instructor RLS and server-side read APIs for assigned-class rosters, learning summaries, and AI/report data.
+- The clean baseline RLS still grants broad read access to teacher/instructor roles inside an academy. The next DB tightening step is class-scoped teacher/instructor RLS plus server-side read APIs for other LMS/reporting surfaces that still rely on direct browser Supabase reads.
 
 ## Cutover Requirements Before Production Use
 

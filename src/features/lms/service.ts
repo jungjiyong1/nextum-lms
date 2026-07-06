@@ -13,6 +13,8 @@ import type {
   BillingRow,
   BookSummary,
   ClassBookSummary,
+  ClassOperationsDetail,
+  ClassOperationsOverview,
   ClassStudentSummary,
   ClassSummary,
   ClassroomSummary,
@@ -141,6 +143,18 @@ async function postLmsMutation<T = undefined>(path: string, payload: Record<stri
     throw new Error(result?.error || '요청 처리에 실패했습니다.');
   }
   return result as T;
+}
+
+async function getLmsJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  const result = await response.json().catch(() => null) as { success?: boolean; error?: string; data?: T } | null;
+  if (!response.ok || !result?.success) {
+    throw new Error(result?.error || '?붿껌 泥섎━???ㅽ뙣?덉뒿?덈떎.');
+  }
+  return result.data as T;
 }
 
 function filenameFromDisposition(disposition: string | null, fallback: string): string {
@@ -540,6 +554,23 @@ export async function updateScheduleRule(academyId: string, ruleId: string, inpu
 
 export async function updateLessonOccurrence(academyId: string, input: UpdateLessonOccurrenceInput): Promise<void> {
   await postLmsMutation('/api/lms/lesson-occurrences', { academyId, input });
+}
+
+export async function loadClassOperationsOverview(
+  academyId: string,
+  startDate: string,
+  endDate: string,
+): Promise<ClassOperationsOverview> {
+  const params = new URLSearchParams({ academyId, startDate, endDate });
+  return getLmsJson<ClassOperationsOverview>(`/api/lms/classes/overview?${params.toString()}`);
+}
+
+export async function loadClassOperationsDetail(
+  academyId: string,
+  classId: string,
+): Promise<ClassOperationsDetail> {
+  const params = new URLSearchParams({ academyId, classId });
+  return getLmsJson<ClassOperationsDetail>(`/api/lms/classes/detail?${params.toString()}`);
 }
 
 

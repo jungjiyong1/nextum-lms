@@ -26,9 +26,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { canManageScheduleRules, requiresAssignedClassScope } from '@/core/auth/roles';
+import { canManageScheduleRules } from '@/core/auth/roles';
 import { cn } from '@/lib/utils';
-import { applyAssignedClassScope } from './classScope';
 import {
   createClass,
   createBook,
@@ -40,21 +39,16 @@ import {
   exportAdminCsv,
   generateMonthlyInvoices,
   getDashboardData,
-  listAttendance,
   listBilling,
-  listBooks,
-  listClassBooks,
-  listClassStudents,
   listClassSummaries,
-  listClassrooms,
   listExpenses,
   listInstructorPayments,
   listPayments,
-  listSchedule,
-  listScheduleRules,
   listStaff,
   listStudents,
   listWeakTypes,
+  loadClassOperationsDetail,
+  loadClassOperationsOverview,
   prepareAdminReset,
   recordAttendance,
   recordPayment,
@@ -471,8 +465,6 @@ export function LearningHomePage() {
 export function ClassesPage() {
   const academyId = useAcademyId();
   const { profile } = useAuth();
-  const staffMemberId = profile?.staff_member_id ?? null;
-  const shouldUseAssignedClassScope = requiresAssignedClassScope(profile?.role);
   const canManageClassSetup = canManageScheduleRules(profile?.role);
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
@@ -527,44 +519,22 @@ export function ClassesPage() {
     try {
       const rangeStart = today();
       const rangeEnd = addDaysString(rangeStart, 14);
-      const [classRows, scheduleRows, ruleRows, bookRows, attendanceRows, staffRows, classroomRows] = await Promise.all([
-        listClassSummaries(academyId),
-        listSchedule(academyId, rangeStart, rangeEnd),
-        listScheduleRules(academyId),
-        listBooks(academyId),
-        listAttendance(academyId, rangeStart, rangeEnd),
-        listStaff(academyId),
-        listClassrooms(academyId),
-      ]);
-      const scoped = shouldUseAssignedClassScope
-        ? applyAssignedClassScope({
-          staffMemberId,
-          classes: classRows,
-          schedule: scheduleRows,
-          scheduleRules: ruleRows,
-          attendance: attendanceRows,
-        })
-        : {
-          classes: classRows,
-          schedule: scheduleRows,
-          scheduleRules: ruleRows,
-          attendance: attendanceRows,
-        };
+      const data = await loadClassOperationsOverview(academyId, rangeStart, rangeEnd);
 
-      setClasses(scoped.classes);
-      setSchedule(scoped.schedule);
-      setScheduleRules(scoped.scheduleRules);
-      setBooks(bookRows);
-      setAttendance(scoped.attendance);
-      setStaff(staffRows);
-      setClassrooms(classroomRows);
-      setSelectedClassId((current) => (current && scoped.classes.some((row) => row.id === current) ? current : scoped.classes[0]?.id || ''));
+      setClasses(data.classes);
+      setSchedule(data.schedule);
+      setScheduleRules(data.scheduleRules);
+      setBooks(data.books);
+      setAttendance(data.attendance);
+      setStaff(data.staff);
+      setClassrooms(data.classrooms);
+      setSelectedClassId((current) => (current && data.classes.some((row) => row.id === current) ? current : data.classes[0]?.id || ''));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 정보를 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
-  }, [academyId, shouldUseAssignedClassScope, staffMemberId]);
+  }, [academyId]);
 
   const loadClassDetail = useCallback(async () => {
     if (!academyId || !selectedClassId) {
@@ -574,13 +544,10 @@ export function ClassesPage() {
     }
     setDetailLoading(true);
     try {
-      const [studentsRows, bookRows] = await Promise.all([
-        listClassStudents(academyId, selectedClassId),
-        listClassBooks(selectedClassId),
-      ]);
-      setClassStudents(studentsRows);
-      setClassBooks(bookRows);
-      setAttendanceStudentId((current) => current || studentsRows[0]?.id || '');
+      const data = await loadClassOperationsDetail(academyId, selectedClassId);
+      setClassStudents(data.students);
+      setClassBooks(data.books);
+      setAttendanceStudentId((current) => current || data.students[0]?.id || '');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 상세 정보를 불러오지 못했습니다.');
     } finally {

@@ -253,6 +253,21 @@ export interface AttendanceRow {
   notes: string | null;
 }
 
+export interface ClassOperationsOverview {
+  classes: ClassSummary[];
+  schedule: ScheduleItem[];
+  scheduleRules: ScheduleRuleSummary[];
+  books: BookSummary[];
+  attendance: AttendanceRow[];
+  staff: StaffSummary[];
+  classrooms: ClassroomSummary[];
+}
+
+export interface ClassOperationsDetail {
+  students: ClassStudentSummary[];
+  books: ClassBookSummary[];
+}
+
 export interface DashboardData {
   classes: ClassSummary[];
   students: StudentSummary[];
