@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { SkeletonPanel } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import {
+    addLmsInvalidationListener,
     createLearningAssignment,
     importWorksheetAssignment,
     loadAssignmentManagementData,
@@ -24,6 +25,7 @@ import type {
 } from './types';
 
 type SourceType = 'content_scope' | 'worksheet';
+type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
 
 function academyIdOf(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
@@ -92,6 +94,8 @@ export function AssignmentsOperationsPage() {
     const academyId = academyIdOf(profile?.current_academy_id);
     const [data, setData] = useState<AssignmentManagementData | null>(null);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [hasExternalUpdate, setHasExternalUpdate] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
@@ -107,24 +111,41 @@ export function AssignmentsOperationsPage() {
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
     const [worksheetFile, setWorksheetFile] = useState<File | null>(null);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
         if (!academyId) return;
-        setLoading(true);
+        if (options.background) setRefreshing(true);
+        else setLoading(true);
         try {
-            const next = await loadAssignmentManagementData(academyId);
+            const next = await loadAssignmentManagementData(academyId, { force: options.force });
             setData(next);
             setBookId((current) => current || next.books[0]?.id || '');
             setError(null);
+            setHasExternalUpdate(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : '과제 데이터를 불러오지 못했습니다.');
         } finally {
-            setLoading(false);
+            if (options.background) setRefreshing(false);
+            else setLoading(false);
         }
     }, [academyId]);
 
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        if (!academyId) return undefined;
+        return addLmsInvalidationListener((payload) => {
+            if (payload.academyId && payload.academyId !== academyId) return;
+            const domain = payload.domain || 'lms';
+            if (!['assignments', 'students', 'classes', 'learning', 'lms', 'admin'].includes(domain)) return;
+            if (submitting) {
+                setHasExternalUpdate(true);
+                return;
+            }
+            void load({ force: true, background: true });
+        });
+    }, [academyId, load, submitting]);
 
     const selectedBook = useMemo(
         () => data?.books.find((book) => book.id === bookId) || null,
@@ -192,7 +213,7 @@ export function AssignmentsOperationsPage() {
             }
             toast.success('과제를 생성했습니다.');
             resetForm();
-            await load();
+            await load({ force: true });
         } catch (err) {
             toast.error(err instanceof Error ? err.message : '과제 생성에 실패했습니다.');
         } finally {
@@ -223,11 +244,34 @@ export function AssignmentsOperationsPage() {
                         <p className="text-sm text-slate-500">교재 범위 또는 crop-trainer 학습지를 학생 과제로 배정합니다.</p>
                     </div>
                 </div>
-                <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}>
+                <Button type="button" variant="outline" onClick={() => void load({ force: true })} disabled={loading}>
                     <RefreshCw className="mr-2 h-4 w-4" />
                     새로고침
                 </Button>
             </div>
+
+            {!loading && refreshing && (
+                <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    최신 데이터 동기화 중
+                </div>
+            )}
+            {!loading && hasExternalUpdate && (
+                <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <span>작업 중 새 데이터가 들어왔습니다.</span>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                            setHasExternalUpdate(false);
+                            void load({ force: true });
+                        }}
+                    >
+                        새로고침
+                    </Button>
+                </div>
+            )}
 
             {loading && <SkeletonPanel className="min-h-[360px]" rows={7} />}
             {error && (

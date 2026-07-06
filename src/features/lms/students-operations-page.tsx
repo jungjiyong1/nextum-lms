@@ -36,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import {
+    addLmsInvalidationListener,
     archiveStudent,
     createStudent,
     hardDeleteStudent,
@@ -62,6 +63,7 @@ import type {
 type StudentFilterStatus = 'operations' | 'all' | StudentStatus;
 type StudentSortMode = 'risk' | 'recent' | 'name';
 type FormMode = 'create' | 'edit' | null;
+type StudentPageLoadOptions = { force?: boolean; background?: boolean };
 
 const emptyPermissions: StudentOperationsPermissions = {
     canCreate: false,
@@ -821,6 +823,8 @@ export function StudentsOperationsPage() {
     const [classes, setClasses] = useState<ClassSummary[]>([]);
     const [permissions, setPermissions] = useState<StudentOperationsPermissions>(emptyPermissions);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [hasExternalUpdate, setHasExternalUpdate] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
     const [metricsLoading, setMetricsLoading] = useState(false);
     const [sectionLoading, setSectionLoading] = useState<Partial<Record<StudentDetailSection, boolean>>>({});
@@ -885,25 +889,26 @@ export function StudentsOperationsPage() {
         }));
     }, []);
 
-    const loadMetrics = useCallback(async (studentIds: string[]) => {
+    const loadMetrics = useCallback(async (studentIds: string[], options: StudentPageLoadOptions = {}) => {
         if (!academyId || studentIds.length === 0) return;
-        setMetricsLoading(true);
+        if (!options.background) setMetricsLoading(true);
         try {
-            const metrics = await loadStudentLearningMetrics(academyId, studentIds);
+            const metrics = await loadStudentLearningMetrics(academyId, studentIds, { force: options.force });
             mergeLearningMetrics(metrics);
         } catch (err) {
             console.warn('[Students] Failed to load learning metrics:', err);
         } finally {
-            setMetricsLoading(false);
+            if (!options.background) setMetricsLoading(false);
         }
     }, [academyId, mergeLearningMetrics]);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async (options: StudentPageLoadOptions = {}) => {
         if (!academyId) return;
-        setLoading(true);
+        if (options.background) setRefreshing(true);
+        else setLoading(true);
         setError('');
         try {
-            const data = await loadStudentOperationsOverview(academyId);
+            const data = await loadStudentOperationsOverview(academyId, { force: options.force });
             setStudents(data.students);
             setClasses(data.classes);
             setPermissions(data.permissions);
@@ -911,29 +916,33 @@ export function StudentsOperationsPage() {
                 if (current && data.students.some((student) => student.id === current)) return current;
                 return '';
             });
-            void loadMetrics(data.students.map((student) => student.id));
+            setHasExternalUpdate(false);
+            void loadMetrics(data.students.map((student) => student.id), options);
         } catch (err) {
             const message = err instanceof Error ? err.message : '학생 정보를 불러오지 못했습니다.';
             setError(message);
             toast.error(message);
         } finally {
-            setLoading(false);
+            if (options.background) setRefreshing(false);
+            else setLoading(false);
         }
     }, [academyId, loadMetrics]);
 
     const loadDetail = useCallback(async (
         studentId: string,
         section: StudentDetailSection = 'learning',
-        options: { replace?: boolean } = {},
+        options: { replace?: boolean; force?: boolean; background?: boolean } = {},
     ) => {
         if (!academyId || !studentId) {
             setDetail(null);
             return;
         }
-        if (options.replace) setDetailLoading(true);
-        else setSectionLoading((current) => ({ ...current, [section]: true }));
+        if (!options.background) {
+            if (options.replace) setDetailLoading(true);
+            else setSectionLoading((current) => ({ ...current, [section]: true }));
+        }
         try {
-            const data = await loadStudentDetail(academyId, studentId, section);
+            const data = await loadStudentDetail(academyId, studentId, section, { force: options.force });
             setDetail((current) => options.replace ? data : mergeStudentDetail(current, data));
             if (data.hardDeletePreview) setHardDeletePreview(data.hardDeletePreview);
         } catch (err) {
@@ -941,14 +950,37 @@ export function StudentsOperationsPage() {
             toast.error(message);
             if (options.replace) setDetail(null);
         } finally {
-            if (options.replace) setDetailLoading(false);
-            else setSectionLoading((current) => ({ ...current, [section]: false }));
+            if (!options.background) {
+                if (options.replace) setDetailLoading(false);
+                else setSectionLoading((current) => ({ ...current, [section]: false }));
+            }
         }
     }, [academyId]);
 
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        if (!academyId) return undefined;
+        return addLmsInvalidationListener((payload) => {
+            if (payload.academyId && payload.academyId !== academyId) return;
+            const domain = payload.domain || 'lms';
+            if (!['students', 'classes', 'accounting', 'assignments', 'learning', 'ai', 'reports', 'lms', 'admin'].includes(domain)) return;
+
+            if (formMode || submitting) {
+                setHasExternalUpdate(true);
+                return;
+            }
+
+            void load({ force: true, background: true });
+            const section = DETAIL_SECTION_BY_TAB[activeTab] || 'learning';
+            const studentMatches = !payload.studentId || payload.studentId === selectedStudentId;
+            if (selectedStudentId && studentMatches && section !== 'management') {
+                void loadDetail(selectedStudentId, section, { force: true, background: true });
+            }
+        });
+    }, [academyId, activeTab, formMode, load, loadDetail, selectedStudentId, submitting]);
 
     useEffect(() => {
         if (!selectedStudentId) {
@@ -1108,8 +1140,8 @@ export function StudentsOperationsPage() {
                 toast.success('학생을 등록하고 가입 코드를 발행했습니다.');
             }
             resetStudentForm();
-            await load();
-            if (editingStudentId) await loadDetail(editingStudentId, 'learning', { replace: true });
+            await load({ force: true });
+            if (editingStudentId) await loadDetail(editingStudentId, 'learning', { replace: true, force: true });
         } catch (err) {
             toast.error(err instanceof Error ? err.message : '학생 저장에 실패했습니다.');
         } finally {
@@ -1124,7 +1156,7 @@ export function StudentsOperationsPage() {
             toast.success('학생을 퇴원/보관 처리했습니다.');
             setArchiveOpen(false);
             resetStudentForm();
-            await load();
+            await load({ force: true });
             setSelectedStudentId('');
         } catch (err) {
             toast.error(err instanceof Error ? err.message : '퇴원/보관 처리에 실패했습니다.');
@@ -1153,7 +1185,7 @@ export function StudentsOperationsPage() {
             setHardDeleteOpen(false);
             setSelectedStudentId('');
             setDetail(null);
-            await load();
+            await load({ force: true });
         } catch (err) {
             toast.error(err instanceof Error ? err.message : '완전삭제에 실패했습니다.');
         }
@@ -1194,12 +1226,34 @@ export function StudentsOperationsPage() {
                 </Button>
             ) : undefined}
         >
+            {!loading && refreshing && (
+                <div className="mb-3 flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    최신 데이터 동기화 중
+                </div>
+            )}
+            {!loading && hasExternalUpdate && (
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <span>입력 중 새 데이터가 들어왔습니다.</span>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                            setHasExternalUpdate(false);
+                            void load({ force: true });
+                        }}
+                    >
+                        새로고침
+                    </Button>
+                </div>
+            )}
             {loading && <SkeletonPage />}
             {!loading && error && (
                 <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-lg border border-red-200 bg-red-50 p-6 text-center">
                     <AlertTriangle className="h-7 w-7 text-red-600" />
                     <p className="text-sm font-medium text-red-800">{error}</p>
-                    <Button variant="outline" onClick={() => void load()}>다시 시도</Button>
+                    <Button variant="outline" onClick={() => void load({ force: true })}>다시 시도</Button>
                 </div>
             )}
             {!loading && !error && (

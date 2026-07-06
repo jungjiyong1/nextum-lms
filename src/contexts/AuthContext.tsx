@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { supabase, User, Session } from '../core/supabaseClient';
 import { pinApi } from '../core/api/pin';
 import { loadAuthProfile } from '../core/api/identity';
@@ -36,6 +36,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const [profile, setProfile] = useState<Profile | null>(null);
     const [loading, setLoading] = useState(true);
     const [initialized, setInitialized] = useState(false);
+    const userIdRef = useRef<string | null>(null);
+    const profileRef = useRef<Profile | null>(null);
+    const initializedRef = useRef(false);
+    const profileLoadSeqRef = useRef(0);
 
     // PIN Lock state
     const [isLocked, setIsLocked] = useState(false);
@@ -43,7 +47,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const [idleTimeout, setIdleTimeout] = useState(10); // Default 10 minutes
 
     // 프로필 로드
-    const loadProfile = async (authUser: User): Promise<Profile | null> => {
+    const loadProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
         logger.debug('Auth', 'Loading profile for current user');
         try {
             const data = await loadAuthProfile(authUser);
@@ -67,7 +71,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
             console.error('[Auth] Profile loading exception:', err);
             return null;
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        userIdRef.current = user?.id ?? null;
+    }, [user?.id]);
+
+    useEffect(() => {
+        profileRef.current = profile;
+    }, [profile]);
+
+    useEffect(() => {
+        initializedRef.current = initialized;
+    }, [initialized]);
 
     // Refresh PIN status
     const refreshPinStatus = useCallback(async () => {
@@ -87,6 +103,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setIsLocked(locked);
     }, []);
 
+    const applySession = useCallback((nextSession: Session | null) => {
+        setSession(nextSession);
+        setUser(nextSession?.user ?? null);
+        userIdRef.current = nextSession?.user?.id ?? null;
+    }, []);
+
+    const clearAuthState = useCallback(() => {
+        applySession(null);
+        setProfile(null);
+        profileRef.current = null;
+        setHasPin(false);
+        setIsLocked(false);
+        setLoading(false);
+    }, [applySession]);
+
+    const setRealtimeAuth = useCallback((nextSession: Session | null) => {
+        const accessToken = nextSession?.access_token;
+        if (!accessToken) return;
+        try {
+            supabase.realtime.setAuth(accessToken);
+        } catch (err) {
+            console.warn('[Auth] Failed to refresh realtime auth token:', err);
+        }
+    }, []);
+
+    const refreshProfileForUser = useCallback(async (
+        authUser: User,
+        options: { blocking: boolean },
+    ) => {
+        const sequence = ++profileLoadSeqRef.current;
+        if (options.blocking) setLoading(true);
+        const userProfile = await loadProfile(authUser);
+        if (profileLoadSeqRef.current === sequence && userIdRef.current === authUser.id) {
+            setProfile(userProfile);
+            profileRef.current = userProfile;
+        }
+        if (options.blocking && profileLoadSeqRef.current === sequence) {
+            setLoading(false);
+        }
+    }, [loadProfile]);
+
     // 초기 세션 확인 및 리스너 설정
     useEffect(() => {
         let isMounted = true;
@@ -103,13 +160,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 logger.debug('Auth', 'Current session:', currentSession ? 'exists' : 'null');
 
                 if (currentSession && isMounted) {
-                    setSession(currentSession);
-                    setUser(currentSession.user);
+                    applySession(currentSession);
+                    setRealtimeAuth(currentSession);
                     logger.debug('Auth', 'User session loaded');
 
                     const userProfile = await loadProfile(currentSession.user);
                     if (isMounted) {
                         setProfile(userProfile);
+                        profileRef.current = userProfile;
                     }
                 }
             } catch (error) {
@@ -119,6 +177,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     logger.debug('Auth', 'Initialization complete, setting loading to false');
                     setLoading(false);
                     setInitialized(true);
+                    initializedRef.current = true;
                 }
             }
         };
@@ -135,26 +194,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
                 if (!isMounted) return;
 
-                setSession(newSession);
-                setUser(newSession?.user ?? null);
-
-                if (newSession?.user) {
-                    setLoading(true);
-                    loadProfile(newSession.user).then(userProfile => {
-                        if (isMounted) {
-                            setProfile(userProfile);
-                        }
-                    }).finally(() => {
-                        if (isMounted) {
-                            setLoading(false);
-                        }
-                    });
-                } else {
-                    setProfile(null);
-                    setHasPin(false);
-                    setIsLocked(false);
-                    setLoading(false);
+                if (event === 'INITIAL_SESSION' && !initializedRef.current) {
+                    return;
                 }
+
+                setRealtimeAuth(newSession);
+
+                const previousUserId = userIdRef.current;
+                const nextUser = newSession?.user ?? null;
+                const nextUserId = nextUser?.id ?? null;
+                const isSameUser = Boolean(previousUserId && nextUserId && previousUserId === nextUserId);
+
+                if (!nextUser) {
+                    clearAuthState();
+                    return;
+                }
+
+                applySession(newSession);
+
+                if (event === 'TOKEN_REFRESHED' && isSameUser) {
+                    return;
+                }
+
+                const hasCurrentProfile = Boolean(profileRef.current);
+                if (event === 'USER_UPDATED') {
+                    void refreshProfileForUser(nextUser, { blocking: false });
+                    return;
+                }
+
+                if (event === 'SIGNED_IN' && isSameUser && hasCurrentProfile) {
+                    return;
+                }
+
+                const shouldBlockForProfile = !previousUserId || previousUserId !== nextUserId;
+                void refreshProfileForUser(nextUser, { blocking: shouldBlockForProfile });
             }
         );
 
@@ -182,7 +255,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await supabase.auth.signOut();
         setUser(null);
         setSession(null);
+        userIdRef.current = null;
         setProfile(null);
+        profileRef.current = null;
         setHasPin(false);
         setIsLocked(false);
     };

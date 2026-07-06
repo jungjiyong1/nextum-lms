@@ -30,6 +30,7 @@ import { SkeletonPanel } from '@/components/ui/skeleton';
 import { canManageScheduleRules } from '@/core/auth/roles';
 import { cn } from '@/lib/utils';
 import {
+  addLmsInvalidationListener,
   createClass,
   createBook,
   createScheduleRule,
@@ -90,6 +91,7 @@ import type {
 } from './types';
 
 type CreateStaffRole = StaffRole;
+type LmsPageLoadOptions = { force?: boolean; background?: boolean };
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -332,25 +334,38 @@ export function LearningHomePage() {
   const [month, setMonth] = useState(currentMonth());
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
-    setLoading(true);
+    if (options.background) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
-      setData(await getDashboardData(academyId, month));
+      setData(await getDashboardData(academyId, month, { force: options.force }));
     } catch (err) {
       const message = err instanceof Error ? err.message : '대시보드를 불러오지 못했습니다.';
       setError(message);
     } finally {
-      setLoading(false);
+      if (options.background) setRefreshing(false);
+      else setLoading(false);
     }
   }, [academyId, month]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!academyId) return undefined;
+    return addLmsInvalidationListener((payload) => {
+      if (payload.academyId && payload.academyId !== academyId) return;
+      const domain = payload.domain || 'lms';
+      if (!['students', 'classes', 'accounting', 'assignments', 'learning', 'ai', 'lms', 'admin'].includes(domain)) return;
+      void load({ force: true, background: true });
+    });
+  }, [academyId, load]);
 
   if (!academyId) return <MissingAcademy />;
 
@@ -365,15 +380,21 @@ export function LearningHomePage() {
       action={
         <div className="flex items-center gap-2">
           <Input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="w-40" />
-          <Button variant="outline" onClick={load}>
+          <Button variant="outline" onClick={() => void load({ force: true })}>
             <RefreshCw className="mr-2 h-4 w-4" />
             새로고침
           </Button>
         </div>
       }
     >
+      {!loading && refreshing && (
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          최신 데이터 동기화 중
+        </div>
+      )}
       {loading && <LoadingBlock />}
-      {error && !loading && <ErrorBlock message={error} onRetry={load} />}
+      {error && !loading && <ErrorBlock message={error} onRetry={() => void load({ force: true })} />}
       {data && !loading && !error && (
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -464,6 +485,7 @@ export function ClassesPage() {
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [classrooms, setClassrooms] = useState<ClassroomSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, setRefreshing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [editingClassId, setEditingClassId] = useState('');
   const [name, setName] = useState('');
@@ -501,13 +523,14 @@ export function ClassesPage() {
   const [billableMinutes, setBillableMinutes] = useState('');
   const [attendanceNotes, setAttendanceNotes] = useState('');
 
-  const loadBase = useCallback(async () => {
+  const loadBase = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
-    setLoading(true);
+    if (options.background) setRefreshing(true);
+    else setLoading(true);
     try {
       const rangeStart = today();
       const rangeEnd = addDaysString(rangeStart, 14);
-      const data = await loadClassOperationsOverview(academyId, rangeStart, rangeEnd);
+      const data = await loadClassOperationsOverview(academyId, rangeStart, rangeEnd, { force: options.force });
 
       setClasses(data.classes);
       setSchedule(data.schedule);
@@ -520,26 +543,27 @@ export function ClassesPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 정보를 불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (options.background) setRefreshing(false);
+      else setLoading(false);
     }
   }, [academyId]);
 
-  const loadClassDetail = useCallback(async () => {
+  const loadClassDetail = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId || !selectedClassId) {
       setClassStudents([]);
       setClassBooks([]);
       return;
     }
-    setDetailLoading(true);
+    if (!options.background) setDetailLoading(true);
     try {
-      const data = await loadClassOperationsDetail(academyId, selectedClassId);
+      const data = await loadClassOperationsDetail(academyId, selectedClassId, { force: options.force });
       setClassStudents(data.students);
       setClassBooks(data.books);
       setAttendanceStudentId((current) => current || data.students[0]?.id || '');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 상세 정보를 불러오지 못했습니다.');
     } finally {
-      setDetailLoading(false);
+      if (!options.background) setDetailLoading(false);
     }
   }, [academyId, selectedClassId]);
 
@@ -550,6 +574,17 @@ export function ClassesPage() {
   useEffect(() => {
     void loadClassDetail();
   }, [loadClassDetail]);
+
+  useEffect(() => {
+    if (!academyId) return undefined;
+    return addLmsInvalidationListener((payload) => {
+      if (payload.academyId && payload.academyId !== academyId) return;
+      const domain = payload.domain || 'lms';
+      if (!['classes', 'students', 'assignments', 'learning', 'lms', 'admin'].includes(domain)) return;
+      void loadBase({ force: true, background: true });
+      void loadClassDetail({ force: true, background: true });
+    });
+  }, [academyId, loadBase, loadClassDetail]);
 
   const selectedClass = classes.find((row) => row.id === selectedClassId) || null;
   const classSchedule = useMemo(
@@ -643,7 +678,7 @@ export function ClassesPage() {
         toast.success('강의실을 추가했습니다.');
       }
       resetClassroomForm();
-      await loadBase();
+      await loadBase({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '강의실 저장 실패');
     }
@@ -683,7 +718,7 @@ export function ClassesPage() {
       });
       toast.success('반복 시간표를 중지했습니다.');
       if (editingRuleId === row.id) resetRuleForm();
-      await loadBase();
+      await loadBase({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반복 시간표 중지 실패');
     }
@@ -712,7 +747,7 @@ export function ClassesPage() {
         toast.success('반을 추가했습니다.');
       }
       resetClassForm();
-      await loadBase();
+      await loadBase({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 저장 실패');
     }
@@ -741,7 +776,7 @@ export function ClassesPage() {
         resetRuleForm();
       }
       toast.success('반 시간표를 추가했습니다.');
-      await loadBase();
+      await loadBase({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '시간표 추가 실패');
     }
@@ -753,7 +788,7 @@ export function ClassesPage() {
       await setClassBook(academyId, selectedClassId, selectedBookId, true);
       toast.success('교재를 배정했습니다.');
       setSelectedBookId('');
-      await loadClassDetail();
+      await loadClassDetail({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '교재 배정 실패');
     }
@@ -763,7 +798,7 @@ export function ClassesPage() {
     try {
       await setClassBook(academyId, selectedClassId, bookId, false);
       toast.success('교재 배정을 해제했습니다.');
-      await loadClassDetail();
+      await loadClassDetail({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '교재 배정 해제 실패');
     }
@@ -801,8 +836,8 @@ export function ClassesPage() {
         toast.success('교재를 추가했습니다.');
       }
       resetBookForm();
-      await loadBase();
-      await loadClassDetail();
+      await loadBase({ force: true });
+      await loadClassDetail({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '교재 저장 실패');
     }
@@ -830,7 +865,7 @@ export function ClassesPage() {
       });
       toast.success('출결을 기록했습니다.');
       setAttendanceNotes('');
-      await loadBase();
+      await loadBase({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '출결 기록 실패');
     }
@@ -854,7 +889,7 @@ export function ClassesPage() {
         cancelReason: lessonCancelReason || null,
       });
       toast.success('수업 상태를 저장했습니다.');
-      await loadBase();
+      await loadBase({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '수업 상태 저장 실패');
     }
@@ -1329,11 +1364,11 @@ export function StudentsOperationsPage() {
   const [extraClassFee, setExtraClassFee] = useState('0');
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
     setLoading(true);
     try {
-      const data = await loadStudentOperationsOverview(academyId);
+      const data = await loadStudentOperationsOverview(academyId, { force: options.force });
       setStudents(data.students);
       setClasses(data.classes);
     } catch (err) {
@@ -1420,7 +1455,7 @@ export function StudentsOperationsPage() {
         toast.success('학생을 등록했습니다.');
       }
       resetStudentForm();
-      await load();
+      await load({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '학생 저장 실패');
     }
@@ -1534,6 +1569,7 @@ export function StaffOperationsPage() {
   const academyId = useAcademyId();
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, setRefreshing] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -1541,21 +1577,33 @@ export function StaffOperationsPage() {
   const [staffStatus, setStaffStatus] = useState<StaffStatus>('active');
   const [hourlyRate, setHourlyRate] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
-    setLoading(true);
+    if (options.background) setRefreshing(true);
+    else setLoading(true);
     try {
-      setStaff(await listStaff(academyId));
+      setStaff(await listStaff(academyId, { force: options.force }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '강사 정보를 불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (options.background) setRefreshing(false);
+      else setLoading(false);
     }
   }, [academyId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!academyId) return undefined;
+    return addLmsInvalidationListener((payload) => {
+      if (payload.academyId && payload.academyId !== academyId) return;
+      const domain = payload.domain || 'lms';
+      if (!['staff', 'classes', 'lms', 'admin'].includes(domain)) return;
+      void load({ force: true, background: true });
+    });
+  }, [academyId, load]);
 
   if (!academyId) return <MissingAcademy />;
 
@@ -1593,7 +1641,7 @@ export function StaffOperationsPage() {
         toast.success('강사/직원을 등록했습니다.');
       }
       resetStaffForm();
-      await load();
+      await load({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '저장 실패');
     }
@@ -1671,6 +1719,7 @@ export function AccountingOperationsPage() {
   const [payroll, setPayroll] = useState<InstructorPaymentRow[]>([]);
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, setRefreshing] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(today());
@@ -1695,11 +1744,12 @@ export function AccountingOperationsPage() {
   const [payrollMethod, setPayrollMethod] = useState('계좌이체');
   const [payrollNotes, setPayrollNotes] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
-    setLoading(true);
+    if (options.background) setRefreshing(true);
+    else setLoading(true);
     try {
-      const data = await loadAccountingOperationsOverview(academyId, month);
+      const data = await loadAccountingOperationsOverview(academyId, month, { force: options.force });
       setRows(data.billing);
       setPayments(data.payments);
       setExpenses(data.expenses);
@@ -1709,13 +1759,24 @@ export function AccountingOperationsPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '청구 정보를 불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (options.background) setRefreshing(false);
+      else setLoading(false);
     }
   }, [academyId, month]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!academyId) return undefined;
+    return addLmsInvalidationListener((payload) => {
+      if (payload.academyId && payload.academyId !== academyId) return;
+      const domain = payload.domain || 'lms';
+      if (!['accounting', 'students', 'classes', 'staff', 'lms', 'admin'].includes(domain)) return;
+      void load({ force: true, background: true });
+    });
+  }, [academyId, load]);
 
   if (!academyId) return <MissingAcademy />;
 
@@ -1728,7 +1789,7 @@ export function AccountingOperationsPage() {
     try {
       await generateMonthlyInvoices(academyId, month);
       toast.success(`${month} 청구서를 생성했습니다.`);
-      await load();
+      await load({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '청구서 생성 실패');
     }
@@ -1759,7 +1820,7 @@ export function AccountingOperationsPage() {
       setPaymentAmount('');
       setPaymentNotes('');
       toast.success('입금 기록을 저장했습니다.');
-      await load();
+      await load({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '입금 기록 저장 실패');
     }
@@ -1783,7 +1844,7 @@ export function AccountingOperationsPage() {
       setExpenseRecipient('');
       setExpenseDescription('');
       toast.success('지출 기록을 저장했습니다.');
-      await load();
+      await load({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '지출 기록 저장 실패');
     }
@@ -1814,7 +1875,7 @@ export function AccountingOperationsPage() {
       setPayrollRecipientName('');
       setPayrollNotes('');
       toast.success('강사 지급 기록을 저장했습니다.');
-      await load();
+      await load({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '강사 지급 기록 저장 실패');
     }

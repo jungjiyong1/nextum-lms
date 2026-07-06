@@ -21,7 +21,7 @@ import {
   getRoleLabel,
   type AppPage,
 } from './core/auth/roles';
-import { getAcademyName } from './features/lms/service';
+import { getAcademyName, subscribeLmsInvalidations } from './features/lms/service';
 import './pointer-safety';
 
 function LoadingScreen() {
@@ -88,6 +88,11 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
       }
     };
     void fetchAcademyName();
+  }, [profile?.current_academy_id]);
+
+  useEffect(() => {
+    if (!profile?.current_academy_id) return undefined;
+    return subscribeLmsInvalidations(String(profile.current_academy_id));
   }, [profile?.current_academy_id]);
 
   useEffect(() => {
