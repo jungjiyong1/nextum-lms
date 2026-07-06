@@ -1,6 +1,40 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { createStaffForAcademy, updateStaffForAcademy } from '@/lib/lms/mutations';
+import { loadStaffSummariesForAcademy } from '@/lib/lms/staff-queries';
 import type { CreateStaffInput, UpdateStaffInput } from '@/features/lms/types';
+
+function noStoreJson(body: unknown, init?: ResponseInit) {
+    return Response.json(body, {
+        ...init,
+        headers: {
+            'Cache-Control': 'no-store',
+            ...init?.headers,
+        },
+    });
+}
+
+export async function GET(request: Request) {
+    try {
+        const academyId = new URL(request.url).searchParams.get('academyId') || '';
+        if (!academyId) {
+            return noStoreJson({ success: false, error: 'Invalid staff request.' }, { status: 400 });
+        }
+
+        await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff']);
+        const staff = await loadStaffSummariesForAcademy(academyId);
+
+        return noStoreJson({ success: true, data: staff });
+    } catch (error) {
+        const authResponse = authErrorResponse(error);
+        if (authResponse) return authResponse;
+
+        console.error('[LMS Staff] Failed:', error);
+        return noStoreJson({
+            success: false,
+            error: error instanceof Error ? error.message : 'Staff loading failed.',
+        }, { status: 500 });
+    }
+}
 
 export async function POST(request: Request) {
     try {

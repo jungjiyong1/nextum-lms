@@ -59,6 +59,9 @@
 - Moved the student operations read path behind authenticated `GET /api/lms/students`:
   - owner/admin/staff receive the student roster and class assignment options from server-scoped DTOs.
   - student contacts, parent contacts, and billing contract summaries are no longer loaded directly from browser Supabase queries on the student screen.
+- Moved staff roster reads behind authenticated `GET /api/lms/staff`:
+  - owner/admin/staff can load staff summaries for instructor management and accounting payroll forms.
+  - staff creation/update remains limited to owner/admin through the existing POST route.
 - Expanded accounting operations beyond invoice generation:
   - record student payments and recompute invoice paid/status
   - record operating expenses

@@ -50,8 +50,6 @@ import type {
 
 type Row = Record<string, any>;
 
-const STAFF_ROLES = ['owner', 'admin', 'staff', 'teacher', 'instructor'];
-
 function toNumber(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -203,30 +201,8 @@ export async function getAcademyName(academyId: string): Promise<string | null> 
 }
 
 export async function listStaff(academyId: string): Promise<StaffSummary[]> {
-  const { data: staffRows, error } = await coreDb
-    .from('staff_members')
-    .select('id,person_id,role,status,hourly_rate')
-    .eq('academy_id', academyId)
-    .in('role', STAFF_ROLES)
-    .order('created_at', { ascending: false });
-
-  if (error) throw new Error(error.message);
-  const staff = (staffRows || []) as Row[];
-  const people = await fetchPeople(staff.map((row) => row.person_id));
-
-  return staff.map((row) => {
-    const person = people.get(row.person_id);
-    return {
-      id: row.id,
-      personId: row.person_id,
-      name: person?.display_name || person?.full_name || '이름 없음',
-      phone: person?.phone ?? null,
-      email: person?.email ?? null,
-      role: row.role,
-      status: row.status,
-      hourlyRate: row.hourly_rate === null || row.hourly_rate === undefined ? null : Number(row.hourly_rate),
-    };
-  });
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<StaffSummary[]>(`/api/lms/staff?${params.toString()}`);
 }
 
 export async function listClassSummaries(academyId: string): Promise<ClassSummary[]> {
