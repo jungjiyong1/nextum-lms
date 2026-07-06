@@ -1,4 +1,4 @@
-import { aiDb, contentDb, coreDb, lmsDb, reportingDb } from '@/core/supabaseClient';
+import { contentDb, coreDb, lmsDb, reportingDb } from '@/core/supabaseClient';
 import { jsonCsrfHeaders } from '@/lib/lms/csrf-client';
 import { calculateInvoiceDraft } from './billing';
 import { COMPLETED_PAYMENT_STATUS } from './status';
@@ -1081,25 +1081,6 @@ export async function resetAdminData(
 }
 
 export async function getDashboardData(academyId: string, serviceMonth: string): Promise<DashboardData> {
-  const [classes, students, weakTypes, billing, aiCount] = await Promise.all([
-    listClassSummaries(academyId),
-    listStudents(academyId),
-    listWeakTypes(academyId, 12),
-    listBilling(academyId, serviceMonth),
-    countAiConversations(academyId),
-  ]);
-
-  return { classes, students, weakTypes, billing, aiConversationCount: aiCount };
-}
-
-async function countAiConversations(academyId: string): Promise<number> {
-  const since = new Date();
-  since.setDate(since.getDate() - 30);
-  const { count, error } = await aiDb
-    .from('conversations')
-    .select('id', { count: 'exact', head: true })
-    .eq('academy_id', academyId)
-    .gte('created_at', since.toISOString());
-  if (error) return 0;
-  return count || 0;
+  const params = new URLSearchParams({ academyId, serviceMonth });
+  return getLmsJson<DashboardData>(`/api/lms/dashboard?${params.toString()}`);
 }

@@ -52,6 +52,10 @@
   - `/api/lms/classes/overview`
   - `/api/lms/classes/detail`
   - These routes return already-scoped class, schedule, roster, book, attendance, staff, and classroom DTOs.
+- Moved the LMS home dashboard read path behind `/api/lms/dashboard`:
+  - owner/admin/staff keep the full operational dashboard.
+  - teacher/instructor dashboard rows are scoped to assigned classes/students.
+  - teacher/instructor dashboard finance rows are withheld instead of exposing billing data.
 - Expanded accounting operations beyond invoice generation:
   - record student payments and recompute invoice paid/status
   - record operating expenses

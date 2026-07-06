@@ -123,6 +123,51 @@ async function loadActiveStaffId(core: SchemaClient, context: LmsRoleContext): P
     return staffId;
 }
 
+async function loadAssignedClassIds(
+    lms: SchemaClient,
+    academyId: string,
+    staffMemberId: string,
+): Promise<Set<string>> {
+    const [profilesResult, rulesResult, occurrencesResult] = await Promise.all([
+        lms
+            .from('class_profiles')
+            .select('class_id')
+            .eq('academy_id', academyId)
+            .eq('default_instructor_staff_id', staffMemberId),
+        lms
+            .from('class_schedule_rules')
+            .select('class_id')
+            .eq('academy_id', academyId)
+            .eq('active', true)
+            .eq('instructor_staff_id', staffMemberId),
+        lms
+            .from('lesson_occurrences')
+            .select('class_id')
+            .eq('academy_id', academyId)
+            .or(`instructor_staff_id.eq.${staffMemberId},substitute_staff_id.eq.${staffMemberId}`),
+    ]);
+
+    ensureNoError(profilesResult.error, 'Failed to load assigned class profiles');
+    ensureNoError(rulesResult.error, 'Failed to load assigned schedule rules');
+    ensureNoError(occurrencesResult.error, 'Failed to load assigned lesson occurrences');
+
+    return new Set([
+        ...((profilesResult.data || []) as Row[]).map((row) => row.class_id),
+        ...((rulesResult.data || []) as Row[]).map((row) => row.class_id),
+        ...((occurrencesResult.data || []) as Row[]).map((row) => row.class_id),
+    ].filter(Boolean));
+}
+
+export async function loadAssignedClassIdsForContext(context: LmsRoleContext): Promise<Set<string> | null> {
+    if (!requiresAssignedClassScope(context.role)) return null;
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const staffMemberId = await loadActiveStaffId(core, context);
+    return loadAssignedClassIds(lms, context.academyId, staffMemberId);
+}
+
 async function assertClassBelongsToAcademy(core: SchemaClient, academyId: string, classId: string): Promise<void> {
     const { data, error } = await core
         .from('classes')
@@ -241,6 +286,20 @@ async function loadClassSummaries(
             lastLearningAt: summary?.last_learning_at ?? null,
         };
     });
+}
+
+export async function loadClassSummariesForContext(context: LmsRoleContext): Promise<ClassSummary[]> {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const reporting = client.schema('reporting');
+    const classes = await loadClassSummaries(core, lms, reporting, context.academyId);
+
+    if (!requiresAssignedClassScope(context.role)) return classes;
+
+    const staffMemberId = await loadActiveStaffId(core, context);
+    const assignedClassIds = await loadAssignedClassIds(lms, context.academyId, staffMemberId);
+    return classes.filter((row) => assignedClassIds.has(row.id));
 }
 
 async function loadSchedule(
