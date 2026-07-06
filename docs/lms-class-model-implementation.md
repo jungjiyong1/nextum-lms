@@ -98,6 +98,10 @@
   - attendance and single-lesson status mutations require teacher/instructor assignment to the target class
   - class overview/detail reads now go through server routes that filter teacher/instructor data to assigned classes before returning it to the browser
   - teacher/instructor reference data is reduced to assigned-class staff/classrooms, and global book lists are withheld from those roles
+- Tightened the clean baseline RLS for teacher/instructor roles:
+  - class, roster, schedule, classroom, attendance, learning, AI chat, and data-event reads now require an assigned class or an accessible student instead of broad academy-wide teacher/instructor access
+  - learning wrong notes and AI conversation/message policies are split by operation so expanded read access does not imply update/delete access
+  - sensitive helper functions explicitly revoke default PUBLIC/anon execute access before granting authenticated/service-role execution
 - Added `supabase/config.toml` so local Supabase exposes the non-public schemas used by the browser client.
 - Hardened the baseline with same-academy foreign keys, active-contract uniqueness, attendance enrollment validation, and narrower delete policies for LMS operation tables.
 
@@ -107,7 +111,7 @@
 - The active remote `nextum-data` database is the intended final database, but the clean baseline was not applied destructively to that remote database in this phase.
 - PDF report generation is not included. The current target is reliable data structures and LMS views for future report generation.
 - Student analysis and parent report requirements for the future grade-app/reporting phase are tracked in `docs/grade-app-reporting-requirements.md`.
-- The clean baseline RLS still grants broad read access to teacher/instructor roles inside an academy. The next DB tightening step is class-scoped teacher/instructor RLS plus server-side read APIs for other LMS/reporting surfaces that still rely on direct browser Supabase reads.
+- Live remote RLS/advisor verification has not been run against `nextum-data` yet. Before production cutover, run the baseline on a disposable branch/project and verify owner/admin/staff, assigned teacher/instructor, unassigned teacher/instructor, student, and cross-academy access cases.
 
 ## Cutover Requirements Before Production Use
 

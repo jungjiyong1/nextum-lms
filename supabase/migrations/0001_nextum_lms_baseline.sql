@@ -875,6 +875,59 @@ as $$
   )
 $$;
 
+create or replace function core.current_staff_id(check_academy_id uuid)
+returns uuid
+language sql
+stable
+security definer
+set search_path = core, public
+as $$
+  select sm.id
+  from core.staff_members sm
+  where sm.academy_id = check_academy_id
+    and sm.status = 'active'
+    and sm.person_id = core.current_person_id()
+  limit 1
+$$;
+
+create or replace function core.can_access_assigned_class(check_class_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = core, lms, public
+as $$
+  with class_row as (
+    select c.id, c.academy_id, core.current_staff_id(c.academy_id) as staff_id
+    from core.classes c
+    where c.id = check_class_id
+  )
+  select exists (
+    select 1
+    from class_row c
+    where c.staff_id is not null
+      and core.has_academy_role(c.academy_id, array['teacher','instructor'])
+      and (
+        exists (
+          select 1 from lms.class_profiles cp
+          where cp.class_id = c.id
+            and cp.default_instructor_staff_id = c.staff_id
+        )
+        or exists (
+          select 1 from lms.class_schedule_rules csr
+          where csr.class_id = c.id
+            and csr.active
+            and csr.instructor_staff_id = c.staff_id
+        )
+        or exists (
+          select 1 from lms.lesson_occurrences lo
+          where lo.class_id = c.id
+            and (lo.instructor_staff_id = c.staff_id or lo.substitute_staff_id = c.staff_id)
+        )
+      )
+  )
+$$;
+
 create or replace function core.current_student_id(check_academy_id uuid)
 returns uuid
 language sql
@@ -890,6 +943,30 @@ as $$
   limit 1
 $$;
 
+create or replace function core.can_access_class(check_class_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = core, public
+as $$
+  select exists (
+    select 1
+    from core.classes c
+    where c.id = check_class_id
+      and (
+        core.has_academy_role(c.academy_id, array['owner','admin','staff'])
+        or core.can_access_assigned_class(c.id)
+        or exists (
+          select 1 from core.class_students cs
+          where cs.class_id = c.id
+            and cs.student_id = core.current_student_id(c.academy_id)
+            and cs.status = 'active'
+        )
+      )
+  )
+$$;
+
 create or replace function core.can_access_student(check_student_id uuid)
 returns boolean
 language sql
@@ -903,7 +980,17 @@ as $$
     where s.id = check_student_id
       and (
         s.id = core.current_student_id(s.academy_id)
-        or core.has_academy_role(s.academy_id, array['owner','admin','staff','teacher','instructor'])
+        or core.has_academy_role(s.academy_id, array['owner','admin','staff'])
+        or (
+          core.has_academy_role(s.academy_id, array['teacher','instructor'])
+          and exists (
+            select 1
+            from core.class_students cs
+            where cs.student_id = s.id
+              and cs.status = 'active'
+              and core.can_access_assigned_class(cs.class_id)
+          )
+        )
       )
   )
 $$;
@@ -920,17 +1007,15 @@ as $$
     from content.books b
     where b.id = check_book_id
       and (
-        (b.academy_id is not null and core.has_academy_role(b.academy_id, array['owner','admin','staff','teacher','instructor']))
+        (b.academy_id is not null and core.has_academy_role(b.academy_id, array['owner','admin','staff']))
         or exists (
           select 1
           from core.class_books cb
-          join core.class_students cs on cs.class_id = cb.class_id and cs.status = 'active'
           join core.classes c on c.id = cb.class_id and c.active
           where cb.book_id = b.id
             and cb.active
             and (
-              cs.student_id = core.current_student_id(c.academy_id)
-              or core.has_academy_role(c.academy_id, array['owner','admin','staff','teacher','instructor'])
+              core.can_access_class(c.id)
             )
         )
       )
@@ -1326,7 +1411,19 @@ create policy academies_staff_select on core.academies for select to authenticat
 create policy people_access on core.people for select to authenticated
   using (
     id = core.current_person_id()
-    or core.has_academy_role(primary_academy_id, array['owner','admin','staff','teacher','instructor'])
+    or core.has_academy_role(primary_academy_id, array['owner','admin','staff'])
+    or exists (
+      select 1
+      from core.students s
+      where s.person_id = people.id
+        and core.can_access_student(s.id)
+    )
+    or exists (
+      select 1
+      from core.staff_members sm
+      where sm.person_id = people.id
+        and sm.id = core.current_staff_id(sm.academy_id)
+    )
   );
 
 create policy people_staff_write on core.people for all to authenticated
@@ -1354,7 +1451,10 @@ create policy students_staff_write on core.students for all to authenticated
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 
 create policy staff_access on core.staff_members for select to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (
+    core.has_academy_role(academy_id, array['owner','admin','staff'])
+    or id = core.current_staff_id(academy_id)
+  );
 
 create policy staff_admin_write on core.staff_members for all to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin']))
@@ -1375,15 +1475,7 @@ create policy invitations_staff on core.account_invitations for all to authentic
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 
 create policy classes_access on core.classes for select to authenticated
-  using (
-    core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
-    or exists (
-      select 1 from core.class_students cs
-      where cs.class_id = classes.id
-        and cs.student_id = core.current_student_id(classes.academy_id)
-        and cs.status = 'active'
-    )
-  );
+  using (core.can_access_class(id));
 
 create policy classes_staff_write on core.classes for all to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']))
@@ -1395,7 +1487,11 @@ create policy class_students_access on core.class_students for select to authent
       select 1 from core.classes c
       where c.id = class_students.class_id
         and (
-          core.has_academy_role(c.academy_id, array['owner','admin','staff','teacher','instructor'])
+          core.has_academy_role(c.academy_id, array['owner','admin','staff'])
+          or (
+            core.has_academy_role(c.academy_id, array['teacher','instructor'])
+            and core.can_access_assigned_class(class_students.class_id)
+          )
           or class_students.student_id = core.current_student_id(c.academy_id)
         )
     )
@@ -1414,15 +1510,7 @@ create policy class_books_access on core.class_books for select to authenticated
     exists (
       select 1 from core.classes c
       where c.id = class_books.class_id
-        and (
-          core.has_academy_role(c.academy_id, array['owner','admin','staff','teacher','instructor'])
-          or exists (
-            select 1 from core.class_students cs
-            where cs.class_id = c.id
-              and cs.student_id = core.current_student_id(c.academy_id)
-              and cs.status = 'active'
-          )
-        )
+        and core.can_access_class(c.id)
     )
   );
 
@@ -1487,15 +1575,14 @@ create policy content_assets_select on content.assets for select to authenticate
   using (book_id is not null and core.can_access_book(book_id));
 create policy content_problem_reports_select on content.problem_reports for select to authenticated
   using (
-    core_student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    core.can_access_student(core_student_id)
   );
 create policy content_problem_reports_insert on content.problem_reports for insert to authenticated
   with check (
     content.can_report_problem(problem_id)
     and (
       core_student_id = core.current_student_id(academy_id)
-      or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+      or core.has_academy_role(academy_id, array['owner','admin','staff'])
     )
   );
 create policy content_problem_reports_update on content.problem_reports for update to authenticated
@@ -1512,22 +1599,48 @@ create policy content_staff_write_books on content.books for all to authenticate
   with check (academy_id is not null and core.has_academy_role(academy_id, array['owner','admin','staff']));
 
 create policy lms_courses_select on lms.courses for select to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_courses_write on lms.courses for all to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_classrooms_select on lms.classrooms for select to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (
+    core.has_academy_role(academy_id, array['owner','admin','staff'])
+    or exists (
+      select 1
+      from lms.class_profiles cp
+      where cp.default_classroom_id = classrooms.id
+        and core.can_access_assigned_class(cp.class_id)
+    )
+    or exists (
+      select 1
+      from lms.class_schedule_rules csr
+      where csr.classroom_id = classrooms.id
+        and core.can_access_assigned_class(csr.class_id)
+    )
+    or exists (
+      select 1
+      from lms.lesson_occurrences lo
+      where lo.classroom_id = classrooms.id
+        and core.can_access_assigned_class(lo.class_id)
+    )
+  );
 create policy lms_classrooms_write on lms.classrooms for all to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_class_profiles_select on lms.class_profiles for select to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (
+    core.has_academy_role(academy_id, array['owner','admin','staff'])
+    or core.can_access_assigned_class(class_id)
+  );
 create policy lms_class_profiles_write on lms.class_profiles for all to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_rules_select on lms.class_schedule_rules for select to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (
+    core.has_academy_role(academy_id, array['owner','admin','staff'])
+    or core.can_access_assigned_class(class_id)
+  );
 create policy lms_rules_insert on lms.class_schedule_rules for insert to authenticated
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_rules_update on lms.class_schedule_rules for update to authenticated
@@ -1536,7 +1649,10 @@ create policy lms_rules_update on lms.class_schedule_rules for update to authent
 create policy lms_rules_delete on lms.class_schedule_rules for delete to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_occurrences_select on lms.lesson_occurrences for select to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (
+    core.has_academy_role(academy_id, array['owner','admin','staff'])
+    or core.can_access_assigned_class(class_id)
+  );
 create policy lms_occurrences_insert on lms.lesson_occurrences for insert to authenticated
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_occurrences_update on lms.lesson_occurrences for update to authenticated
@@ -1545,7 +1661,16 @@ create policy lms_occurrences_update on lms.lesson_occurrences for update to aut
 create policy lms_occurrences_delete on lms.lesson_occurrences for delete to authenticated
   using (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_attendance_select on lms.attendance_records for select to authenticated
-  using (core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']));
+  using (
+    core.has_academy_role(academy_id, array['owner','admin','staff'])
+    or student_id = core.current_student_id(academy_id)
+    or exists (
+      select 1
+      from lms.lesson_occurrences lo
+      where lo.id = attendance_records.occurrence_id
+        and core.can_access_assigned_class(lo.class_id)
+    )
+  );
 create policy lms_attendance_insert on lms.attendance_records for insert to authenticated
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 create policy lms_attendance_update on lms.attendance_records for update to authenticated
@@ -1584,33 +1709,49 @@ create policy lms_settings_staff on lms.settings for all to authenticated
 
 create policy learning_sessions_access on learning.sessions for select to authenticated
   using (
-    core_student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    core.can_access_student(core_student_id)
   );
 create policy learning_sessions_insert_own on learning.sessions for insert to authenticated
   with check (core_student_id = core.current_student_id(academy_id));
 
 create policy learning_attempts_select on learning.attempts for select to authenticated
   using (
-    core_student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    core.can_access_student(core_student_id)
   );
 create policy learning_attempts_insert_own on learning.attempts for insert to authenticated
   with check (core_student_id = core.current_student_id(academy_id));
 
-create policy learning_wrong_notes_access on learning.wrong_notes for all to authenticated
+create policy learning_wrong_notes_select on learning.wrong_notes for select to authenticated
+  using (
+    core.can_access_student(core_student_id)
+  );
+create policy learning_wrong_notes_insert on learning.wrong_notes for insert to authenticated
+  with check (
+    core_student_id = core.current_student_id(academy_id)
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
+  );
+create policy learning_wrong_notes_update on learning.wrong_notes for update to authenticated
   using (
     core_student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
   )
   with check (
     core_student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
+  );
+create policy learning_wrong_notes_delete on learning.wrong_notes for delete to authenticated
+  using (
+    core_student_id = core.current_student_id(academy_id)
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
   );
 create policy learning_reports_select on learning.reports for select to authenticated
   using (
     (status = 'published' and core_student_id = core.current_student_id(academy_id))
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
+    or (
+      core.has_academy_role(academy_id, array['teacher','instructor'])
+      and core.can_access_student(core_student_id)
+    )
   );
 create policy learning_reports_insert on learning.reports for insert to authenticated
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
@@ -1618,23 +1759,56 @@ create policy learning_reports_update on learning.reports for update to authenti
   using (core.has_academy_role(academy_id, array['owner','admin','staff']))
   with check (core.has_academy_role(academy_id, array['owner','admin','staff']));
 
-create policy ai_conversations_access on ai.conversations for all to authenticated
+create policy ai_conversations_select on ai.conversations for select to authenticated
+  using (
+    core.can_access_student(student_id)
+  );
+create policy ai_conversations_insert on ai.conversations for insert to authenticated
+  with check (
+    student_id = core.current_student_id(academy_id)
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
+  );
+create policy ai_conversations_update on ai.conversations for update to authenticated
   using (
     student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
   )
   with check (
     student_id = core.current_student_id(academy_id)
-    or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor'])
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
   );
-create policy ai_messages_access on ai.messages for all to authenticated
+create policy ai_conversations_delete on ai.conversations for delete to authenticated
+  using (
+    student_id = core.current_student_id(academy_id)
+    or core.has_academy_role(academy_id, array['owner','admin','staff'])
+  );
+create policy ai_messages_select on ai.messages for select to authenticated
+  using (
+    exists (
+      select 1 from ai.conversations c
+      where c.id = messages.conversation_id
+        and core.can_access_student(c.student_id)
+    )
+  );
+create policy ai_messages_insert on ai.messages for insert to authenticated
+  with check (
+    exists (
+      select 1 from ai.conversations c
+      where c.id = messages.conversation_id
+        and (
+          c.student_id = core.current_student_id(c.academy_id)
+          or core.has_academy_role(c.academy_id, array['owner','admin','staff'])
+        )
+    )
+  );
+create policy ai_messages_update on ai.messages for update to authenticated
   using (
     exists (
       select 1 from ai.conversations c
       where c.id = messages.conversation_id
         and (
           c.student_id = core.current_student_id(c.academy_id)
-          or core.has_academy_role(c.academy_id, array['owner','admin','staff','teacher','instructor'])
+          or core.has_academy_role(c.academy_id, array['owner','admin','staff'])
         )
     )
   )
@@ -1644,7 +1818,18 @@ create policy ai_messages_access on ai.messages for all to authenticated
       where c.id = messages.conversation_id
         and (
           c.student_id = core.current_student_id(c.academy_id)
-          or core.has_academy_role(c.academy_id, array['owner','admin','staff','teacher','instructor'])
+          or core.has_academy_role(c.academy_id, array['owner','admin','staff'])
+        )
+    )
+  );
+create policy ai_messages_delete on ai.messages for delete to authenticated
+  using (
+    exists (
+      select 1 from ai.conversations c
+      where c.id = messages.conversation_id
+        and (
+          c.student_id = core.current_student_id(c.academy_id)
+          or core.has_academy_role(c.academy_id, array['owner','admin','staff'])
         )
     )
   );
@@ -1652,12 +1837,12 @@ create policy ai_messages_access on ai.messages for all to authenticated
 create policy data_events_access on data.events for select to authenticated
   using (
     (student_id is not null and core.can_access_student(student_id))
-    or (academy_id is not null and core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']))
+    or (academy_id is not null and core.has_academy_role(academy_id, array['owner','admin','staff']))
   );
 create policy data_events_insert on data.events for insert to authenticated
   with check (
     (student_id is null or core.can_access_student(student_id))
-    and (academy_id is null or core.has_academy_role(academy_id, array['owner','admin','staff','teacher','instructor']) or student_id = core.current_student_id(academy_id))
+    and (academy_id is null or core.has_academy_role(academy_id, array['owner','admin','staff']) or student_id = core.current_student_id(academy_id))
   );
 
 create policy audit_admin_select on audit.admin_actions for select to authenticated
@@ -1669,10 +1854,26 @@ create policy audit_admin_insert on audit.admin_actions for insert to authentica
 -- Grants for Supabase Data API
 
 grant usage on schema core, content, learning, lms, ai, data, reporting, audit to anon, authenticated, service_role;
+revoke execute on function
+  core.current_account_id(),
+  core.current_person_id(),
+  core.has_academy_role(uuid, text[]),
+  core.current_staff_id(uuid),
+  core.can_access_assigned_class(uuid),
+  core.can_access_class(uuid),
+  core.current_student_id(uuid),
+  core.can_access_student(uuid),
+  core.can_access_book(uuid),
+  content.can_report_problem(text),
+  content.problem_public_payload(jsonb)
+from public, anon;
 grant execute on function
   core.current_account_id(),
   core.current_person_id(),
   core.has_academy_role(uuid, text[]),
+  core.current_staff_id(uuid),
+  core.can_access_assigned_class(uuid),
+  core.can_access_class(uuid),
   core.current_student_id(uuid),
   core.can_access_student(uuid),
   core.can_access_book(uuid),
