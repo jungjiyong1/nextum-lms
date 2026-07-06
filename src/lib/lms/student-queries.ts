@@ -7,7 +7,9 @@ import type {
     PaymentRow,
     StudentAttendanceSummary,
     StudentDetail,
+    StudentDetailSection,
     StudentHardDeletePreview,
+    StudentLearningMetric,
     StudentOperationsOverview,
     StudentOperationsPermissions,
     StudentSummary,
@@ -15,12 +17,23 @@ import type {
 } from '@/features/lms/types';
 import { COMPLETED_PAYMENT_STATUS } from '@/features/lms/status';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { loadAssignedClassIdsForContext, loadClassSummariesForContext } from './class-queries';
+import { loadAssignedClassIdsForContext, loadClassOptionsForContext } from './class-queries';
 import { LmsAuthError, type LmsRoleContext } from './auth';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
 type SchemaClient = ReturnType<LmsAdminClient['schema']>;
+
+const EMPTY_ATTENDANCE_SUMMARY: StudentAttendanceSummary = {
+    present: 0,
+    late: 0,
+    absent: 0,
+    excused: 0,
+    makeup: 0,
+    total: 0,
+};
+
+const STUDENT_DETAIL_SECTIONS = new Set<StudentDetailSection>(['learning', 'attendance', 'billing', 'management', 'full']);
 
 function ensureNoError(error: { message?: string } | null, context: string) {
     if (error) {
@@ -228,6 +241,7 @@ async function loadStudentSummaries(
             weakTypeCount: metrics?.weakTypeCount ?? 0,
             avgTypeScore: metrics?.avgTypeScore ?? null,
             lastLearningAt: metrics?.lastLearningAt ?? null,
+            learningMetricsLoaded: options.includeWeakMetrics,
         };
     });
 }
@@ -515,8 +529,63 @@ export async function loadStudentHardDeletePreview(academyId: string, studentId:
     return parseHardDeletePreview(data);
 }
 
-export async function loadStudentDetail(context: LmsRoleContext, studentId: string): Promise<StudentDetail> {
+function normalizeDetailSection(section?: string | null): StudentDetailSection {
+    const value = section || 'full';
+    return STUDENT_DETAIL_SECTIONS.has(value as StudentDetailSection) ? value as StudentDetailSection : 'full';
+}
+
+function blankStudentDetail(
+    summary: StudentSummary,
+    permissions: StudentOperationsPermissions,
+    loadedSections: StudentDetailSection[],
+): StudentDetail {
+    return {
+        summary,
+        permissions,
+        loadedSections,
+        weakTypes: [],
+        recentAttempts: [],
+        attendanceSummary: { ...EMPTY_ATTENDANCE_SUMMARY },
+        recentAttendance: [],
+        billing: null,
+        recentPayments: [],
+        aiConversations: [],
+        reports: [],
+        hardDeletePreview: null,
+    };
+}
+
+export async function loadStudentLearningMetrics(context: LmsRoleContext, studentIds?: string[]): Promise<StudentLearningMetric[]> {
+    const client = createAdminClient();
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    const assignedStudentIds = await loadAssignedStudentIds(client.schema('core'), assignedClassIds);
+    const allowedIds = assignedStudentIds === null
+        ? uniqueStrings(studentIds || [])
+        : uniqueStrings(studentIds && studentIds.length > 0
+            ? studentIds.filter((studentId) => assignedStudentIds.includes(studentId))
+            : assignedStudentIds);
+
+    if (allowedIds.length === 0) return [];
+
+    const metrics = await loadWeakMetrics(client.schema('reporting'), context.academyId, allowedIds);
+    return allowedIds.map((studentId) => {
+        const value = metrics.get(studentId);
+        return {
+            studentId,
+            weakTypeCount: value?.weakTypeCount ?? 0,
+            avgTypeScore: value?.avgTypeScore ?? null,
+            lastLearningAt: value?.lastLearningAt ?? null,
+        };
+    });
+}
+
+export async function loadStudentDetail(
+    context: LmsRoleContext,
+    studentId: string,
+    section: StudentDetailSection | string = 'full',
+): Promise<StudentDetail> {
     if (!studentId) throw new Error('Student id is required.');
+    const requestedSection = normalizeDetailSection(section);
 
     const client = createAdminClient();
     const core = client.schema('core');
@@ -532,34 +601,46 @@ export async function loadStudentDetail(context: LmsRoleContext, studentId: stri
         studentIds: [studentId],
         assignedClassIds,
         includeBilling: permissions.canViewBilling,
-        includeWeakMetrics: true,
+        includeWeakMetrics: requestedSection === 'learning' || requestedSection === 'full',
     });
     const summary = students[0];
     if (!summary) throw new LmsAuthError('Student access is not allowed for this role.', 403);
 
-    const [weakTypes, recentAttempts, attendance, billingData, aiConversations, reports, hardDeletePreview] = await Promise.all([
-        loadWeakTypes(reporting, context.academyId, studentId),
-        loadRecentAttempts(learning, context.academyId, studentId),
-        loadAttendance(core, lms, context.academyId, studentId),
-        permissions.canViewBilling ? loadBillingForStudent(lms, summary) : Promise.resolve({ billing: null, payments: [] }),
-        loadAiConversations(ai, context.academyId, studentId),
-        loadReports(learning, context.academyId, studentId),
-        permissions.canHardDelete ? loadStudentHardDeletePreview(context.academyId, studentId) : Promise.resolve(null),
-    ]);
+    const loadedSections: StudentDetailSection[] = requestedSection === 'full'
+        ? ['learning', 'attendance', 'billing', 'management', 'full']
+        : [requestedSection];
+    const detail = blankStudentDetail(summary, permissions, loadedSections);
 
-    return {
-        summary,
-        permissions,
-        weakTypes,
-        recentAttempts,
-        attendanceSummary: attendance.summary,
-        recentAttendance: attendance.rows,
-        billing: billingData.billing,
-        recentPayments: billingData.payments,
-        aiConversations,
-        reports,
-        hardDeletePreview,
-    };
+    if (requestedSection === 'learning' || requestedSection === 'full') {
+        const [weakTypes, recentAttempts, aiConversations, reports] = await Promise.all([
+            loadWeakTypes(reporting, context.academyId, studentId),
+            loadRecentAttempts(learning, context.academyId, studentId),
+            loadAiConversations(ai, context.academyId, studentId),
+            loadReports(learning, context.academyId, studentId),
+        ]);
+        detail.weakTypes = weakTypes;
+        detail.recentAttempts = recentAttempts;
+        detail.aiConversations = aiConversations;
+        detail.reports = reports;
+    }
+
+    if (requestedSection === 'attendance' || requestedSection === 'full') {
+        const attendance = await loadAttendance(core, lms, context.academyId, studentId);
+        detail.attendanceSummary = attendance.summary;
+        detail.recentAttendance = attendance.rows;
+    }
+
+    if ((requestedSection === 'billing' || requestedSection === 'full') && permissions.canViewBilling) {
+        const billingData = await loadBillingForStudent(lms, summary);
+        detail.billing = billingData.billing;
+        detail.recentPayments = billingData.payments;
+    }
+
+    if (requestedSection === 'full' && permissions.canHardDelete) {
+        detail.hardDeletePreview = await loadStudentHardDeletePreview(context.academyId, studentId);
+    }
+
+    return detail;
 }
 
 export async function loadStudentOperationsOverview(context: LmsRoleContext): Promise<StudentOperationsOverview> {
@@ -572,9 +653,9 @@ export async function loadStudentOperationsOverview(context: LmsRoleContext): Pr
             studentIds: assignedStudentIds,
             assignedClassIds,
             includeBilling: permissions.canViewBilling,
-            includeWeakMetrics: true,
+            includeWeakMetrics: false,
         }),
-        loadClassSummariesForContext(context),
+        loadClassOptionsForContext(context),
     ]);
 
     return { students, classes, permissions };

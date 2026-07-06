@@ -302,6 +302,51 @@ export async function loadClassSummariesForContext(context: LmsRoleContext): Pro
     return classes.filter((row) => assignedClassIds.has(row.id));
 }
 
+export async function loadClassOptionsForContext(context: LmsRoleContext): Promise<ClassSummary[]> {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    let allowedClassIds: Set<string> | null = null;
+
+    if (requiresAssignedClassScope(context.role)) {
+        const staffMemberId = await loadActiveStaffId(core, context);
+        allowedClassIds = await loadAssignedClassIds(lms, context.academyId, staffMemberId);
+        if (allowedClassIds.size === 0) return [];
+    }
+
+    let query = core
+        .from('classes')
+        .select('id,name,grade,active')
+        .eq('academy_id', context.academyId)
+        .order('name');
+
+    if (allowedClassIds) {
+        query = query.in('id', [...allowedClassIds]);
+    }
+
+    const { data, error } = await query;
+    ensureNoError(error, 'Failed to load class options');
+
+    return ((data || []) as Row[]).map((row) => ({
+        id: row.id,
+        name: row.name,
+        grade: row.grade ?? null,
+        active: Boolean(row.active),
+        status: row.active ? 'active' : 'inactive',
+        color: null,
+        capacity: null,
+        defaultInstructorId: null,
+        defaultClassroomId: null,
+        courseTitle: null,
+        instructorName: null,
+        classroomName: null,
+        studentCount: 0,
+        weakTypeCount: 0,
+        avgTypeScore: null,
+        lastLearningAt: null,
+    }));
+}
+
 async function loadSchedule(
     core: SchemaClient,
     lms: SchemaClient,

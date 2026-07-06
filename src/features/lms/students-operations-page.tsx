@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton, SkeletonPage, SkeletonPanel } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,7 @@ import {
     createStudent,
     hardDeleteStudent,
     loadStudentDetail,
+    loadStudentLearningMetrics,
     loadStudentOperationsOverview,
     previewHardDeleteStudent,
     updateStudent,
@@ -45,7 +47,9 @@ import type {
     BillingMode,
     ClassSummary,
     StudentDetail,
+    StudentDetailSection,
     StudentHardDeletePreview,
+    StudentLearningMetric,
     StudentOperationsPermissions,
     StudentStatus,
     StudentSummary,
@@ -63,6 +67,52 @@ const emptyPermissions: StudentOperationsPermissions = {
     canHardDelete: false,
     scopedToAssignedClasses: false,
 };
+
+const DETAIL_SECTION_BY_TAB: Record<string, StudentDetailSection | null> = {
+    learning: 'learning',
+    profile: null,
+    attendance: 'attendance',
+    billing: 'billing',
+    manage: 'management',
+};
+
+function hasLoadedSection(detail: StudentDetail | null, section: StudentDetailSection): boolean {
+    if (!detail) return false;
+    return detail.loadedSections.includes('full') || detail.loadedSections.includes(section);
+}
+
+function uniqueSections(sections: StudentDetailSection[]): StudentDetailSection[] {
+    return [...new Set(sections)];
+}
+
+function mergeStudentDetail(current: StudentDetail | null, next: StudentDetail): StudentDetail {
+    if (!current || current.summary.id !== next.summary.id) return next;
+
+    const loadedSections = uniqueSections([...current.loadedSections, ...next.loadedSections]);
+    const nextLoaded = (section: StudentDetailSection) => next.loadedSections.includes('full') || next.loadedSections.includes(section);
+
+    return {
+        summary: {
+            ...current.summary,
+            ...next.summary,
+            weakTypeCount: next.summary.learningMetricsLoaded ? next.summary.weakTypeCount : current.summary.weakTypeCount,
+            avgTypeScore: next.summary.learningMetricsLoaded ? next.summary.avgTypeScore : current.summary.avgTypeScore,
+            lastLearningAt: next.summary.learningMetricsLoaded ? next.summary.lastLearningAt : current.summary.lastLearningAt,
+            learningMetricsLoaded: current.summary.learningMetricsLoaded || next.summary.learningMetricsLoaded,
+        },
+        permissions: next.permissions,
+        loadedSections,
+        weakTypes: nextLoaded('learning') ? next.weakTypes : current.weakTypes,
+        recentAttempts: nextLoaded('learning') ? next.recentAttempts : current.recentAttempts,
+        aiConversations: nextLoaded('learning') ? next.aiConversations : current.aiConversations,
+        reports: nextLoaded('learning') ? next.reports : current.reports,
+        attendanceSummary: nextLoaded('attendance') ? next.attendanceSummary : current.attendanceSummary,
+        recentAttendance: nextLoaded('attendance') ? next.recentAttendance : current.recentAttendance,
+        billing: nextLoaded('billing') ? next.billing : current.billing,
+        recentPayments: nextLoaded('billing') ? next.recentPayments : current.recentPayments,
+        hardDeletePreview: next.hardDeletePreview || current.hardDeletePreview,
+    };
+}
 
 function academyIdOf(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
@@ -165,6 +215,35 @@ function LoadingBlock() {
     );
 }
 
+function StudentDetailSkeleton() {
+    return (
+        <Card className="overflow-hidden">
+            <CardHeader className="border-b">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-2">
+                        <Skeleton className="h-6 w-40" />
+                        <Skeleton className="h-4 w-72 max-w-full" />
+                    </div>
+                    <div className="flex gap-2">
+                        <Skeleton className="h-12 w-24" />
+                        <Skeleton className="h-12 w-24" />
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="p-4">
+                <div className="mb-4 flex flex-wrap gap-2">
+                    {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-24" />)}
+                </div>
+                <SkeletonPanel rows={5} showHeader={false} />
+            </CardContent>
+        </Card>
+    );
+}
+
+function StudentTabSkeleton() {
+    return <SkeletonPanel rows={4} showHeader={false} />;
+}
+
 function EmptyDetail({ canCreate, onCreate }: { canCreate: boolean; onCreate: () => void }) {
     return (
         <Card className="min-h-[520px]">
@@ -207,10 +286,12 @@ function sortStudents(students: StudentSummary[], sortMode: StudentSortMode): St
 function StudentList({
     students,
     selectedStudentId,
+    metricsLoading,
     onSelect,
 }: {
     students: StudentSummary[];
     selectedStudentId: string;
+    metricsLoading: boolean;
     onSelect: (student: StudentSummary) => void;
 }) {
     return (
@@ -234,10 +315,19 @@ function StudentList({
                         <p className="mt-1 text-xs text-slate-400">{student.phone || '-'} · 보호자 {student.parentPhone || '-'}</p>
                     </div>
                     <div className="shrink-0 text-right text-xs">
-                        <p className={cn('font-medium', (student.weakTypeCount || 0) > 0 ? 'text-red-600' : 'text-slate-500')}>
-                            {summarizeRisk(student)}
-                        </p>
-                        <p className="mt-1 text-slate-400">{shortDate(student.lastLearningAt)}</p>
+                        {metricsLoading && !student.learningMetricsLoaded ? (
+                            <div className="space-y-1">
+                                <Skeleton className="ml-auto h-4 w-16" />
+                                <Skeleton className="ml-auto h-3 w-20" />
+                            </div>
+                        ) : (
+                            <>
+                                <p className={cn('font-medium', (student.weakTypeCount || 0) > 0 ? 'text-red-600' : 'text-slate-500')}>
+                                    {summarizeRisk(student)}
+                                </p>
+                                <p className="mt-1 text-slate-400">{shortDate(student.lastLearningAt)}</p>
+                            </>
+                        )}
                     </div>
                 </button>
             ))}
@@ -656,7 +746,7 @@ function ManagementTab({
                                 </p>
                             )}
                         </div>
-                        <Button type="button" variant="destructive" onClick={onHardDelete} disabled={!preview?.canHardDelete}>
+                        <Button type="button" variant="destructive" onClick={onHardDelete} disabled={preview ? !preview.canHardDelete : false}>
                             완전삭제
                         </Button>
                     </div>
@@ -674,6 +764,8 @@ export function StudentsOperationsPage() {
     const [permissions, setPermissions] = useState<StudentOperationsPermissions>(emptyPermissions);
     const [loading, setLoading] = useState(true);
     const [detailLoading, setDetailLoading] = useState(false);
+    const [metricsLoading, setMetricsLoading] = useState(false);
+    const [sectionLoading, setSectionLoading] = useState<Partial<Record<StudentDetailSection, boolean>>>({});
     const [error, setError] = useState('');
     const [selectedStudentId, setSelectedStudentId] = useState('');
     const [detail, setDetail] = useState<StudentDetail | null>(null);
@@ -717,6 +809,35 @@ export function StudentsOperationsPage() {
         setFormMode(null);
     }, []);
 
+    const mergeLearningMetrics = useCallback((metrics: StudentLearningMetric[]) => {
+        if (metrics.length === 0) return;
+        const metricsByStudent = new Map(metrics.map((row) => [row.studentId, row]));
+        setStudents((current) => current.map((student) => {
+            const metric = metricsByStudent.get(student.id);
+            if (!metric) return student;
+            return {
+                ...student,
+                weakTypeCount: metric.weakTypeCount,
+                avgTypeScore: metric.avgTypeScore,
+                lastLearningAt: metric.lastLearningAt,
+                learningMetricsLoaded: true,
+            };
+        }));
+    }, []);
+
+    const loadMetrics = useCallback(async (studentIds: string[]) => {
+        if (!academyId || studentIds.length === 0) return;
+        setMetricsLoading(true);
+        try {
+            const metrics = await loadStudentLearningMetrics(academyId, studentIds);
+            mergeLearningMetrics(metrics);
+        } catch (err) {
+            console.warn('[Students] Failed to load learning metrics:', err);
+        } finally {
+            setMetricsLoading(false);
+        }
+    }, [academyId, mergeLearningMetrics]);
+
     const load = useCallback(async () => {
         if (!academyId) return;
         setLoading(true);
@@ -728,8 +849,9 @@ export function StudentsOperationsPage() {
             setPermissions(data.permissions);
             setSelectedStudentId((current) => {
                 if (current && data.students.some((student) => student.id === current)) return current;
-                return data.students.find((student) => student.status !== 'dropped')?.id || data.students[0]?.id || '';
+                return '';
             });
+            void loadMetrics(data.students.map((student) => student.id));
         } catch (err) {
             const message = err instanceof Error ? err.message : '학생 정보를 불러오지 못했습니다.';
             setError(message);
@@ -737,24 +859,30 @@ export function StudentsOperationsPage() {
         } finally {
             setLoading(false);
         }
-    }, [academyId]);
+    }, [academyId, loadMetrics]);
 
-    const loadDetail = useCallback(async (studentId: string) => {
+    const loadDetail = useCallback(async (
+        studentId: string,
+        section: StudentDetailSection = 'learning',
+        options: { replace?: boolean } = {},
+    ) => {
         if (!academyId || !studentId) {
             setDetail(null);
             return;
         }
-        setDetailLoading(true);
+        if (options.replace) setDetailLoading(true);
+        else setSectionLoading((current) => ({ ...current, [section]: true }));
         try {
-            const data = await loadStudentDetail(academyId, studentId);
-            setDetail(data);
-            setHardDeletePreview(data.hardDeletePreview);
+            const data = await loadStudentDetail(academyId, studentId, section);
+            setDetail((current) => options.replace ? data : mergeStudentDetail(current, data));
+            if (data.hardDeletePreview) setHardDeletePreview(data.hardDeletePreview);
         } catch (err) {
             const message = err instanceof Error ? err.message : '학생 상세 정보를 불러오지 못했습니다.';
             toast.error(message);
-            setDetail(null);
+            if (options.replace) setDetail(null);
         } finally {
-            setDetailLoading(false);
+            if (options.replace) setDetailLoading(false);
+            else setSectionLoading((current) => ({ ...current, [section]: false }));
         }
     }, [academyId]);
 
@@ -765,12 +893,22 @@ export function StudentsOperationsPage() {
     useEffect(() => {
         if (!selectedStudentId) {
             setDetail(null);
+            setHardDeletePreview(null);
             return;
         }
         setActiveTab('learning');
+        setSectionLoading({});
+        setHardDeletePreview(null);
         resetStudentForm();
-        void loadDetail(selectedStudentId);
+        void loadDetail(selectedStudentId, 'learning', { replace: true });
     }, [loadDetail, resetStudentForm, selectedStudentId]);
+
+    const handleTabChange = useCallback((tab: string) => {
+        setActiveTab(tab);
+        const section = DETAIL_SECTION_BY_TAB[tab];
+        if (!section || section === 'management' || !selectedStudentId || hasLoadedSection(detail, section)) return;
+        void loadDetail(selectedStudentId, section);
+    }, [detail, loadDetail, selectedStudentId]);
 
     const filteredStudents = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -879,7 +1017,7 @@ export function StudentsOperationsPage() {
             }
             resetStudentForm();
             await load();
-            if (editingStudentId) await loadDetail(editingStudentId);
+            if (editingStudentId) await loadDetail(editingStudentId, 'learning', { replace: true });
         } catch (err) {
             toast.error(err instanceof Error ? err.message : '학생 저장에 실패했습니다.');
         } finally {
@@ -905,6 +1043,7 @@ export function StudentsOperationsPage() {
         if (!academyId || !selectedStudentId) return;
         setHardDeleteOpen(true);
         setHardDeleteConfirmName('');
+        setHardDeletePreview(null);
         try {
             const preview = await previewHardDeleteStudent(academyId, selectedStudentId);
             setHardDeletePreview(preview);
@@ -963,7 +1102,7 @@ export function StudentsOperationsPage() {
                 </Button>
             ) : undefined}
         >
-            {loading && <LoadingBlock />}
+            {loading && <SkeletonPage />}
             {!loading && error && (
                 <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-lg border border-red-200 bg-red-50 p-6 text-center">
                     <AlertTriangle className="h-7 w-7 text-red-600" />
@@ -1009,7 +1148,12 @@ export function StudentsOperationsPage() {
                             </div>
                         </CardHeader>
                         <CardContent className="p-0">
-                            <StudentList students={filteredStudents} selectedStudentId={selectedStudentId} onSelect={(student) => setSelectedStudentId(student.id)} />
+                            <StudentList
+                                students={filteredStudents}
+                                selectedStudentId={selectedStudentId}
+                                metricsLoading={metricsLoading}
+                                onSelect={(student) => setSelectedStudentId(student.id)}
+                            />
                         </CardContent>
                     </Card>
 
@@ -1021,7 +1165,7 @@ export function StudentsOperationsPage() {
                             </CardContent>
                         </Card>
                     ) : detailLoading ? (
-                        <LoadingBlock />
+                        <StudentDetailSkeleton />
                     ) : detail ? (
                         <Card className="overflow-hidden">
                             <CardHeader className="border-b">
@@ -1048,7 +1192,7 @@ export function StudentsOperationsPage() {
                                 </div>
                             </CardHeader>
                             <CardContent className="p-4">
-                                <Tabs value={activeTab} onValueChange={setActiveTab} variant="underline">
+                                <Tabs value={activeTab} onValueChange={handleTabChange} variant="underline">
                                     <TabsList className="flex h-auto w-full flex-wrap justify-start overflow-x-auto">
                                         <TabsTrigger value="learning"><BarChart3 className="mr-2 h-4 w-4" />학습분석</TabsTrigger>
                                         <TabsTrigger value="profile"><UserRound className="mr-2 h-4 w-4" />프로필</TabsTrigger>
@@ -1058,10 +1202,14 @@ export function StudentsOperationsPage() {
                                             <TabsTrigger value="manage"><ShieldAlert className="mr-2 h-4 w-4" />관리</TabsTrigger>
                                         )}
                                     </TabsList>
-                                    <TabsContent value="learning"><LearningTab detail={detail} /></TabsContent>
+                                    <TabsContent value="learning">{sectionLoading.learning ? <StudentTabSkeleton /> : <LearningTab detail={detail} />}</TabsContent>
                                     <TabsContent value="profile"><ProfileTab student={detail.summary} /></TabsContent>
-                                    <TabsContent value="attendance"><AttendanceTab detail={detail} /></TabsContent>
-                                    {detail.permissions.canViewBilling && <TabsContent value="billing"><BillingTab detail={detail} /></TabsContent>}
+                                    <TabsContent value="attendance">{sectionLoading.attendance ? <StudentTabSkeleton /> : <AttendanceTab detail={detail} />}</TabsContent>
+                                    {detail.permissions.canViewBilling && (
+                                        <TabsContent value="billing">
+                                            {sectionLoading.billing ? <StudentTabSkeleton /> : <BillingTab detail={detail} />}
+                                        </TabsContent>
+                                    )}
                                     {(detail.permissions.canEdit || detail.permissions.canArchive || detail.permissions.canHardDelete) && (
                                         <TabsContent value="manage">
                                             <ManagementTab

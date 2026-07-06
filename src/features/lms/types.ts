@@ -74,6 +74,7 @@ export interface StudentSummary {
   weakTypeCount?: number;
   avgTypeScore?: number | null;
   lastLearningAt?: string | null;
+  learningMetricsLoaded?: boolean;
 }
 
 export interface StudentClassBillingInput {
@@ -95,6 +96,15 @@ export interface StudentOperationsOverview {
   students: StudentSummary[];
   classes: ClassSummary[];
   permissions: StudentOperationsPermissions;
+}
+
+export type StudentDetailSection = 'learning' | 'attendance' | 'billing' | 'management' | 'full';
+
+export interface StudentLearningMetric {
+  studentId: string;
+  weakTypeCount: number;
+  avgTypeScore: number | null;
+  lastLearningAt: string | null;
 }
 
 export interface StudentLearningAttemptRow {
@@ -166,6 +176,7 @@ export interface StudentMutationResult {
 export interface StudentDetail {
   summary: StudentSummary;
   permissions: StudentOperationsPermissions;
+  loadedSections: StudentDetailSection[];
   weakTypes: WeakTypeRow[];
   recentAttempts: StudentLearningAttemptRow[];
   attendanceSummary: StudentAttendanceSummary;

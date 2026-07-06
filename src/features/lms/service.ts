@@ -20,7 +20,9 @@ import type {
   RecordPaymentInput,
   StaffSummary,
   StudentDetail,
+  StudentDetailSection,
   StudentHardDeletePreview,
+  StudentLearningMetric,
   StudentMutationResult,
   StudentOperationsOverview,
   UpdateBookInput,
@@ -150,8 +152,18 @@ export async function loadStudentOperationsOverview(academyId: string): Promise<
   return getLmsJson<StudentOperationsOverview>(`/api/lms/students?${params.toString()}`);
 }
 
-export async function loadStudentDetail(academyId: string, studentId: string): Promise<StudentDetail> {
-  const params = new URLSearchParams({ academyId, studentId });
+export async function loadStudentLearningMetrics(academyId: string, studentIds: string[]): Promise<StudentLearningMetric[]> {
+  if (studentIds.length === 0) return [];
+  const params = new URLSearchParams({ academyId, studentIds: studentIds.join(',') });
+  return getLmsJson<StudentLearningMetric[]>(`/api/lms/students/learning-metrics?${params.toString()}`);
+}
+
+export async function loadStudentDetail(
+  academyId: string,
+  studentId: string,
+  section: StudentDetailSection = 'full',
+): Promise<StudentDetail> {
+  const params = new URLSearchParams({ academyId, studentId, section });
   return getLmsJson<StudentDetail>(`/api/lms/students/detail?${params.toString()}`);
 }
 
