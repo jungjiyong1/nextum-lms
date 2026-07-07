@@ -1,5 +1,6 @@
 const PROTECTED_APP_PATH_PREFIXES = [
     '/accounting',
+    '/assignments',
     '/classrooms',
     '/instructors',
     '/settings',

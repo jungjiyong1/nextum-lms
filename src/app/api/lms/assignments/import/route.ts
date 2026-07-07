@@ -23,7 +23,7 @@ export async function POST(request: Request) {
             return Response.json({ success: false, error: 'Invalid worksheet assignment request.' }, { status: 400 });
         }
 
-        await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
         const assignment = await importWorksheetAssignmentForAcademy(
             academyId,
             {
@@ -33,9 +33,11 @@ export async function POST(request: Request) {
                 context: String(form.get('context') || 'homework'),
                 classIds: parseStringArray(form.get('classIds')),
                 studentIds: parseStringArray(form.get('studentIds')),
+                excludedStudentIds: parseStringArray(form.get('excludedStudentIds')),
                 sourceType: 'worksheet',
             },
             file,
+            actor,
         );
 
         return Response.json({ success: true, assignment });

@@ -31,6 +31,7 @@ import type {
   StudentMutationResult,
   StudentOperationsOverview,
   StudentSignupInvitation,
+  LearningAssignmentDetail,
   UpdateBookInput,
   UpdateClassInput,
   UpdateClassroomInput,
@@ -528,6 +529,15 @@ export async function loadAssignmentManagementData(academyId: string, options: L
   return getLmsJson<AssignmentManagementData>(`/api/lms/assignments?${params.toString()}`, { policy: 'operational', ...options });
 }
 
+export async function loadAssignmentDetail(
+  academyId: string,
+  assignmentId: string,
+  options: LmsRequestOptions = {},
+): Promise<LearningAssignmentDetail> {
+  const params = new URLSearchParams({ academyId, assignmentId });
+  return getLmsJson<LearningAssignmentDetail>(`/api/lms/assignments/detail?${params.toString()}`, { policy: 'operational', ...options });
+}
+
 export async function createLearningAssignment(
   academyId: string,
   input: CreateLearningAssignmentInput,
@@ -548,8 +558,25 @@ export async function importWorksheetAssignment(
   form.set('context', input.context || 'homework');
   form.set('classIds', JSON.stringify(input.classIds || []));
   form.set('studentIds', JSON.stringify(input.studentIds || []));
+  form.set('excludedStudentIds', JSON.stringify(input.excludedStudentIds || []));
   form.set('file', file);
   await postLmsForm('/api/lms/assignments/import', form);
+}
+
+export async function addAssignmentRecipients(
+  academyId: string,
+  assignmentId: string,
+  studentIds: string[],
+): Promise<void> {
+  await postLmsMutation('/api/lms/assignments/recipients', { academyId, assignmentId, studentIds });
+}
+
+export async function removeAssignmentRecipient(
+  academyId: string,
+  assignmentId: string,
+  studentId: string,
+): Promise<void> {
+  await postLmsMutation('/api/lms/assignments/recipients', { academyId, assignmentId, removeStudentId: studentId });
 }
 
 export async function setClassBook(academyId: string, classId: string, bookId: string, active: boolean): Promise<void> {

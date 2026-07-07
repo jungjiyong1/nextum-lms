@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createHmac, randomBytes } from 'crypto';
+import { requiresAssignedClassScope } from '@/core/auth/roles';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { calculateInvoiceDraft } from '@/features/lms/billing';
 import {
@@ -37,6 +38,9 @@ import type {
     WithholdingType,
     LessonOccurrenceStatus,
 } from '@/features/lms/types';
+import type { LmsRoleContext } from './auth';
+import { LmsAuthError } from './auth';
+import { loadAssignedClassIdsForContext } from './class-queries';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -543,6 +547,7 @@ async function resolveAssignmentProblemIds(
     const unitIds = uniqueStrings(input.unitIds || []);
     const problemTypeIds = uniqueStrings(input.problemTypeIds || []);
     const explicitProblemIds = uniqueStrings(input.problemIds || []);
+    if (explicitProblemIds.length > 0) return explicitProblemIds;
 
     const { data, error } = await content
         .from('problems')
@@ -557,15 +562,170 @@ async function resolveAssignmentProblemIds(
         const typeId = row.problem_type_id || row.type_id || null;
         if (
             wholeBook
-            || unitIds.includes(row.unit_id)
-            || (typeId && problemTypeIds.includes(typeId))
-            || explicitProblemIds.includes(row.id)
+            || (
+                unitIds.length > 0
+                && unitIds.includes(row.unit_id)
+                && (problemTypeIds.length === 0 || (typeId && problemTypeIds.includes(typeId)))
+            )
+            || (
+                unitIds.length === 0
+                && typeId
+                && problemTypeIds.includes(typeId)
+            )
         ) {
             selected.add(row.id);
         }
     }
 
     return [...selected];
+}
+
+function canManageAcrossClasses(context: LmsRoleContext | null | undefined): boolean {
+    return !context || context.role === 'owner' || context.role === 'admin' || context.role === 'staff';
+}
+
+function forbiddenAssignmentScope(): never {
+    throw new LmsAuthError('Only assigned classes and students can be used for this assignment.', 403);
+}
+
+async function assertAssignmentInputScope(
+    core: SchemaClient,
+    context: LmsRoleContext | null | undefined,
+    classIds: string[],
+    studentIds: string[],
+) {
+    if (!context || !requiresAssignedClassScope(context.role)) return;
+
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    if (!assignedClassIds || assignedClassIds.size === 0) forbiddenAssignmentScope();
+    if (classIds.some((classId) => !assignedClassIds.has(classId))) forbiddenAssignmentScope();
+    if (studentIds.length === 0) return;
+
+    const { data, error } = await core
+        .from('class_students')
+        .select('student_id,class_id')
+        .in('student_id', studentIds)
+        .in('class_id', [...assignedClassIds])
+        .eq('status', 'active');
+    ensureNoError(error, 'Failed to verify assigned student targets');
+
+    const allowedStudentIds = new Set(((data || []) as Row[]).map((row) => row.student_id));
+    if (studentIds.some((studentId) => !allowedStudentIds.has(studentId))) forbiddenAssignmentScope();
+}
+
+async function primaryClassByStudent(
+    core: SchemaClient,
+    studentIds: string[],
+    allowedClassIds?: Set<string> | null,
+): Promise<Map<string, string>> {
+    const ids = uniqueStrings(studentIds);
+    if (ids.length === 0) return new Map();
+    let query = core
+        .from('class_students')
+        .select('student_id,class_id,status,primary_class,joined_at')
+        .in('student_id', ids)
+        .eq('status', 'active')
+        .order('primary_class', { ascending: false })
+        .order('joined_at', { ascending: false });
+    if (allowedClassIds && allowedClassIds.size > 0) query = query.in('class_id', [...allowedClassIds]);
+    const { data, error } = await query;
+    ensureNoError(error, 'Failed to load student classes');
+    const result = new Map<string, string>();
+    for (const row of (data || []) as Row[]) {
+        if (!result.has(row.student_id)) result.set(row.student_id, row.class_id);
+    }
+    return result;
+}
+
+async function insertAssignmentRecipients(
+    core: SchemaClient,
+    learning: SchemaClient,
+    academyId: string,
+    assignmentId: string,
+    classIds: string[],
+    studentIds: string[],
+    addedBy: string | null,
+    sourceType: 'class_snapshot' | 'student_direct' | 'manual_add' = 'student_direct',
+    excludedStudentIds: string[] = [],
+) {
+    const rowsByStudent = new Map<string, Row>();
+    const excluded = new Set(excludedStudentIds);
+    if (classIds.length > 0) {
+        const { data, error } = await core
+            .from('class_students')
+            .select('student_id,class_id')
+            .in('class_id', classIds)
+            .eq('status', 'active');
+        ensureNoError(error, 'Failed to load class assignment recipients');
+        for (const row of (data || []) as Row[]) {
+            if (excluded.has(row.student_id)) continue;
+            rowsByStudent.set(row.student_id, {
+                assignment_id: assignmentId,
+                academy_id: academyId,
+                student_id: row.student_id,
+                class_id: row.class_id,
+                source_type: 'class_snapshot',
+                active: true,
+                removed_at: null,
+                added_by: addedBy,
+            });
+        }
+    }
+
+    if (studentIds.length > 0) {
+        const classByStudent = await primaryClassByStudent(core, studentIds);
+        for (const studentId of studentIds) {
+            if (excluded.has(studentId)) continue;
+            rowsByStudent.set(studentId, {
+                assignment_id: assignmentId,
+                academy_id: academyId,
+                student_id: studentId,
+                class_id: classByStudent.get(studentId) || null,
+                source_type: sourceType,
+                active: true,
+                removed_at: null,
+                added_by: addedBy,
+            });
+        }
+    }
+
+    const rows = [...rowsByStudent.values()];
+    if (rows.length === 0) return;
+    const { error } = await learning
+        .from('assignment_recipients')
+        .upsert(rows, { onConflict: 'assignment_id,student_id' });
+    ensureNoError(error, 'Failed to create assignment recipients');
+}
+
+async function assertCanManageAssignmentRecipients(
+    learning: SchemaClient,
+    context: LmsRoleContext,
+    assignmentId: string,
+) {
+    if (canManageAcrossClasses(context)) return;
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    if (!assignedClassIds || assignedClassIds.size === 0) forbiddenAssignmentScope();
+
+    const [targetResult, recipientResult] = await Promise.all([
+        learning
+            .from('assignment_targets')
+            .select('class_id')
+            .eq('assignment_id', assignmentId)
+            .eq('target_type', 'class')
+            .eq('active', true),
+        learning
+            .from('assignment_recipients')
+            .select('class_id')
+            .eq('assignment_id', assignmentId)
+            .eq('active', true),
+    ]);
+    ensureNoError(targetResult.error, 'Failed to verify assignment target scope');
+    ensureNoError(recipientResult.error, 'Failed to verify assignment recipient scope');
+    const classIds = [
+        ...((targetResult.data || []) as Row[]).map((row) => row.class_id),
+        ...((recipientResult.data || []) as Row[]).map((row) => row.class_id),
+    ].filter(Boolean);
+    if (!classIds.some((classId) => assignedClassIds.has(classId))) forbiddenAssignmentScope();
 }
 
 export async function updateClassForAcademy(academyId: string, classId: string, input: UpdateClassInput) {
@@ -1092,12 +1252,14 @@ export async function issueStudentInvitationForAcademy(
 export async function createLearningAssignmentForAcademy(
     academyId: string,
     input: CreateLearningAssignmentInput,
+    context?: LmsRoleContext,
 ) {
     const title = input.title?.trim();
     if (!title) throw new Error('Assignment title is required.');
 
     const classIds = uniqueClassIds(input.classIds);
     const studentIds = uniqueStrings(input.studentIds || []);
+    const excludedStudentIds = uniqueStrings(input.excludedStudentIds || []);
     if (classIds.length === 0 && studentIds.length === 0) {
         throw new Error('Assignment target is required.');
     }
@@ -1109,8 +1271,9 @@ export async function createLearningAssignmentForAcademy(
 
     await Promise.all([
         assertClassesBelongToAcademy(core, academyId, classIds),
-        assertStudentsBelongToAcademy(core, academyId, studentIds),
+        assertStudentsBelongToAcademy(core, academyId, uniqueStrings([...studentIds, ...excludedStudentIds])),
     ]);
+    await assertAssignmentInputScope(core, context, classIds, uniqueStrings([...studentIds, ...excludedStudentIds]));
     if (input.bookId) await assertBookAssignableToAcademy(content, academyId, input.bookId);
 
     const problemIds = await resolveAssignmentProblemIds(content, input);
@@ -1172,6 +1335,17 @@ export async function createLearningAssignmentForAcademy(
     ];
     const { error: targetError } = await learning.from('assignment_targets').insert(targetRows);
     ensureNoError(targetError, 'Failed to create assignment targets');
+    await insertAssignmentRecipients(
+        core,
+        learning,
+        academyId,
+        assignmentId,
+        classIds,
+        studentIds,
+        context?.personId || null,
+        'student_direct',
+        excludedStudentIds,
+    );
 
     if (problemIds.length > 0) {
         const itemRows = problemIds.map((problemId, index) => ({
@@ -1187,6 +1361,72 @@ export async function createLearningAssignmentForAcademy(
     }
 
     return { id: assignmentId };
+}
+
+export async function addAssignmentRecipientsForAcademy(
+    context: LmsRoleContext,
+    assignmentId: string,
+    studentIds: string[],
+) {
+    const ids = uniqueStrings(studentIds);
+    if (!assignmentId || ids.length === 0) return;
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const learning = client.schema('learning');
+    const { data: assignment, error } = await learning
+        .from('assignments')
+        .select('id,academy_id')
+        .eq('id', assignmentId)
+        .eq('academy_id', context.academyId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to load assignment');
+    if (!assignment?.id) throw new Error('Assignment was not found.');
+
+    await assertCanManageAssignmentRecipients(learning, context, assignmentId);
+    await assertStudentsBelongToAcademy(core, context.academyId, ids);
+    await assertAssignmentInputScope(core, context, [], ids);
+    await insertAssignmentRecipients(
+        core,
+        learning,
+        context.academyId,
+        assignmentId,
+        [],
+        ids,
+        context.personId,
+        'manual_add',
+    );
+}
+
+export async function removeAssignmentRecipientForAcademy(
+    context: LmsRoleContext,
+    assignmentId: string,
+    studentId: string,
+) {
+    if (!assignmentId || !studentId) return;
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const learning = client.schema('learning');
+    const { data: assignment, error } = await learning
+        .from('assignments')
+        .select('id,academy_id')
+        .eq('id', assignmentId)
+        .eq('academy_id', context.academyId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to load assignment');
+    if (!assignment?.id) throw new Error('Assignment was not found.');
+
+    await assertCanManageAssignmentRecipients(learning, context, assignmentId);
+    await assertStudentsBelongToAcademy(core, context.academyId, [studentId]);
+    await assertAssignmentInputScope(core, context, [], [studentId]);
+
+    const { error: updateError } = await learning
+        .from('assignment_recipients')
+        .update({ active: false, removed_at: new Date().toISOString() })
+        .eq('assignment_id', assignmentId)
+        .eq('student_id', studentId);
+    ensureNoError(updateError, 'Failed to remove assignment recipient');
 }
 
 async function ensureLessonOccurrence(

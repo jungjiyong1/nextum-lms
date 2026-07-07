@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import JSZip from 'jszip';
 import type { CreateLearningAssignmentInput } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
+import type { LmsRoleContext } from './auth';
 import { createLearningAssignmentForAcademy } from './mutations';
 
 type Row = Record<string, any>;
@@ -327,6 +328,7 @@ export async function importWorksheetAssignmentForAcademy(
     academyId: string,
     input: CreateLearningAssignmentInput,
     file: File,
+    context?: LmsRoleContext,
 ) {
     const client = createAdminClient();
     const { bookId, problemIds } = await createHiddenWorksheetBook(client, academyId, file);
@@ -335,7 +337,7 @@ export async function importWorksheetAssignmentForAcademy(
         bookId,
         problemIds,
         sourceType: 'worksheet',
-    });
+    }, context);
     await attachUploadedExportFile(client, assignment.id, file);
     return assignment;
 }

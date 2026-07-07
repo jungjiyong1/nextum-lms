@@ -46,8 +46,8 @@ export async function POST(request: Request) {
             return Response.json({ success: false, error: 'Invalid assignment request.' }, { status: 400 });
         }
 
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
-        const assignment = await createLearningAssignmentForAcademy(body.academyId, body);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        const assignment = await createLearningAssignmentForAcademy(body.academyId, body, actor);
         return Response.json({ success: true, assignment });
     } catch (error) {
         const authResponse = authErrorResponse(error);

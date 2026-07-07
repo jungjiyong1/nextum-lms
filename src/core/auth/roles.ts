@@ -15,7 +15,7 @@ export const appPageHref: Record<AppPage, string> = {
 
 const pageAccess: Record<AppPage, readonly AppRole[]> = {
     home: ['owner', 'admin', 'staff', 'teacher', 'instructor'],
-    assignments: ['owner', 'admin', 'staff'],
+    assignments: ['owner', 'admin', 'staff', 'teacher', 'instructor'],
     classrooms: ['owner', 'admin', 'staff', 'teacher', 'instructor'],
     instructors: ['owner', 'admin'],
     students: ['owner', 'admin', 'staff', 'teacher', 'instructor'],

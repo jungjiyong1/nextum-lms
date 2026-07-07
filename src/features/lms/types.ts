@@ -355,6 +355,32 @@ export interface AssignmentBookSummary extends BookSummary {
   problems: AssignmentProblemSummary[];
 }
 
+export type AssignmentStudentProgressStatus = 'not_started' | 'in_progress' | 'completed';
+
+export interface AssignmentOperationsPermissions {
+  canCreate: boolean;
+  canManageAll: boolean;
+  canManageRecipients: boolean;
+  scopedToAssignedClasses: boolean;
+}
+
+export interface AssignmentProgressSummary {
+  targetStudentCount: number;
+  notStartedCount: number;
+  inProgressCount: number;
+  completedCount: number;
+  completionRate: number;
+  attemptCount: number;
+  correctAttemptCount: number;
+  correctRate: number | null;
+  lastActivityAt: string | null;
+}
+
+export interface AssignmentClassProgressSummary extends AssignmentProgressSummary {
+  classId: string | null;
+  className: string;
+}
+
 export interface LearningAssignmentSummary {
   id: string;
   title: string;
@@ -366,7 +392,44 @@ export interface LearningAssignmentSummary {
   bookTitle: string | null;
   problemCount: number;
   targetLabels: string[];
+  classIds: string[];
+  classProgress: AssignmentClassProgressSummary[];
+  progress: AssignmentProgressSummary;
   createdAt: string;
+}
+
+export interface AssignmentRecipientProgress {
+  id: string;
+  studentId: string;
+  studentName: string;
+  classId: string | null;
+  className: string | null;
+  status: AssignmentStudentProgressStatus;
+  requiredProblemCount: number;
+  attemptedProblemCount: number;
+  attemptCount: number;
+  correctAttemptCount: number;
+  correctRate: number | null;
+  lastActivityAt: string | null;
+}
+
+export interface AssignmentProblemProgress {
+  problemId: string;
+  label: string;
+  unitId: string | null;
+  unitName: string | null;
+  typeName: string | null;
+  attemptCount: number;
+  correctAttemptCount: number;
+  correctRate: number | null;
+  attemptedStudentCount: number;
+}
+
+export interface LearningAssignmentDetail {
+  assignment: LearningAssignmentSummary;
+  recipients: AssignmentRecipientProgress[];
+  problems: AssignmentProblemProgress[];
+  candidateStudents: StudentSummary[];
 }
 
 export interface AssignmentManagementData {
@@ -374,6 +437,7 @@ export interface AssignmentManagementData {
   books: AssignmentBookSummary[];
   classes: ClassSummary[];
   students: StudentSummary[];
+  permissions: AssignmentOperationsPermissions;
 }
 
 export interface CreateLearningAssignmentInput {
@@ -385,6 +449,7 @@ export interface CreateLearningAssignmentInput {
   problemIds?: string[];
   classIds?: string[];
   studentIds?: string[];
+  excludedStudentIds?: string[];
   dueAt?: string | null;
   context?: string | null;
   sourceType?: 'content_scope' | 'worksheet';
