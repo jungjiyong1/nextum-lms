@@ -1,7 +1,10 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
+    ArrowLeft,
     BarChart3,
     CheckCircle2,
     ClipboardList,
@@ -874,7 +877,7 @@ function AssignmentDetailPanel({
     );
 }
 
-export function AssignmentsOperationsPage() {
+export function AssignmentsStatusPage() {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
     const [data, setData] = useState<AssignmentManagementData | null>(null);
@@ -885,10 +888,8 @@ export function AssignmentsOperationsPage() {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [detailError, setDetailError] = useState<string | null>(null);
-    const [submitting, setSubmitting] = useState(false);
     const [addingRecipients, setAddingRecipients] = useState(false);
     const [removingStudentId, setRemovingStudentId] = useState('');
-    const [composerOpen, setComposerOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [classFilter, setClassFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState<AssignmentStatusFilter>('all');
@@ -965,26 +966,6 @@ export function AssignmentsOperationsPage() {
 
     const selectedAssignment = data?.assignments.find((assignment) => assignment.id === selectedAssignmentId) || null;
 
-    const submitAssignment = async (input: CreateLearningAssignmentInput, file: File | null) => {
-        if (!academyId) return;
-        setSubmitting(true);
-        try {
-            if (input.sourceType === 'worksheet') {
-                if (!file) throw new Error('학습지 export 파일을 선택하세요.');
-                await importWorksheetAssignment(academyId, input, file);
-            } else {
-                await createLearningAssignment(academyId, input);
-            }
-            toast.success('과제를 생성했습니다.');
-            setComposerOpen(false);
-            await load({ force: true });
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : '과제 생성에 실패했습니다.');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
     const addRecipients = async (studentIds: string[]) => {
         if (!academyId || !selectedAssignmentId || studentIds.length === 0) return;
         setAddingRecipients(true);
@@ -1032,13 +1013,15 @@ export function AssignmentsOperationsPage() {
 
     return (
         <PageShell
-            title="과제"
-            description="채점 가능한 교재나 학생별 학습지를 반/학생에게 배정하고 풀이 현황을 확인합니다."
+            title="과제 현황"
+            description="배포된 과제의 대상, 진행률, 정답률을 확인합니다."
             icon={ClipboardList}
             actions={data?.permissions.canCreate ? (
-                <Button type="button" onClick={() => setComposerOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    새 과제
+                <Button asChild>
+                    <Link href="/assignments/new">
+                        <Plus className="mr-2 h-4 w-4" />
+                        과제 등록
+                    </Link>
                 </Button>
             ) : undefined}
         >
@@ -1111,22 +1094,12 @@ export function AssignmentsOperationsPage() {
                                 classes={data.classes}
                                 selectedAssignmentId={selectedAssignmentId}
                                 viewMode={viewMode}
-                                onSelect={(id) => {
-                                    setComposerOpen(false);
-                                    setSelectedAssignmentId(id);
-                                }}
+                                onSelect={setSelectedAssignmentId}
                             />
                         </CardContent>
                     </Card>
 
-                    {composerOpen ? (
-                        <AssignmentComposer
-                            data={data}
-                            submitting={submitting}
-                            onCancel={() => setComposerOpen(false)}
-                            onSubmit={submitAssignment}
-                        />
-                    ) : selectedAssignment ? (
+                    {selectedAssignment ? (
                         <AssignmentDetailPanel
                             detail={detail}
                             loading={detailLoading}
@@ -1147,9 +1120,11 @@ export function AssignmentsOperationsPage() {
                                     <p className="mt-1 text-xs text-muted-foreground">새 과제를 만들면 반별 현황이 이곳에 표시됩니다.</p>
                                 </div>
                                 {data.permissions.canCreate && (
-                                    <Button type="button" variant="outline" size="sm" onClick={() => setComposerOpen(true)}>
-                                        <Plus className="mr-2 h-4 w-4" />
-                                        새 과제
+                                    <Button asChild variant="outline" size="sm">
+                                        <Link href="/assignments/new">
+                                            <Plus className="mr-2 h-4 w-4" />
+                                            과제 등록
+                                        </Link>
                                     </Button>
                                 )}
                             </CardContent>
@@ -1159,4 +1134,120 @@ export function AssignmentsOperationsPage() {
             )}
         </PageShell>
     );
+}
+
+export function AssignmentCreatePage() {
+    const router = useRouter();
+    const { profile } = useAuth();
+    const academyId = academyIdOf(profile?.current_academy_id);
+    const [data, setData] = useState<AssignmentManagementData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+
+    const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
+        if (!academyId) return;
+        if (options.background) setRefreshing(true);
+        else setLoading(true);
+        try {
+            const next = await loadAssignmentManagementData(academyId, { force: options.force });
+            setData(next);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '과제 등록 데이터를 불러오지 못했습니다.');
+        } finally {
+            if (options.background) setRefreshing(false);
+            else setLoading(false);
+        }
+    }, [academyId]);
+
+    useEffect(() => {
+        void load();
+    }, [load]);
+
+    useEffect(() => {
+        if (!academyId) return undefined;
+        return addLmsInvalidationListener((payload) => {
+            if (payload.academyId && payload.academyId !== academyId) return;
+            const domain = payload.domain || 'lms';
+            if (!['assignments', 'students', 'classes', 'learning', 'lms', 'admin'].includes(domain)) return;
+            void load({ force: true, background: true });
+        });
+    }, [academyId, load]);
+
+    const submitAssignment = async (input: CreateLearningAssignmentInput, file: File | null) => {
+        if (!academyId) return;
+        setSubmitting(true);
+        try {
+            if (input.sourceType === 'worksheet') {
+                if (!file) throw new Error('학습지 export 파일을 선택하세요.');
+                await importWorksheetAssignment(academyId, input, file);
+            } else {
+                await createLearningAssignment(academyId, input);
+            }
+            toast.success('과제를 생성했습니다.');
+            router.push('/assignments');
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : '과제 생성에 실패했습니다.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    if (!academyId) {
+        return (
+            <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
+                <Card>
+                    <CardHeader><CardTitle>학원 연결이 필요합니다.</CardTitle></CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">현재 계정에 연결된 academy가 없습니다.</CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    return (
+        <PageShell
+            title="과제 등록"
+            description="채점 가능한 교재 범위나 새 학습지 export를 선택해 학생에게 배포합니다."
+            icon={Plus}
+            actions={(
+                <Button asChild variant="outline">
+                    <Link href="/assignments">
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        현황으로
+                    </Link>
+                </Button>
+            )}
+        >
+            {!loading && refreshing && (
+                <PageStatusBar tone="neutral" className="text-xs">
+                    <span className="flex items-center gap-2">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        등록 기준 데이터를 동기화하는 중
+                    </span>
+                </PageStatusBar>
+            )}
+
+            {loading && <SkeletonPanel className="min-h-[560px]" rows={9} />}
+            {!loading && error && (
+                <ErrorState title={error} retryLabel="다시 시도" onRetry={() => void load({ force: true })} />
+            )}
+            {!loading && !error && data && !data.permissions.canCreate && (
+                <EmptyState title="과제 생성 권한이 없습니다." description="관리자에게 권한을 요청하세요." />
+            )}
+            {!loading && !error && data?.permissions.canCreate && (
+                <AssignmentComposer
+                    data={data}
+                    submitting={submitting}
+                    onCancel={() => router.push('/assignments')}
+                    onSubmit={submitAssignment}
+                />
+            )}
+        </PageShell>
+    );
+}
+
+export function AssignmentsOperationsPage() {
+    return <AssignmentsStatusPage />;
 }

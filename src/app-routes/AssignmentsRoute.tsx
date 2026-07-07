@@ -1,10 +1,18 @@
-import { AssignmentsOperationsPage } from '@/features/lms/assignments-operations-page';
+import { AssignmentCreatePage, AssignmentsStatusPage } from '@/features/lms/assignments-operations-page';
 import { RouteScroll } from './RouteScroll';
 
 export function AssignmentsRoute() {
     return (
         <RouteScroll>
-            <AssignmentsOperationsPage />
+            <AssignmentsStatusPage />
+        </RouteScroll>
+    );
+}
+
+export function AssignmentCreateRoute() {
+    return (
+        <RouteScroll>
+            <AssignmentCreatePage />
         </RouteScroll>
     );
 }
