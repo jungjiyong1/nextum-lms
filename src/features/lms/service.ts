@@ -24,10 +24,12 @@ import type {
   RecordAttendanceInput,
   RecordPaymentInput,
   StaffSummary,
+  StudentAiConversationRow,
   StudentDetail,
   StudentDetailSection,
   StudentHardDeletePreview,
   StudentLearningMetric,
+  StudentLearningPeriod,
   StudentMutationResult,
   StudentOperationsOverview,
   StudentSignupInvitation,
@@ -46,6 +48,11 @@ export type LmsCachePolicy = 'static' | 'operational' | 'volatile' | 'live';
 export interface LmsRequestOptions {
   force?: boolean;
   policy?: LmsCachePolicy;
+}
+
+export interface StudentDetailRequestOptions extends LmsRequestOptions {
+  period?: StudentLearningPeriod;
+  assignmentId?: string | null;
 }
 
 export interface LmsInvalidationPayload {
@@ -479,10 +486,23 @@ export async function loadStudentDetail(
   academyId: string,
   studentId: string,
   section: StudentDetailSection = 'full',
-  options: LmsRequestOptions = {},
+  options: StudentDetailRequestOptions = {},
 ): Promise<StudentDetail> {
   const params = new URLSearchParams({ academyId, studentId, section });
+  if (options.period) params.set('period', options.period);
+  if (options.assignmentId) params.set('assignmentId', options.assignmentId);
   return getLmsJson<StudentDetail>(`/api/lms/students/detail?${params.toString()}`, { policy: 'volatile', ...options });
+}
+
+export async function loadStudentAiConversations(
+  academyId: string,
+  studentId: string,
+  assignmentId?: string | null,
+  options: LmsRequestOptions = {},
+): Promise<StudentAiConversationRow[]> {
+  const params = new URLSearchParams({ academyId, studentId });
+  if (assignmentId) params.set('assignmentId', assignmentId);
+  return getLmsJson<StudentAiConversationRow[]>(`/api/lms/students/ai-conversations?${params.toString()}`, { policy: 'volatile', ...options });
 }
 
 export async function archiveStudent(academyId: string, studentId: string): Promise<StudentMutationResult> {

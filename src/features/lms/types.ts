@@ -9,6 +9,9 @@ export type StaffRole = 'admin' | 'teacher' | 'instructor' | 'staff';
 export type StaffStatus = 'active' | 'inactive' | 'on_leave';
 export type ClassStatus = 'active' | 'inactive' | 'archived';
 export type LessonOccurrenceStatus = 'scheduled' | 'completed' | 'cancelled' | 'makeup' | 'substitute';
+export type StudentLearningPeriod = '30d' | '90d' | '180d' | 'all';
+export type StudentLearningStatus = 'insufficient' | 'weak' | 'watch' | 'ok';
+export type StudentAssignmentProgressStatus = 'not_started' | 'in_progress' | 'completed';
 export type AdminExportType = 'tax' | 'payroll';
 export type AdminResetTarget =
   | 'classrooms'
@@ -110,11 +113,82 @@ export interface StudentLearningMetric {
 export interface StudentLearningAttemptRow {
   id: number;
   problemId: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  unitId: string | null;
+  unitName: string | null;
+  typeId: string | null;
+  typeName: string | null;
+  label: string;
   correct: boolean;
   unsure: boolean;
   attemptNo: number;
   durationMs: number | null;
   createdAt: string;
+}
+
+export interface StudentTypeInsight {
+  typeId: string | null;
+  typeName: string;
+  sampleCount: number;
+  correctCount: number;
+  score: number | null;
+  status: StudentLearningStatus;
+  lastAttemptedAt: string | null;
+}
+
+export interface StudentUnitInsight {
+  unitId: string | null;
+  unitName: string;
+  bookId: string | null;
+  bookTitle: string | null;
+  sampleCount: number;
+  correctCount: number;
+  score: number | null;
+  status: StudentLearningStatus;
+  weakTypeCount: number;
+  typeCount: number;
+  lastAttemptedAt: string | null;
+  types: StudentTypeInsight[];
+}
+
+export interface StudentAssignmentInsight {
+  id: string;
+  title: string;
+  dueAt: string | null;
+  status: string;
+  active: boolean;
+  sourceType: 'content_scope' | 'worksheet';
+  bookTitle: string | null;
+  progressStatus: StudentAssignmentProgressStatus;
+  requiredProblemCount: number;
+  attemptedProblemCount: number;
+  attemptCount: number;
+  correctAttemptCount: number;
+  correctRate: number | null;
+  lastActivityAt: string | null;
+}
+
+export interface StudentLearningOverview {
+  attemptedProblemCount: number;
+  attemptCount: number;
+  correctAttemptCount: number;
+  correctRate: number | null;
+  weakTypeCount: number;
+  watchTypeCount: number;
+  unitCount: number;
+  assignmentCount: number;
+  completedAssignmentCount: number;
+  aiConversationCount: number;
+  lastLearningAt: string | null;
+}
+
+export interface StudentLearningAnalytics {
+  period: StudentLearningPeriod;
+  assignmentId: string | null;
+  overview: StudentLearningOverview;
+  units: StudentUnitInsight[];
+  assignments: StudentAssignmentInsight[];
 }
 
 export interface StudentAttendanceSummary {
@@ -128,11 +202,23 @@ export interface StudentAttendanceSummary {
 
 export interface StudentAiConversationRow {
   id: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
   title: string | null;
   status: string;
   sourceApp: string | null;
   createdAt: string;
   updatedAt: string;
+  messageCount?: number;
+  messages?: StudentAiMessageRow[];
+}
+
+export interface StudentAiMessageRow {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
 }
 
 export interface StudentReportRow {
@@ -179,6 +265,7 @@ export interface StudentDetail {
   loadedSections: StudentDetailSection[];
   signupInvitation: StudentSignupInvitation | null;
   hasGradeAppAccount: boolean;
+  learningAnalytics: StudentLearningAnalytics | null;
   weakTypes: WeakTypeRow[];
   recentAttempts: StudentLearningAttemptRow[];
   attendanceSummary: StudentAttendanceSummary;

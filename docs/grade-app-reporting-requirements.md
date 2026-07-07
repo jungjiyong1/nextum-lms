@@ -66,6 +66,11 @@ When grade-app is migrated, every grading attempt should write to
 The app should also emit append-only `data.events` rows for important learning
 events so future apps can consume the same data without coupling to grade-app UI.
 
+When grade-app creates AI chat data, each `ai.conversations` row should write
+`assignment_id` whenever the chat belongs to an LMS assignment. Existing
+`session_id` and `problem_id` should still be written when available. LMS uses
+`assignment_id` to filter student-detail AI conversations by assignment.
+
 ## Reports Needed Later
 
 Student analysis report:
