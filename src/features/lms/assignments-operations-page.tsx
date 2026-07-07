@@ -443,7 +443,7 @@ function AssignmentComposer({
                 <div className="flex items-start justify-between gap-3">
                     <div>
                         <CardTitle>새 과제</CardTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">범위와 대상을 확인한 뒤 배정합니다.</p>
+                        <p className="mt-1 text-sm text-muted-foreground">채점 가능한 자료와 대상을 확인한 뒤 배정합니다.</p>
                     </div>
                     <Button type="button" variant="ghost" size="icon-sm" onClick={onCancel} aria-label="닫기">
                         <X className="h-4 w-4" />
@@ -466,39 +466,45 @@ function AssignmentComposer({
                         </FormField>
                     </FormSection>
 
-                    <FormSection title="출처">
+                    <FormSection title="과제 자료">
                         <div className="grid gap-3 md:grid-cols-2">
                             <SelectableCard selected={sourceType === 'content_scope'} onClick={() => setSourceType('content_scope')}>
                                 <FileText className="mb-2 h-4 w-4 text-primary" />
-                                <div className="font-semibold">교재 범위</div>
-                                <div className="mt-1 text-xs text-muted-foreground">단원, 세부유형, 문제를 선택합니다.</div>
+                                <div className="font-semibold">채점 가능 교재</div>
+                                <div className="mt-1 text-xs text-muted-foreground">crop/정답 매칭이 끝난 문제집에서 범위를 선택합니다.</div>
                             </SelectableCard>
                             <SelectableCard selected={sourceType === 'worksheet'} onClick={() => setSourceType('worksheet')}>
                                 <Upload className="mb-2 h-4 w-4 text-primary" />
-                                <div className="font-semibold">학습지 export</div>
-                                <div className="mt-1 text-xs text-muted-foreground">crop-trainer zip/json을 과제로 등록합니다.</div>
+                                <div className="font-semibold">새 학습지 export</div>
+                                <div className="mt-1 text-xs text-muted-foreground">학생별 PDF를 crop/정답 매칭한 zip/json으로 등록합니다.</div>
                             </SelectableCard>
                         </div>
                     </FormSection>
 
                     {sourceType === 'content_scope' ? (
                         <FormSection title="문제 범위" description={`${previewProblemIds.length}문항이 배정됩니다.`}>
-                            <FormField label="교재">
-                                <Select
-                                    value={bookId}
-                                    onValueChange={(value) => {
-                                        setBookId(value);
-                                        resetScope();
-                                    }}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="교재 선택" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {data.books.map((book) => <SelectItem key={book.id} value={book.id}>{book.title}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </FormField>
+                            {data.books.length === 0 ? (
+                                <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-sm text-muted-foreground">
+                                    채점 가능한 교재가 아직 없습니다. 기존 crop 자료를 가져오거나 새 학습지 export를 업로드하세요.
+                                </div>
+                            ) : (
+                                <FormField label="교재">
+                                    <Select
+                                        value={bookId}
+                                        onValueChange={(value) => {
+                                            setBookId(value);
+                                            resetScope();
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="교재 선택" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {data.books.map((book) => <SelectItem key={book.id} value={book.id}>{book.title}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </FormField>
+                            )}
 
                             {selectedBook && (
                                 <>
@@ -579,13 +585,16 @@ function AssignmentComposer({
                         </FormSection>
                     ) : (
                         <FormSection title="학습지 파일">
-                            <FormField label="crop-trainer export zip/json">
+                            <FormField label="crop/정답 매칭 export zip/json">
                                 <Input
                                     type="file"
                                     accept=".zip,.json,application/zip,application/json"
                                     onChange={(event) => setWorksheetFile(event.target.files?.[0] || null)}
                                 />
                             </FormField>
+                            <p className="text-xs text-muted-foreground">
+                                업로드한 export는 숨김 교재로 저장되고, 선택한 학생의 grade-app 과제함에 바로 배포됩니다.
+                            </p>
                         </FormSection>
                     )}
 
@@ -1024,7 +1033,7 @@ export function AssignmentsOperationsPage() {
     return (
         <PageShell
             title="과제"
-            description="반별 과제 현황을 확인하고, 교재 범위나 학습지를 학생에게 배정합니다."
+            description="채점 가능한 교재나 학생별 학습지를 반/학생에게 배정하고 풀이 현황을 확인합니다."
             icon={ClipboardList}
             actions={data?.permissions.canCreate ? (
                 <Button type="button" onClick={() => setComposerOpen(true)}>

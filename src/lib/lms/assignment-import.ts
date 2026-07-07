@@ -256,7 +256,6 @@ async function createHiddenWorksheetBook(
                 book_id: bookId,
                 problem_id: problemId,
                 kind: 'problem_image',
-                asset_type: 'image',
                 storage_path: storagePath,
                 media_type: 'image/png',
                 metadata: { source_image: rawImage },

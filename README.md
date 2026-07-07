@@ -21,6 +21,10 @@ Nextum LMS is the operator-facing web app for academy management. The current ap
   - `learning.attempts` remains append-only.
   - `ai.conversations` and `ai.messages` store grade-app AI tutor conversations.
   - `reporting.v_student_type_weakness` is the primary student weakness view.
+- Assignment distribution is LMS-led:
+  - LMS imports crop/answer-matched content into `content`.
+  - LMS creates `learning.assignments` for classes or individual students.
+  - grade-app shows the student's assigned work, records grading attempts, and stores AI tutor logs.
 - Student-facing problem reads use `content.student_problems`, which omits
   answer data. Direct `content.problems.answer` access is not part of the
   browser contract.
@@ -79,6 +83,7 @@ npm run lint
 npm run ui:check
 npm run typecheck
 npm run db:check
+npm run db:import-grade-fixtures
 npm run db:backup-content -- --dry-run
 npm run db:backup-preservation -- --dry-run
 npm test -- --run
@@ -129,6 +134,18 @@ npm run db:backup-preservation
 The backup command is read-only against Supabase. It writes `content.books`, `content.units`, `content.concepts`, `content.problem_types`, `content.problems`, and available optional content tables to `backups/`, which is intentionally ignored by git.
 
 `db:backup-preservation` is the broader cutover backup. It exports `core`, `content`, `learning`, `ai`, `data`, legacy `lms` tables, and a Supabase Storage manifest. Add `--include-storage-files` only when you also want to download Storage object contents into `backups/`.
+
+To seed the shared database with the crop/answer-matched fixtures currently in the sibling grade-app repo:
+
+```bash
+npm run db:import-grade-fixtures
+```
+
+The LMS-to-grade-app assignment flow is documented in:
+
+```text
+docs/assignment-distribution-workflow.md
+```
 
 The current `nextum-data` cutover status, preservation inventory, schema gaps, and execution order are tracked in:
 
