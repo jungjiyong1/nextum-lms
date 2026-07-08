@@ -1000,6 +1000,9 @@ export async function createStaffForAcademy(academyId: string, input: CreateStaf
             role: input.role,
             status: 'active',
             hourly_rate: input.hourlyRate ?? null,
+            hire_date: input.hireDate || null,
+            qualifications: input.qualifications || null,
+            notes: input.notes || null,
         });
         ensureNoError(staffError, 'Failed to create staff member');
     } catch (error) {
@@ -1045,12 +1048,27 @@ export async function updateStaffForAcademy(academyId: string, staffId: string, 
             role: normalizeStaffRole(input.role),
             status: normalizeStaffStatus(input.status),
             hourly_rate: input.hourlyRate ?? null,
+            hire_date: input.hireDate || null,
+            qualifications: input.qualifications || null,
+            notes: input.notes || null,
         })
         .eq('academy_id', academyId)
         .eq('id', staffId)
         .select('id')
         .single();
     ensureNoError(updateError, 'Failed to update staff member');
+
+    const memberActive = normalizeStaffStatus(input.status) === 'active';
+    const { error: memberError } = await core
+        .from('academy_members')
+        .update({
+            role: normalizeStaffRole(input.role),
+            active: memberActive,
+        })
+        .eq('academy_id', academyId)
+        .eq('person_id', (staff as Row).person_id)
+        .eq('role', (staff as Row).role);
+    ensureNoError(memberError, 'Failed to sync staff membership');
 }
 
 export async function createScheduleRuleForAcademy(academyId: string, input: CreateScheduleRuleInput) {
@@ -1811,15 +1829,34 @@ export async function createInstructorPaymentForAcademy(academyId: string, input
 
     const client = createAdminClient();
     const core = client.schema('core');
+    let recipientName = input.recipientName?.trim() || null;
     if (input.instructorId) {
         await assertStaffBelongsToAcademy(core, academyId, input.instructorId);
+        if (!recipientName) {
+            const { data: staff, error: staffError } = await core
+                .from('staff_members')
+                .select('person_id')
+                .eq('academy_id', academyId)
+                .eq('id', input.instructorId)
+                .maybeSingle();
+            ensureNoError(staffError, 'Failed to load instructor name');
+            if ((staff as Row | null)?.person_id) {
+                const { data: person, error: personError } = await core
+                    .from('people')
+                    .select('display_name,full_name')
+                    .eq('id', (staff as Row).person_id)
+                    .maybeSingle();
+                ensureNoError(personError, 'Failed to load instructor person');
+                recipientName = (person as Row | null)?.display_name || (person as Row | null)?.full_name || null;
+            }
+        }
     }
 
     const amounts = calculatePayrollAmounts(input);
     const { error } = await client.schema('lms').from('instructor_payments').insert({
         academy_id: academyId,
         instructor_id: input.instructorId || null,
-        recipient_name: input.recipientName?.trim() || null,
+        recipient_name: recipientName,
         service_month: input.serviceMonth,
         payment_date: input.paymentDate,
         gross_amount: grossAmount,

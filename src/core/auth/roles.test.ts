@@ -28,9 +28,11 @@ describe('LMS app roles', () => {
         expect(canAccessAppPage('owner', 'settings')).toBe(true);
         expect(canAccessAppPage('admin', 'instructors')).toBe(true);
         expect(canAccessAppPage('staff', 'students')).toBe(true);
+        expect(canAccessAppPage('staff', 'instructors')).toBe(true);
         expect(canAccessAppPage('staff', 'settings')).toBe(false);
         expect(canAccessAppPage('instructor', 'classrooms')).toBe(true);
         expect(canAccessAppPage('instructor', 'students')).toBe(true);
+        expect(canAccessAppPage('instructor', 'instructors')).toBe(true);
         expect(canAccessAppPage('student', 'home')).toBe(false);
         expect(canAccessAppPage('guardian', 'home')).toBe(false);
     });

@@ -286,6 +286,93 @@ export interface StaffSummary {
   role: StaffRole | 'owner';
   status: StaffStatus;
   hourlyRate: number | null;
+  hireDate?: string | null;
+  qualifications?: string | null;
+  notes?: string | null;
+  classIds?: string[];
+  classNames?: string[];
+  activeClassCount?: number;
+  upcomingLessonCount?: number;
+  lastPaymentDate?: string | null;
+  visibleToPeerOnly?: boolean;
+}
+
+export interface StaffOperationsPermissions {
+  canCreate: boolean;
+  canEdit: boolean;
+  canArchive: boolean;
+  canHardDelete: boolean;
+  canViewPayroll: boolean;
+  canCreatePayroll: boolean;
+  canViewAccount: boolean;
+  canViewSensitiveProfile: boolean;
+  scopedToPeerClasses: boolean;
+}
+
+export interface StaffOperationsOverview {
+  staff: StaffSummary[];
+  classes: ClassSummary[];
+  permissions: StaffOperationsPermissions;
+}
+
+export type StaffDetailSection = 'profile' | 'classes' | 'payroll' | 'account' | 'management' | 'full';
+
+export interface StaffAccountState {
+  hasAccount: boolean;
+  accountStatus: string | null;
+  membershipRole: StaffRole | 'owner' | null;
+  membershipActive: boolean;
+  pendingInvitation: boolean;
+  invitationExpiresAt: string | null;
+}
+
+export interface StaffPayrollSummary {
+  serviceMonth: string;
+  grossAmount: number;
+  netAmount: number;
+  paidCount: number;
+  lastPaymentDate: string | null;
+}
+
+export interface StaffHardDeleteBlocker {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface StaffHardDeletePreview {
+  staffId: string;
+  staffName: string;
+  canHardDelete: boolean;
+  historicalRecordCount: number;
+  sharedIdentityCount: number;
+  blockers: StaffHardDeleteBlocker[];
+}
+
+export interface StaffDetail {
+  summary: StaffSummary;
+  permissions: StaffOperationsPermissions;
+  loadedSections: StaffDetailSection[];
+  assignedClasses: ClassSummary[];
+  schedule: ScheduleItem[];
+  payroll: InstructorPaymentRow[];
+  payrollSummary: StaffPayrollSummary | null;
+  account: StaffAccountState | null;
+  hardDeletePreview: StaffHardDeletePreview | null;
+}
+
+export interface StaffMutationTableSummary {
+  schema: string;
+  table: string;
+  operation: string;
+  affectedRows: number;
+}
+
+export interface StaffMutationResult {
+  staffId: string;
+  staffName: string;
+  tables: StaffMutationTableSummary[];
+  totalAffectedRows: number;
 }
 
 export interface ClassroomSummary {
@@ -671,6 +758,9 @@ export interface CreateStaffInput {
   email?: string | null;
   role: StaffRole;
   hourlyRate?: number | null;
+  hireDate?: string | null;
+  qualifications?: string | null;
+  notes?: string | null;
 }
 
 export interface UpdateStaffInput extends CreateStaffInput {

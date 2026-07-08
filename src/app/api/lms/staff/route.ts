@@ -1,4 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertCsrfToken } from '@/lib/lms/csrf-server';
 import { createStaffForAcademy, updateStaffForAcademy } from '@/lib/lms/mutations';
 import { loadStaffSummariesForAcademy } from '@/lib/lms/staff-queries';
 import type { CreateStaffInput, UpdateStaffInput } from '@/features/lms/types';
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     try {
         assertSameOrigin(request);
+        assertCsrfToken(request);
         const body = await request.json() as { academyId?: string; staffId?: string; input?: CreateStaffInput | UpdateStaffInput };
         if (!body.academyId || !body.input) {
             return Response.json({ success: false, error: 'Invalid staff request.' }, { status: 400 });

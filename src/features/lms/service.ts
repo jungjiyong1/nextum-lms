@@ -23,6 +23,11 @@ import type {
   DashboardData,
   RecordAttendanceInput,
   RecordPaymentInput,
+  StaffDetail,
+  StaffDetailSection,
+  StaffHardDeletePreview,
+  StaffMutationResult,
+  StaffOperationsOverview,
   StaffSummary,
   StudentAiConversationRow,
   StudentDetail,
@@ -528,12 +533,47 @@ export async function listStaff(academyId: string, options: LmsRequestOptions = 
   return getLmsJson<StaffSummary[]>(`/api/lms/staff?${params.toString()}`, { policy: 'static', ...options });
 }
 
+export async function loadStaffOperationsOverview(academyId: string, options: LmsRequestOptions = {}): Promise<StaffOperationsOverview> {
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<StaffOperationsOverview>(`/api/lms/staff/overview?${params.toString()}`, { policy: 'operational', ...options });
+}
+
+export async function loadStaffDetail(
+  academyId: string,
+  staffId: string,
+  section: StaffDetailSection = 'full',
+  serviceMonth?: string,
+  options: LmsRequestOptions = {},
+): Promise<StaffDetail> {
+  const params = new URLSearchParams({ academyId, staffId, section });
+  if (serviceMonth) params.set('serviceMonth', serviceMonth);
+  return getLmsJson<StaffDetail>(`/api/lms/staff/detail?${params.toString()}`, { policy: 'operational', ...options });
+}
+
 export async function createStaff(academyId: string, input: CreateStaffInput): Promise<void> {
   await postLmsMutation('/api/lms/staff', { academyId, input });
 }
 
 export async function updateStaff(academyId: string, staffId: string, input: UpdateStaffInput): Promise<void> {
   await postLmsMutation('/api/lms/staff', { academyId, staffId, input });
+}
+
+export async function archiveStaff(academyId: string, staffId: string): Promise<StaffMutationResult> {
+  const result = await postLmsMutation<{ data?: StaffMutationResult }>('/api/lms/staff/archive', { academyId, staffId });
+  if (!result.data) throw new Error('강사 보관 처리 결과를 확인할 수 없습니다.');
+  return result.data;
+}
+
+export async function previewHardDeleteStaff(academyId: string, staffId: string): Promise<StaffHardDeletePreview> {
+  const result = await postLmsMutation<{ data?: StaffHardDeletePreview }>('/api/lms/staff/hard-delete-preview', { academyId, staffId }, { mutates: false });
+  if (!result.data) throw new Error('완전삭제 가능 여부를 확인할 수 없습니다.');
+  return result.data;
+}
+
+export async function hardDeleteStaff(academyId: string, staffId: string, confirmName: string): Promise<StaffMutationResult> {
+  const result = await postLmsMutation<{ data?: StaffMutationResult }>('/api/lms/staff/hard-delete', { academyId, staffId, confirmName });
+  if (!result.data) throw new Error('완전삭제 결과를 확인할 수 없습니다.');
+  return result.data;
 }
 
 export async function createBook(academyId: string, input: CreateBookInput): Promise<void> {
