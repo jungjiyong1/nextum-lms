@@ -20,6 +20,7 @@ import type {
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { LmsRoleContext } from './auth';
 import { loadAssignedClassIdsForContext } from './class-queries';
+import { sortByProblemOrder } from './problem-order';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -55,6 +56,10 @@ function percent(numerator: number, denominator: number): number {
 function accuracy(correct: number, total: number): number | null {
     if (total <= 0) return null;
     return percent(correct, total);
+}
+
+function assignmentProblemLabel(pagePrinted: unknown, number: unknown, descriptor: string | null): string {
+    return [`p.${Number(pagePrinted)}`, String(number), descriptor].filter(Boolean).join(' ');
 }
 
 function lastIso(values: Array<string | null | undefined>): string | null {
@@ -205,10 +210,10 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
 
     const [unitResult, typeResult, problemResult] = await Promise.all([
         content.from('units').select('id,book_id,name,part_name,sort_order').in('book_id', bookIds).order('sort_order'),
-        content.from('problem_types').select('id,book_id,unit_id,name,sort_order').in('book_id', bookIds).order('sort_order'),
+        content.from('problem_types').select('id,book_id,unit_id,concept_id,name,sort_order').in('book_id', bookIds).order('sort_order'),
         content
             .from('problems')
-            .select('id,book_id,unit_id,problem_type_id,type_id,page_printed,number,is_example')
+            .select('id,book_id,unit_id,concept_id,problem_type_id,type_id,page_printed,number,is_example')
             .in('book_id', bookIds)
             .eq('is_example', false)
             .order('page_printed'),
@@ -221,9 +226,19 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
     const types = (typeResult.data || []) as Row[];
     const problems = (problemResult.data || []) as Row[];
     const typeName = new Map(types.map((row) => [row.id, row.name]));
+    const typeConceptId = new Map(types.map((row) => [row.id, row.concept_id ?? null]));
+    const conceptIds = uniqueStrings([
+        ...problems.map((row) => row.concept_id),
+        ...types.map((row) => row.concept_id),
+    ]);
+    const conceptResult = conceptIds.length
+        ? await content.from('concepts').select('id,name').in('id', conceptIds)
+        : { data: [], error: null };
+    ensureNoError(conceptResult.error, 'Failed to load concepts');
+    const conceptName = new Map(((conceptResult.data || []) as Row[]).map((row) => [row.id, row.name]));
 
     return bookRows.map((book) => {
-        const bookProblems = problems.filter((row) => row.book_id === book.id);
+        const bookProblems = sortByProblemOrder(problems.filter((row) => row.book_id === book.id));
         const problemCountsByUnit = new Map<string, number>();
         const problemCountsByType = new Map<string, number>();
         for (const problem of bookProblems) {
@@ -250,6 +265,7 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
             }));
         const problemSummaries: AssignmentProblemSummary[] = bookProblems.map((row) => {
             const typeId = row.problem_type_id || row.type_id || null;
+            const conceptId = row.concept_id || (typeId ? typeConceptId.get(typeId) : null);
             return {
                 id: row.id,
                 bookId: row.book_id,
@@ -258,6 +274,7 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
                 number: String(row.number),
                 pagePrinted: Number(row.page_printed),
                 typeName: typeId ? typeName.get(typeId) ?? null : null,
+                conceptName: conceptId ? conceptName.get(conceptId) ?? null : null,
             };
         });
 
@@ -555,7 +572,7 @@ async function loadProblemProgress(
     if (problemIds.length === 0) return [];
     const { data: problemData, error } = await content
         .from('problems')
-        .select('id,unit_id,problem_type_id,type_id,page_printed,number')
+        .select('id,unit_id,concept_id,problem_type_id,type_id,page_printed,number')
         .in('id', problemIds);
     ensureNoError(error, 'Failed to load assignment problem progress');
     const problems = (problemData || []) as Row[];
@@ -563,24 +580,38 @@ async function loadProblemProgress(
     const typeIds = uniqueStrings(problems.map((row) => row.problem_type_id || row.type_id));
     const [unitResult, typeResult] = await Promise.all([
         unitIds.length ? content.from('units').select('id,name').in('id', unitIds) : Promise.resolve({ data: [], error: null }),
-        typeIds.length ? content.from('problem_types').select('id,name').in('id', typeIds) : Promise.resolve({ data: [], error: null }),
+        typeIds.length ? content.from('problem_types').select('id,name,concept_id').in('id', typeIds) : Promise.resolve({ data: [], error: null }),
     ]);
     ensureNoError(unitResult.error, 'Failed to load assignment problem units');
     ensureNoError(typeResult.error, 'Failed to load assignment problem types');
     const unitNames = new Map(((unitResult.data || []) as Row[]).map((row) => [row.id, row.name]));
-    const typeNames = new Map(((typeResult.data || []) as Row[]).map((row) => [row.id, row.name]));
+    const types = (typeResult.data || []) as Row[];
+    const typeNames = new Map(types.map((row) => [row.id, row.name]));
+    const typeConceptIds = new Map(types.map((row) => [row.id, row.concept_id ?? null]));
+    const conceptIds = uniqueStrings([
+        ...problems.map((row) => row.concept_id),
+        ...types.map((row) => row.concept_id),
+    ]);
+    const conceptResult = conceptIds.length
+        ? await content.from('concepts').select('id,name').in('id', conceptIds)
+        : { data: [], error: null };
+    ensureNoError(conceptResult.error, 'Failed to load assignment problem concepts');
+    const conceptNames = new Map(((conceptResult.data || []) as Row[]).map((row) => [row.id, row.name]));
 
-    return problems.map((problem) => {
+    return sortByProblemOrder(problems).map((problem) => {
         const rows = attempts.filter((row) => row.assignment_id === assignmentId && row.problem_id === problem.id);
         const correctAttemptCount = rows.filter((row) => row.correct === true).length;
         const typeId = problem.problem_type_id || problem.type_id || null;
         const typeName = typeId ? typeNames.get(typeId) ?? null : null;
+        const conceptId = problem.concept_id || (typeId ? typeConceptIds.get(typeId) : null);
+        const conceptName = conceptId ? conceptNames.get(conceptId) ?? null : null;
+        const descriptor = typeName || conceptName;
         return {
             problemId: problem.id,
-            label: `p.${Number(problem.page_printed)} · ${String(problem.number)}${typeName ? ` · ${typeName}` : ''}`,
+            label: assignmentProblemLabel(problem.page_printed, problem.number, descriptor),
             unitId: problem.unit_id ?? null,
             unitName: problem.unit_id ? unitNames.get(problem.unit_id) ?? null : null,
-            typeName,
+            typeName: descriptor,
             attemptCount: rows.length,
             correctAttemptCount,
             correctRate: accuracy(correctAttemptCount, rows.length),

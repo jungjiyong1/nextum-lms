@@ -98,7 +98,7 @@ export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academ
     const visuallyCollapsed = collapsed || compactViewport;
 
     React.useEffect(() => {
-        setExpandedSections((prev) => new Set([...prev, activePage]));
+        setExpandedSections(new Set([activePage]));
     }, [activePage]);
 
     React.useEffect(() => {
@@ -159,10 +159,15 @@ export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academ
                                     visuallyCollapsed && 'justify-center px-2',
                                 )}
                                 onClick={() => {
-                                    setExpandedSections((prev) => new Set([...prev, item.id]));
+                                    setExpandedSections((prev) => {
+                                        if (!hasChildren) return new Set();
+                                        if (active && prev.has(item.id)) return new Set();
+                                        return new Set([item.id]);
+                                    });
                                     onNavigate(item.id);
                                 }}
                                 title={visuallyCollapsed ? item.label : undefined}
+                                aria-expanded={hasChildren ? expanded : undefined}
                             >
                                 <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                                     <item.icon size={20} />

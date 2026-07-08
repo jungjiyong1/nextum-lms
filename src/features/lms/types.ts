@@ -420,6 +420,7 @@ export interface AssignmentProblemSummary {
   number: string;
   pagePrinted: number;
   typeName: string | null;
+  conceptName: string | null;
 }
 
 export interface AssignmentProblemTypeSummary {

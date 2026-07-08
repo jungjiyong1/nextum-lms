@@ -41,6 +41,7 @@ import type {
 import type { LmsRoleContext } from './auth';
 import { LmsAuthError } from './auth';
 import { loadAssignedClassIdsForContext } from './class-queries';
+import { sortByProblemOrder } from './problem-order';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -551,14 +552,14 @@ async function resolveAssignmentProblemIds(
 
     const { data, error } = await content
         .from('problems')
-        .select('id,book_id,unit_id,problem_type_id,type_id,is_example')
+        .select('id,book_id,unit_id,problem_type_id,type_id,page_printed,number,is_example')
         .eq('book_id', input.bookId)
         .eq('is_example', false);
     ensureNoError(error, 'Failed to load assignment problem scope');
 
     const selected = new Set(explicitProblemIds);
     const wholeBook = unitIds.length === 0 && problemTypeIds.length === 0 && explicitProblemIds.length === 0;
-    for (const row of (data || []) as Row[]) {
+    for (const row of sortByProblemOrder((data || []) as Row[])) {
         const typeId = row.problem_type_id || row.type_id || null;
         if (
             wholeBook

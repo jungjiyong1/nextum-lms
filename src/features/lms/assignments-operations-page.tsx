@@ -8,15 +8,16 @@ import {
     BarChart3,
     CheckCircle2,
     ClipboardList,
+    Clock3,
     FileText,
     Plus,
     RefreshCw,
     Search,
+    SlidersHorizontal,
     Upload,
     UserMinus,
     UserPlus,
     Users,
-    X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -42,6 +43,7 @@ import { EmptyState, ErrorState } from '@/components/ui/state';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { sortByProblemOrder } from '@/lib/lms/problem-order';
 import { cn } from '@/lib/utils';
 import {
     addAssignmentRecipients,
@@ -68,6 +70,27 @@ type SourceType = 'content_scope' | 'worksheet';
 type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
 type AssignmentViewMode = 'all' | 'by_class';
 type AssignmentStatusFilter = 'all' | 'open' | 'due_soon' | 'overdue' | 'completed';
+type AssignmentSummaryStats = {
+    total: number;
+    completed: number;
+    dueSoon: number;
+    overdue: number;
+    targetStudents: number;
+    averageCompletion: number;
+};
+
+const viewModeOptions: Array<{ value: AssignmentViewMode; label: string }> = [
+    { value: 'by_class', label: '반별' },
+    { value: 'all', label: '전체' },
+];
+
+const statusFilterOptions: Array<{ value: AssignmentStatusFilter; label: string }> = [
+    { value: 'all', label: '전체' },
+    { value: 'open', label: '진행중' },
+    { value: 'due_soon', label: '기한 임박' },
+    { value: 'overdue', label: '기한 지남' },
+    { value: 'completed', label: '완료' },
+];
 
 function academyIdOf(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
@@ -122,7 +145,15 @@ function dueTone(status: AssignmentStatusFilter): 'neutral' | 'success' | 'warni
 }
 
 function problemLabel(problem: AssignmentProblemSummary): string {
-    return `p.${problem.pagePrinted} · ${problem.number}${problem.typeName ? ` · ${problem.typeName}` : ''}`;
+    return [`p.${problem.pagePrinted}`, problem.number, problem.typeName || problem.conceptName]
+        .filter(Boolean)
+        .join(' · ');
+}
+
+function problemChipLabel(problem: AssignmentProblemSummary): string {
+    return [problem.number, problem.typeName || problem.conceptName]
+        .filter(Boolean)
+        .join(' · ');
 }
 
 function toggleSetValue(setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
@@ -148,6 +179,99 @@ function metricText(value: number | null): string {
 
 function classLabel(classProgress: AssignmentClassProgressSummary): string {
     return classProgress.className || '개별 학생';
+}
+
+function summarizeAssignments(assignments: LearningAssignmentSummary[]): AssignmentSummaryStats {
+    const total = assignments.length;
+    const completed = assignments.filter((assignment) => dueStatus(assignment) === 'completed').length;
+    const dueSoon = assignments.filter((assignment) => dueStatus(assignment) === 'due_soon').length;
+    const overdue = assignments.filter((assignment) => dueStatus(assignment) === 'overdue').length;
+    const targetStudents = assignments.reduce((sum, assignment) => sum + assignment.progress.targetStudentCount, 0);
+    const completedStudents = assignments.reduce((sum, assignment) => sum + assignment.progress.completedCount, 0);
+    const averageCompletion = targetStudents === 0
+        ? 0
+        : Math.round((completedStudents / targetStudents) * 100);
+
+    return { total, completed, dueSoon, overdue, targetStudents, averageCompletion };
+}
+
+function AssignmentMetricTile({
+    icon: Icon,
+    label,
+    value,
+    description,
+    tone = 'neutral',
+}: {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    value: string | number;
+    description?: string;
+    tone?: 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
+}) {
+    const toneClass = {
+        neutral: 'bg-muted text-muted-foreground',
+        primary: 'bg-primary-soft text-primary-strong',
+        success: 'bg-success-soft text-success-foreground',
+        warning: 'bg-warning-soft text-warning-foreground',
+        danger: 'bg-destructive/10 text-destructive',
+    }[tone];
+
+    return (
+        <div className="min-w-0 rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center gap-3">
+                <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', toneClass)}>
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                    <p className="mt-0.5 text-xl font-semibold leading-none text-foreground">{value}</p>
+                </div>
+            </div>
+            {description && <p className="mt-2 truncate text-xs text-muted-foreground">{description}</p>}
+        </div>
+    );
+}
+
+function AssignmentSummaryStrip({ assignments }: { assignments: LearningAssignmentSummary[] }) {
+    const stats = summarizeAssignments(assignments);
+    return (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <AssignmentMetricTile icon={ClipboardList} label="전체 과제" value={stats.total} description={`${stats.targetStudents}명 배정`} tone="primary" />
+            <AssignmentMetricTile icon={CheckCircle2} label="완료" value={stats.completed} description="대상 전원 제출" tone="success" />
+            <AssignmentMetricTile icon={Clock3} label="기한 임박" value={stats.dueSoon} description="3일 이내 마감" tone="warning" />
+            <AssignmentMetricTile icon={SlidersHorizontal} label="기한 지남" value={stats.overdue} description="후속 확인 필요" tone={stats.overdue > 0 ? 'danger' : 'neutral'} />
+            <AssignmentMetricTile icon={BarChart3} label="평균 완료율" value={`${stats.averageCompletion}%`} description="전체 대상 기준" />
+        </div>
+    );
+}
+
+function SegmentedControl<T extends string>({
+    value,
+    options,
+    onChange,
+    className,
+}: {
+    value: T;
+    options: Array<{ value: T; label: string }>;
+    onChange: (value: T) => void;
+    className?: string;
+}) {
+    return (
+        <div className={cn('inline-flex rounded-lg border border-border bg-muted p-1', className)}>
+            {options.map((option) => (
+                <Button
+                    key={option.value}
+                    type="button"
+                    variant={value === option.value ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => onChange(option.value)}
+                >
+                    {option.label}
+                </Button>
+            ))}
+        </div>
+    );
 }
 
 function AssignmentProgressSummary({ assignment }: { assignment: LearningAssignmentSummary }) {
@@ -191,7 +315,14 @@ function AssignmentCard({
     const status = dueStatus(assignment);
     const progress = classContext || assignment.progress;
     return (
-        <SelectableCard selected={selected} onClick={onSelect} className="space-y-3">
+        <SelectableCard
+            selected={selected}
+            onClick={onSelect}
+            className={cn(
+                'space-y-3 border-l-4 p-3',
+                selected ? 'border-l-primary' : 'border-l-transparent',
+            )}
+        >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="truncate font-semibold text-foreground">{assignment.title}</div>
@@ -203,7 +334,7 @@ function AssignmentCard({
                         <span>{formatDate(assignment.dueAt)}</span>
                     </div>
                 </div>
-                <StatusBadge tone={dueTone(status)} label={dueLabel(status)} />
+                <StatusBadge className="shrink-0 whitespace-nowrap" tone={dueTone(status)} label={dueLabel(status)} />
             </div>
             {classContext && (
                 <StatusBadge tone="primary" label={classLabel(classContext)} />
@@ -215,12 +346,14 @@ function AssignmentCard({
                 </div>
                 <ProgressLine value={progress.completionRate} />
             </div>
-            <div className="flex flex-wrap gap-1.5">
-                {assignment.classProgress.slice(0, 3).map((row) => (
-                    <StatusBadge key={row.classId || row.className} tone="neutral" label={`${classLabel(row)} ${row.completedCount}/${row.targetStudentCount}`} />
-                ))}
-                {assignment.classProgress.length > 3 && <StatusBadge tone="neutral" label={`+${assignment.classProgress.length - 3}`} />}
-            </div>
+            {!classContext && assignment.classProgress.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                    {assignment.classProgress.slice(0, 3).map((row) => (
+                        <StatusBadge key={row.classId || row.className} tone="neutral" label={`${classLabel(row)} ${row.completedCount}/${row.targetStudentCount}`} />
+                    ))}
+                    {assignment.classProgress.length > 3 && <StatusBadge tone="neutral" label={`+${assignment.classProgress.length - 3}`} />}
+                </div>
+            )}
         </SelectableCard>
     );
 }
@@ -301,22 +434,34 @@ function AssignmentList({
 }
 
 function selectedProblemIds(
-    book: AssignmentBookSummary | null,
+    problems: AssignmentProblemSummary[],
     wholeBook: boolean,
     selectedUnitIds: Set<string>,
     selectedTypeIds: Set<string>,
     excludedProblemIds: Set<string>,
 ): string[] {
-    if (!book) return [];
-    if (wholeBook) return book.problems.filter((problem) => !excludedProblemIds.has(problem.id)).map((problem) => problem.id);
+    if (wholeBook) return problems.filter((problem) => !excludedProblemIds.has(problem.id)).map((problem) => problem.id);
     if (selectedUnitIds.size === 0) return [];
-    return book.problems
+    return problems
         .filter((problem) => (
             selectedUnitIds.has(problem.unitId)
             && (!problem.problemTypeId || selectedTypeIds.has(problem.problemTypeId))
             && !excludedProblemIds.has(problem.id)
         ))
         .map((problem) => problem.id);
+}
+
+function groupProblemsByPage(problems: AssignmentProblemSummary[]): Array<{ pagePrinted: number; problems: AssignmentProblemSummary[] }> {
+    const groups = new Map<number, AssignmentProblemSummary[]>();
+    for (const problem of problems) {
+        const pageProblems = groups.get(problem.pagePrinted) ?? [];
+        pageProblems.push(problem);
+        groups.set(problem.pagePrinted, pageProblems);
+    }
+    return [...groups.entries()].map(([pagePrinted, pageProblems]) => ({
+        pagePrinted,
+        problems: pageProblems,
+    }));
 }
 
 function AssignmentComposer({
@@ -346,10 +491,20 @@ function AssignmentComposer({
     const [worksheetFile, setWorksheetFile] = useState<File | null>(null);
 
     const selectedBook = data.books.find((book) => book.id === bookId) || null;
-    const previewProblemIds = useMemo(
-        () => selectedProblemIds(selectedBook, wholeBook, selectedUnitIds, selectedTypeIds, excludedProblemIds),
-        [excludedProblemIds, selectedBook, selectedTypeIds, selectedUnitIds, wholeBook],
+    const orderedBookProblems = useMemo(
+        () => selectedBook ? sortByProblemOrder(selectedBook.problems) : [],
+        [selectedBook],
     );
+    const previewProblemIds = useMemo(
+        () => selectedProblemIds(orderedBookProblems, wholeBook, selectedUnitIds, selectedTypeIds, excludedProblemIds),
+        [excludedProblemIds, orderedBookProblems, selectedTypeIds, selectedUnitIds, wholeBook],
+    );
+    const previewProblemIdSet = useMemo(() => new Set(previewProblemIds), [previewProblemIds]);
+    const visibleProblems = useMemo(
+        () => orderedBookProblems.filter((problem) => selectedUnitIds.has(problem.unitId)),
+        [orderedBookProblems, selectedUnitIds],
+    );
+    const visibleProblemGroups = useMemo(() => groupProblemsByPage(visibleProblems), [visibleProblems]);
     const selectedClassStudents = useMemo(() => {
         const classIds = selectedClassIds;
         return data.students.filter((student) => student.status === 'active' && student.classIds.some((classId) => classIds.has(classId)));
@@ -371,6 +526,20 @@ function AssignmentComposer({
             .filter((student) => !query || `${student.name} ${student.classNames.join(' ')}`.toLowerCase().includes(query))
             .slice(0, 80);
     }, [data.students, studentSearch]);
+    const selectedClassNames = useMemo(
+        () => data.classes
+            .filter((row) => selectedClassIds.has(row.id))
+            .map((row) => row.name),
+        [data.classes, selectedClassIds],
+    );
+    const sourceLabel = sourceType === 'content_scope' ? '채점 가능 교재' : '새 학습지 export';
+    const materialLabel = sourceType === 'content_scope'
+        ? selectedBook?.title || '교재 미선택'
+        : worksheetFile?.name || '파일 미선택';
+    const problemSummary = sourceType === 'worksheet'
+        ? (worksheetFile ? '업로드 파일 기준' : '파일 선택 필요')
+        : (wholeBook ? '전체 교재' : `${previewProblemIds.length}문항`);
+    const dueSummary = dueAt ? formatDate(toDueIso(dueAt)) : '기한 없음';
 
     const toggleUnit = (unitId: string) => {
         if (!selectedBook) return;
@@ -399,6 +568,39 @@ function AssignmentComposer({
         setSelectedUnitIds(new Set());
         setSelectedTypeIds(new Set());
         setExcludedProblemIds(new Set());
+    };
+
+    const includeProblems = (problems: AssignmentProblemSummary[]) => {
+        if (problems.length === 0) return;
+        setWholeBook(false);
+        setSelectedUnitIds((current) => new Set([...current, ...problems.map((problem) => problem.unitId)]));
+        setSelectedTypeIds((current) => {
+            const next = new Set(current);
+            problems.forEach((problem) => {
+                if (problem.problemTypeId) next.add(problem.problemTypeId);
+            });
+            return next;
+        });
+        setExcludedProblemIds((current) => {
+            const next = new Set(current);
+            problems.forEach((problem) => next.delete(problem.id));
+            return next;
+        });
+    };
+
+    const excludeProblems = (problems: AssignmentProblemSummary[]) => {
+        if (problems.length === 0) return;
+        setWholeBook(false);
+        setExcludedProblemIds((current) => {
+            const next = new Set(current);
+            problems.forEach((problem) => next.add(problem.id));
+            return next;
+        });
+    };
+
+    const toggleProblem = (problem: AssignmentProblemSummary) => {
+        if (previewProblemIdSet.has(problem.id)) excludeProblems([problem]);
+        else includeProblems([problem]);
     };
 
     const submit = async (event: React.FormEvent) => {
@@ -441,20 +643,8 @@ function AssignmentComposer({
     };
 
     return (
-        <Card className="overflow-hidden">
-            <CardHeader className="border-b">
-                <div className="flex items-start justify-between gap-3">
-                    <div>
-                        <CardTitle>새 과제</CardTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">채점 가능한 자료와 대상을 확인한 뒤 배정합니다.</p>
-                    </div>
-                    <Button type="button" variant="ghost" size="icon-sm" onClick={onCancel} aria-label="닫기">
-                        <X className="h-4 w-4" />
-                    </Button>
-                </div>
-            </CardHeader>
-            <CardContent className="p-4">
-                <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="space-y-4">
                     <FormSection title="기본 정보">
                         <div className="grid gap-3 md:grid-cols-2">
                             <FormField label="과제명">
@@ -555,30 +745,66 @@ function AssignmentComposer({
                                                 </div>
                                             </div>
                                             <div>
-                                                <div className="mb-2 text-sm font-semibold">포함 문제</div>
-                                                <div className="max-h-72 space-y-1 overflow-auto rounded-lg border bg-card p-2">
-                                                    {selectedBook.problems
-                                                        .filter((problem) => selectedUnitIds.has(problem.unitId))
-                                                        .map((problem) => {
-                                                            const included = previewProblemIds.includes(problem.id);
-                                                            return (
-                                                                <label key={problem.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-muted">
-                                                                    <Checkbox
-                                                                        checked={included}
-                                                                        onCheckedChange={() => {
-                                                                            setExcludedProblemIds((prev) => {
-                                                                                const next = new Set(prev);
-                                                                                if (included) next.add(problem.id);
-                                                                                else next.delete(problem.id);
-                                                                                return next;
-                                                                            });
-                                                                        }}
-                                                                    />
-                                                                    <span className={cn(!included && 'text-muted-foreground')}>{problemLabel(problem)}</span>
-                                                                </label>
-                                                            );
-                                                        })}
-                                                    {selectedUnitIds.size === 0 && <p className="p-2 text-xs text-muted-foreground">선택한 단원의 문제가 여기에 표시됩니다.</p>}
+                                                <div className="mb-2 flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <div className="text-sm font-semibold">포함 문제</div>
+                                                        <div className="text-xs text-muted-foreground">페이지별로 눌러서 포함 여부를 바꿉니다.</div>
+                                                    </div>
+                                                    <StatusBadge tone="primary" label={`${previewProblemIds.length}문항`} />
+                                                </div>
+                                                <div className="max-h-80 space-y-3 overflow-auto rounded-lg border bg-card p-2">
+                                                    {selectedUnitIds.size === 0 && (
+                                                        <p className="p-2 text-xs text-muted-foreground">선택한 단원의 문제가 여기에 표시됩니다.</p>
+                                                    )}
+                                                    {selectedUnitIds.size > 0 && visibleProblemGroups.length === 0 && (
+                                                        <p className="p-2 text-xs text-muted-foreground">선택한 조건에 맞는 문제가 없습니다.</p>
+                                                    )}
+                                                    {visibleProblemGroups.map((group) => {
+                                                        const selectedInPage = group.problems.filter((problem) => previewProblemIdSet.has(problem.id)).length;
+                                                        return (
+                                                            <div key={group.pagePrinted} className="rounded-lg border border-border bg-background p-2">
+                                                                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-semibold text-foreground">p.{group.pagePrinted}</span>
+                                                                        <span className="text-xs text-muted-foreground">{selectedInPage}/{group.problems.length}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <Button type="button" variant="outline" size="xs" onClick={() => includeProblems(group.problems)}>
+                                                                            전체 선택
+                                                                        </Button>
+                                                                        <Button type="button" variant="ghost" size="xs" onClick={() => excludeProblems(group.problems)}>
+                                                                            전체 제외
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="grid grid-cols-[repeat(auto-fill,minmax(118px,1fr))] gap-1.5">
+                                                                    {group.problems.map((problem) => {
+                                                                        const included = previewProblemIdSet.has(problem.id);
+                                                                        return (
+                                                                            <Button
+                                                                                key={problem.id}
+                                                                                type="button"
+                                                                                variant={included ? 'secondary' : 'outline'}
+                                                                                size="xs"
+                                                                                title={problemLabel(problem)}
+                                                                                aria-pressed={included}
+                                                                                onClick={() => toggleProblem(problem)}
+                                                                                className={cn(
+                                                                                    'h-auto min-h-12 justify-start whitespace-normal px-2 py-2 text-left',
+                                                                                    included && 'border-primary/35 bg-primary-soft text-primary-strong hover:bg-primary-soft',
+                                                                                    !included && 'text-muted-foreground',
+                                                                                )}
+                                                                            >
+                                                                                <span className="min-w-0">
+                                                                                    <span className="line-clamp-2 block text-xs font-semibold leading-snug">{problemChipLabel(problem)}</span>
+                                                                                </span>
+                                                                            </Button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                         </div>
@@ -654,15 +880,50 @@ function AssignmentComposer({
                         </div>
                     </FormSection>
 
-                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                        <Button type="button" variant="outline" onClick={onCancel}>취소</Button>
-                        <Button type="submit" disabled={submitting}>
-                            {submitting ? '생성 중' : '과제 생성'}
-                        </Button>
+            </div>
+
+            <aside className="self-start rounded-xl border border-border bg-card p-4 xl:sticky xl:top-6">
+                <div className="flex items-center gap-2">
+                    <ClipboardList className="h-4 w-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-foreground">배정 요약</h2>
+                </div>
+                <div className="mt-4 space-y-3 text-sm">
+                    <div className="rounded-lg bg-muted/60 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">자료</p>
+                        <p className="mt-1 truncate font-semibold text-foreground">{sourceLabel}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{materialLabel}</p>
                     </div>
-                </form>
-            </CardContent>
-        </Card>
+                    <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg border border-border p-3">
+                            <p className="text-xs text-muted-foreground">문항</p>
+                            <p className="mt-1 font-semibold text-foreground">{problemSummary}</p>
+                        </div>
+                        <div className="rounded-lg border border-border p-3">
+                            <p className="text-xs text-muted-foreground">대상</p>
+                            <p className="mt-1 font-semibold text-foreground">{effectiveStudents.length}명</p>
+                        </div>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                        <p className="text-xs text-muted-foreground">기한</p>
+                        <p className="mt-1 font-semibold text-foreground">{dueSummary}</p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                        <p className="text-xs text-muted-foreground">반</p>
+                        <p className="mt-1 line-clamp-2 text-sm text-foreground">
+                            {selectedClassNames.length ? selectedClassNames.join(', ') : '개별 학생만 선택'}
+                        </p>
+                    </div>
+                </div>
+                <div className="mt-4 space-y-2">
+                    <Button type="submit" className="w-full" disabled={submitting}>
+                        {submitting ? '생성 중' : '과제 생성'}
+                    </Button>
+                    <Button type="button" variant="outline" className="w-full" onClick={onCancel}>
+                        취소
+                    </Button>
+                </div>
+            </aside>
+        </form>
     );
 }
 
@@ -714,8 +975,8 @@ function AssignmentDetailPanel({
         .slice(0, 80);
 
     return (
-        <Card className="overflow-hidden">
-            <CardHeader className="border-b">
+        <Card className="self-start overflow-hidden">
+            <CardHeader className="border-b bg-muted/25">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -725,8 +986,11 @@ function AssignmentDetailPanel({
                         <p className="mt-1 text-sm text-muted-foreground">
                             {assignment.bookTitle || '외부 학습지'} · {assignment.problemCount}문항 · {formatDate(assignment.dueAt)}
                         </p>
+                        {assignment.description && (
+                            <p className="mt-2 max-w-2xl text-sm text-foreground">{assignment.description}</p>
+                        )}
                     </div>
-                    <div className="grid grid-cols-3 gap-2 text-right text-xs">
+                    <div className="grid min-w-[260px] grid-cols-3 gap-2 text-xs">
                         <div className="rounded-lg bg-muted px-3 py-2">
                             <p className="text-muted-foreground">대상</p>
                             <p className="font-semibold text-foreground">{assignment.progress.targetStudentCount}명</p>
@@ -1040,97 +1304,97 @@ export function AssignmentsStatusPage() {
             )}
 
             {!loading && !error && data && (
-                <div className="grid min-h-[620px] gap-5 xl:grid-cols-[0.95fr_1.45fr]">
-                    <Card className="overflow-hidden">
-                        <CardHeader className="space-y-4">
-                            <div className="flex items-center justify-between gap-3">
-                                <CardTitle>과제 목록</CardTitle>
-                                {data.permissions.scopedToAssignedClasses && (
-                                    <StatusBadge tone="neutral" label="내 반만" />
-                                )}
-                            </div>
-                            <div className="grid gap-2">
-                                <div className="relative">
-                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                    <Input className="pl-9" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="과제명, 교재, 대상 검색" />
+                <>
+                    <AssignmentSummaryStrip assignments={data.assignments} />
+                    <div className="grid min-h-[620px] gap-5 xl:grid-cols-[minmax(340px,0.88fr)_minmax(560px,1.42fr)]">
+                        <section className="overflow-hidden rounded-xl border border-border bg-card">
+                            <div className="sticky top-0 z-10 border-b border-border bg-card/95 p-4 backdrop-blur">
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <h2 className="truncate text-base font-semibold text-foreground">과제 목록</h2>
+                                        <p className="mt-0.5 text-xs text-muted-foreground">
+                                            {filteredAssignments.length}/{data.assignments.length}개 표시
+                                        </p>
+                                    </div>
+                                    {data.permissions.scopedToAssignedClasses && (
+                                        <StatusBadge tone="neutral" label="내 반만" />
+                                    )}
                                 </div>
-                                <div className="grid gap-2 sm:grid-cols-3">
-                                    <Select value={viewMode} onValueChange={(value) => setViewMode(value as AssignmentViewMode)}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="by_class">반별 보기</SelectItem>
-                                            <SelectItem value="all">전체 과제</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <Select value={classFilter} onValueChange={setClassFilter}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="all">전체 반</SelectItem>
-                                            {data.classes.map((row) => <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                    <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as AssignmentStatusFilter)}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="all">전체 상태</SelectItem>
-                                            <SelectItem value="open">진행중</SelectItem>
-                                            <SelectItem value="due_soon">기한 임박</SelectItem>
-                                            <SelectItem value="overdue">기한 지남</SelectItem>
-                                            <SelectItem value="completed">완료</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                <div className="space-y-3">
+                                    <div className="relative">
+                                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                        <Input className="pl-9" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="과제명, 교재, 대상 검색" />
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <SegmentedControl value={viewMode} options={viewModeOptions} onChange={setViewMode} />
+                                        <Select value={classFilter} onValueChange={setClassFilter}>
+                                            <SelectTrigger className="h-10 min-w-[150px] flex-1 sm:flex-none">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">전체 반</SelectItem>
+                                                {data.classes.map((row) => <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                        <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+                                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                                            상태
+                                        </span>
+                                        <SegmentedControl
+                                            value={statusFilter}
+                                            options={statusFilterOptions}
+                                            onChange={setStatusFilter}
+                                            className="shrink-0"
+                                        />
+                                    </div>
                                 </div>
                             </div>
-                        </CardHeader>
-                        <CardContent className="max-h-[calc(100vh-18rem)] overflow-auto p-4 pt-0">
-                            <AssignmentList
-                                assignments={filteredAssignments}
-                                classes={data.classes}
-                                selectedAssignmentId={selectedAssignmentId}
-                                viewMode={viewMode}
-                                onSelect={setSelectedAssignmentId}
-                            />
-                        </CardContent>
-                    </Card>
+                            <div className="max-h-[calc(100vh-21rem)] overflow-auto p-4">
+                                <AssignmentList
+                                    assignments={filteredAssignments}
+                                    classes={data.classes}
+                                    selectedAssignmentId={selectedAssignmentId}
+                                    viewMode={viewMode}
+                                    onSelect={setSelectedAssignmentId}
+                                />
+                            </div>
+                        </section>
 
-                    {selectedAssignment ? (
-                        <AssignmentDetailPanel
-                            detail={detail}
-                            loading={detailLoading}
-                            error={detailError}
-                            canManageRecipients={data.permissions.canManageRecipients}
-                            addingRecipients={addingRecipients}
-                            removingStudentId={removingStudentId}
-                            onRetry={() => void loadDetail(selectedAssignment.id, { force: true })}
-                            onAddRecipients={addRecipients}
-                            onRemoveRecipient={removeRecipient}
-                        />
-                    ) : (
-                        <Card>
-                            <CardContent className="flex min-h-[520px] flex-col items-center justify-center gap-3 text-center">
-                                <CheckCircle2 className="h-9 w-9 text-muted-foreground" />
-                                <div>
-                                    <p className="text-sm font-medium text-foreground">과제가 없습니다.</p>
-                                    <p className="mt-1 text-xs text-muted-foreground">새 과제를 만들면 반별 현황이 이곳에 표시됩니다.</p>
-                                </div>
-                                {data.permissions.canCreate && (
-                                    <Button asChild variant="outline" size="sm">
-                                        <Link href="/assignments/new">
-                                            <Plus className="mr-2 h-4 w-4" />
-                                            과제 등록
-                                        </Link>
-                                    </Button>
-                                )}
-                            </CardContent>
-                        </Card>
-                    )}
-                </div>
+                        {selectedAssignment ? (
+                            <AssignmentDetailPanel
+                                detail={detail}
+                                loading={detailLoading}
+                                error={detailError}
+                                canManageRecipients={data.permissions.canManageRecipients}
+                                addingRecipients={addingRecipients}
+                                removingStudentId={removingStudentId}
+                                onRetry={() => void loadDetail(selectedAssignment.id, { force: true })}
+                                onAddRecipients={addRecipients}
+                                onRemoveRecipient={removeRecipient}
+                            />
+                        ) : (
+                            <Card>
+                                <CardContent className="flex min-h-[520px] flex-col items-center justify-center gap-3 text-center">
+                                    <CheckCircle2 className="h-9 w-9 text-muted-foreground" />
+                                    <div>
+                                        <p className="text-sm font-medium text-foreground">과제가 없습니다.</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">새 과제를 만들면 반별 현황이 이곳에 표시됩니다.</p>
+                                    </div>
+                                    {data.permissions.canCreate && (
+                                        <Button asChild variant="outline" size="sm">
+                                            <Link href="/assignments/new">
+                                                <Plus className="mr-2 h-4 w-4" />
+                                                과제 등록
+                                            </Link>
+                                        </Button>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+                    </div>
+                </>
             )}
         </PageShell>
     );
