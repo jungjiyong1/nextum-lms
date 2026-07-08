@@ -1651,6 +1651,43 @@ export function StudentsOperationsPage() {
                                         </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
+                                        {detail.permissions.canEdit && formMode !== 'edit' && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                    startEdit();
+                                                    setActiveTab('profile');
+                                                }}
+                                            >
+                                                <Pencil className="mr-2 h-4 w-4" />
+                                                프로필 수정
+                                            </Button>
+                                        )}
+                                        {detail.permissions.canArchive && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setArchiveOpen(true)}
+                                                disabled={detail.summary.status === 'dropped'}
+                                            >
+                                                <ShieldAlert className="mr-2 h-4 w-4" />
+                                                퇴원/보관
+                                            </Button>
+                                        )}
+                                        {detail.permissions.canHardDelete && (
+                                            <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={openHardDelete}
+                                            >
+                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                완전삭제
+                                            </Button>
+                                        )}
                                         <div className="rounded-xl bg-muted px-3 py-2 text-right text-xs">
                                             <p className="text-muted-foreground">취약/주의</p>
                                             <p className="font-semibold text-foreground">{detail.summary.weakTypeCount || 0}개</p>
