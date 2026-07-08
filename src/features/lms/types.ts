@@ -449,6 +449,8 @@ export interface AssignmentOperationsPermissions {
   canCreate: boolean;
   canManageAll: boolean;
   canManageRecipients: boolean;
+  canRecall: boolean;
+  canDelete: boolean;
   scopedToAssignedClasses: boolean;
 }
 
@@ -482,6 +484,7 @@ export interface LearningAssignmentSummary {
   targetLabels: string[];
   classIds: string[];
   classProgress: AssignmentClassProgressSummary[];
+  studentProgress: AssignmentRecipientProgress[];
   progress: AssignmentProgressSummary;
   createdAt: string;
 }

@@ -49,7 +49,7 @@ const navItems: NavItem[] = [
         icon: ClipboardList,
         children: [
             { id: 'assignments-status', label: '과제 현황', href: appPageHref.assignments, exact: true },
-            { id: 'assignments-new', label: '과제 등록', href: '/assignments/new', exact: true },
+            { id: 'assignments-new', label: '과제 관리', href: '/assignments/new', exact: true },
         ],
     },
     {

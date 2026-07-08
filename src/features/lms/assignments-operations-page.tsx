@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
     ArrowLeft,
+    ArchiveX,
     BarChart3,
     CheckCircle2,
     ClipboardList,
@@ -14,6 +15,7 @@ import {
     RefreshCw,
     Search,
     SlidersHorizontal,
+    Trash2,
     Upload,
     UserMinus,
     UserPlus,
@@ -33,6 +35,14 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/data-table';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { FormField, FormSection } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { PageShell, PageStatusBar } from '@/components/ui/page-shell';
@@ -49,9 +59,11 @@ import {
     addAssignmentRecipients,
     addLmsInvalidationListener,
     createLearningAssignment,
+    deleteAssignment,
     importWorksheetAssignment,
     loadAssignmentDetail,
     loadAssignmentManagementData,
+    recallAssignment,
     removeAssignmentRecipient,
 } from './service';
 import type {
@@ -69,12 +81,15 @@ import type {
 type SourceType = 'content_scope' | 'worksheet';
 type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
 type AssignmentViewMode = 'all' | 'by_class';
-type AssignmentStatusFilter = 'all' | 'open' | 'due_soon' | 'overdue' | 'completed';
+type AssignmentStatusFilter = 'all' | 'open' | 'due_soon' | 'overdue' | 'completed' | 'recalled';
+type ProgressStatusFilter = 'all' | 'not_started' | 'in_progress' | 'completed';
+type AssignmentManageTab = 'manage' | 'deploy';
 type AssignmentSummaryStats = {
     total: number;
     completed: number;
     dueSoon: number;
     overdue: number;
+    recalled: number;
     targetStudents: number;
     averageCompletion: number;
 };
@@ -89,6 +104,14 @@ const statusFilterOptions: Array<{ value: AssignmentStatusFilter; label: string 
     { value: 'open', label: '진행중' },
     { value: 'due_soon', label: '기한 임박' },
     { value: 'overdue', label: '기한 지남' },
+    { value: 'completed', label: '완료' },
+    { value: 'recalled', label: '회수됨' },
+];
+
+const progressStatusOptions: Array<{ value: ProgressStatusFilter; label: string }> = [
+    { value: 'all', label: '전체' },
+    { value: 'not_started', label: '미시작' },
+    { value: 'in_progress', label: '진행중' },
     { value: 'completed', label: '완료' },
 ];
 
@@ -119,6 +142,7 @@ function shortDate(value: string | null): string {
 }
 
 function dueStatus(assignment: LearningAssignmentSummary): AssignmentStatusFilter {
+    if (!assignment.active || assignment.status === 'archived') return 'recalled';
     if (assignment.progress.targetStudentCount > 0 && assignment.progress.completedCount === assignment.progress.targetStudentCount) {
         return 'completed';
     }
@@ -132,6 +156,7 @@ function dueStatus(assignment: LearningAssignmentSummary): AssignmentStatusFilte
 
 function dueLabel(status: AssignmentStatusFilter): string {
     if (status === 'completed') return '완료';
+    if (status === 'recalled') return '회수됨';
     if (status === 'overdue') return '기한 지남';
     if (status === 'due_soon') return '기한 임박';
     return '진행중';
@@ -139,6 +164,7 @@ function dueLabel(status: AssignmentStatusFilter): string {
 
 function dueTone(status: AssignmentStatusFilter): 'neutral' | 'success' | 'warning' | 'danger' | 'primary' {
     if (status === 'completed') return 'success';
+    if (status === 'recalled') return 'neutral';
     if (status === 'overdue') return 'danger';
     if (status === 'due_soon') return 'warning';
     return 'primary';
@@ -186,13 +212,14 @@ function summarizeAssignments(assignments: LearningAssignmentSummary[]): Assignm
     const completed = assignments.filter((assignment) => dueStatus(assignment) === 'completed').length;
     const dueSoon = assignments.filter((assignment) => dueStatus(assignment) === 'due_soon').length;
     const overdue = assignments.filter((assignment) => dueStatus(assignment) === 'overdue').length;
+    const recalled = assignments.filter((assignment) => dueStatus(assignment) === 'recalled').length;
     const targetStudents = assignments.reduce((sum, assignment) => sum + assignment.progress.targetStudentCount, 0);
     const completedStudents = assignments.reduce((sum, assignment) => sum + assignment.progress.completedCount, 0);
     const averageCompletion = targetStudents === 0
         ? 0
         : Math.round((completedStudents / targetStudents) * 100);
 
-    return { total, completed, dueSoon, overdue, targetStudents, averageCompletion };
+    return { total, completed, dueSoon, overdue, recalled, targetStudents, averageCompletion };
 }
 
 function AssignmentMetricTile({
@@ -235,11 +262,12 @@ function AssignmentMetricTile({
 function AssignmentSummaryStrip({ assignments }: { assignments: LearningAssignmentSummary[] }) {
     const stats = summarizeAssignments(assignments);
     return (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <AssignmentMetricTile icon={ClipboardList} label="전체 과제" value={stats.total} description={`${stats.targetStudents}명 배정`} tone="primary" />
             <AssignmentMetricTile icon={CheckCircle2} label="완료" value={stats.completed} description="대상 전원 제출" tone="success" />
             <AssignmentMetricTile icon={Clock3} label="기한 임박" value={stats.dueSoon} description="3일 이내 마감" tone="warning" />
             <AssignmentMetricTile icon={SlidersHorizontal} label="기한 지남" value={stats.overdue} description="후속 확인 필요" tone={stats.overdue > 0 ? 'danger' : 'neutral'} />
+            <AssignmentMetricTile icon={ArchiveX} label="회수됨" value={stats.recalled} description="학생 과제함 숨김" />
             <AssignmentMetricTile icon={BarChart3} label="평균 완료율" value={`${stats.averageCompletion}%`} description="전체 대상 기준" />
         </div>
     );
@@ -873,7 +901,7 @@ function AssignmentComposer({
                             </div>
                         </div>
                         <div className="rounded-lg bg-muted p-3 text-sm">
-                            <div className="font-semibold text-foreground">생성 후 대상 스냅샷</div>
+                            <div className="font-semibold text-foreground">배포 후 대상 스냅샷</div>
                             <p className="mt-1 text-xs text-muted-foreground">
                                 반 이동이 있어도 이 과제의 대상 수는 유지됩니다. 새 반원은 과제 상세에서 수동으로 추가할 수 있습니다.
                             </p>
@@ -916,7 +944,7 @@ function AssignmentComposer({
                 </div>
                 <div className="mt-4 space-y-2">
                     <Button type="submit" className="w-full" disabled={submitting}>
-                        {submitting ? '생성 중' : '과제 생성'}
+                        {submitting ? '배포 중' : '과제 배포'}
                     </Button>
                     <Button type="button" variant="outline" className="w-full" onClick={onCancel}>
                         취소
@@ -933,26 +961,214 @@ function statusBadgeForRecipient(row: AssignmentRecipientProgress) {
     return <StatusBadge tone="neutral" label="미시작" />;
 }
 
+type StudentAssignmentProgressRow = {
+    id: string;
+    assignment: LearningAssignmentSummary;
+    recipient: AssignmentRecipientProgress;
+    completionRate: number;
+};
+
+function recipientCompletionRate(row: AssignmentRecipientProgress): number {
+    if (row.requiredProblemCount > 0) {
+        return Math.min(100, Math.round((row.attemptedProblemCount / row.requiredProblemCount) * 100));
+    }
+    if (row.status === 'completed') return 100;
+    if (row.status === 'in_progress') return 50;
+    return 0;
+}
+
+function studentAssignmentRows(assignments: LearningAssignmentSummary[]): StudentAssignmentProgressRow[] {
+    return assignments
+        .filter((assignment) => dueStatus(assignment) !== 'recalled')
+        .flatMap((assignment) => (assignment.studentProgress || []).map((recipient) => ({
+            id: `${assignment.id}-${recipient.studentId}`,
+            assignment,
+            recipient,
+            completionRate: recipientCompletionRate(recipient),
+        })))
+        .sort((a, b) => (
+            (a.recipient.className || '').localeCompare(b.recipient.className || '', 'ko')
+            || a.recipient.studentName.localeCompare(b.recipient.studentName, 'ko')
+            || a.assignment.title.localeCompare(b.assignment.title, 'ko')
+        ));
+}
+
+function StudentAssignmentProgressTable({ rows }: { rows: StudentAssignmentProgressRow[] }) {
+    if (rows.length === 0) {
+        return <EmptyState title="표시할 과제 진행 내역이 없습니다." description="조건을 바꾸거나 새 과제를 배포하세요." />;
+    }
+
+    return (
+        <DataTable>
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>학생</TableHead>
+                        <TableHead>과제</TableHead>
+                        <TableHead>진행</TableHead>
+                        <TableHead>상태</TableHead>
+                        <TableHead>정답률</TableHead>
+                        <TableHead>최근</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {rows.map((row) => (
+                        <TableRow key={row.id}>
+                            <TableCell className="min-w-[150px]">
+                                <p className="font-medium text-foreground">{row.recipient.studentName}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">{row.recipient.className || '반 없음'}</p>
+                            </TableCell>
+                            <TableCell className="min-w-[220px]">
+                                <p className="font-medium text-foreground">{row.assignment.title}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                    {row.assignment.bookTitle || '외부 학습지'} · {formatDate(row.assignment.dueAt)}
+                                </p>
+                            </TableCell>
+                            <TableCell className="min-w-[180px]">
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                        <span>{row.recipient.attemptedProblemCount}/{row.recipient.requiredProblemCount}문항</span>
+                                        <span>{row.completionRate}%</span>
+                                    </div>
+                                    <ProgressLine value={row.completionRate} />
+                                </div>
+                            </TableCell>
+                            <TableCell>{statusBadgeForRecipient(row.recipient)}</TableCell>
+                            <TableCell>{metricText(row.recipient.correctRate)}</TableCell>
+                            <TableCell>{shortDate(row.recipient.lastActivityAt)}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        </DataTable>
+    );
+}
+
+function AssignmentManagementList({
+    assignments,
+    permissions,
+    recallingAssignmentId,
+    deletingAssignmentId,
+    onRecall,
+    onDelete,
+}: {
+    assignments: LearningAssignmentSummary[];
+    permissions: AssignmentManagementData['permissions'];
+    recallingAssignmentId: string;
+    deletingAssignmentId: string;
+    onRecall: (assignmentId: string) => void;
+    onDelete: (assignmentId: string) => void;
+}) {
+    if (assignments.length === 0) {
+        return <EmptyState title="배포된 과제가 없습니다." description="새 과제 배포에서 학생에게 보낼 과제를 만드세요." />;
+    }
+
+    return (
+        <DataTable>
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>과제</TableHead>
+                        <TableHead>대상</TableHead>
+                        <TableHead>진행</TableHead>
+                        <TableHead>기한</TableHead>
+                        <TableHead>상태</TableHead>
+                        <TableHead>관리</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {assignments.map((assignment) => {
+                        const status = dueStatus(assignment);
+                        const recalled = status === 'recalled';
+                        const targetText = recalled
+                            ? '회수됨'
+                            : assignment.targetLabels.slice(0, 2).join(', ') || `${assignment.progress.targetStudentCount}명`;
+                        const targetMore = assignment.targetLabels.length > 2 ? ` 외 ${assignment.targetLabels.length - 2}` : '';
+                        return (
+                            <TableRow key={assignment.id}>
+                                <TableCell className="min-w-[220px]">
+                                    <p className="font-medium text-foreground">{assignment.title}</p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                        {assignment.bookTitle || '외부 학습지'} · {assignment.problemCount}문항
+                                    </p>
+                                </TableCell>
+                                <TableCell className="max-w-[220px]">
+                                    <span className="line-clamp-2 text-sm text-foreground">{targetText}{targetMore}</span>
+                                </TableCell>
+                                <TableCell className="min-w-[150px]">
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                            <span>{assignment.progress.completedCount}/{assignment.progress.targetStudentCount}명</span>
+                                            <span>{assignment.progress.completionRate}%</span>
+                                        </div>
+                                        <ProgressLine value={assignment.progress.completionRate} />
+                                    </div>
+                                </TableCell>
+                                <TableCell>{formatDate(assignment.dueAt)}</TableCell>
+                                <TableCell><StatusBadge tone={dueTone(status)} label={dueLabel(status)} /></TableCell>
+                                <TableCell>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {permissions.canRecall && !recalled && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={recallingAssignmentId === assignment.id || deletingAssignmentId === assignment.id}
+                                                onClick={() => onRecall(assignment.id)}
+                                            >
+                                                <ArchiveX className="h-4 w-4" />
+                                                회수
+                                            </Button>
+                                        )}
+                                        {permissions.canDelete && (
+                                            <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="sm"
+                                                disabled={recallingAssignmentId === assignment.id || deletingAssignmentId === assignment.id}
+                                                onClick={() => onDelete(assignment.id)}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                                삭제
+                                            </Button>
+                                        )}
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                        );
+                    })}
+                </TableBody>
+            </Table>
+        </DataTable>
+    );
+}
+
 function AssignmentDetailPanel({
     detail,
     loading,
     error,
     canManageRecipients,
+    canRecall,
+    recalling,
     addingRecipients,
     removingStudentId,
     onRetry,
     onAddRecipients,
     onRemoveRecipient,
+    onRecall,
 }: {
     detail: LearningAssignmentDetail | null;
     loading: boolean;
     error: string | null;
     canManageRecipients: boolean;
+    canRecall: boolean;
+    recalling: boolean;
     addingRecipients: boolean;
     removingStudentId: string;
     onRetry: () => void;
     onAddRecipients: (studentIds: string[]) => Promise<void>;
     onRemoveRecipient: (studentId: string) => Promise<void>;
+    onRecall: () => void;
 }) {
     const [candidateIds, setCandidateIds] = useState<Set<string>>(new Set());
     const [candidateQuery, setCandidateQuery] = useState('');
@@ -967,6 +1183,7 @@ function AssignmentDetailPanel({
     if (!detail) return <EmptyState title="과제를 선택하세요." />;
 
     const assignment = detail.assignment;
+    const recalled = dueStatus(assignment) === 'recalled';
     const candidates = detail.candidateStudents
         .filter((student) => {
             const query = candidateQuery.trim().toLowerCase();
@@ -990,18 +1207,26 @@ function AssignmentDetailPanel({
                             <p className="mt-2 max-w-2xl text-sm text-foreground">{assignment.description}</p>
                         )}
                     </div>
-                    <div className="grid min-w-[260px] grid-cols-3 gap-2 text-xs">
-                        <div className="rounded-lg bg-muted px-3 py-2">
-                            <p className="text-muted-foreground">대상</p>
-                            <p className="font-semibold text-foreground">{assignment.progress.targetStudentCount}명</p>
-                        </div>
-                        <div className="rounded-lg bg-muted px-3 py-2">
-                            <p className="text-muted-foreground">완료</p>
-                            <p className="font-semibold text-foreground">{assignment.progress.completedCount}명</p>
-                        </div>
-                        <div className="rounded-lg bg-muted px-3 py-2">
-                            <p className="text-muted-foreground">정답률</p>
-                            <p className="font-semibold text-foreground">{metricText(assignment.progress.correctRate)}</p>
+                    <div className="flex flex-col gap-2">
+                        {canRecall && !recalled && (
+                            <Button type="button" variant="outline" size="sm" onClick={onRecall} disabled={recalling}>
+                                <ArchiveX className="mr-2 h-4 w-4" />
+                                {recalling ? '회수 중' : '과제 회수'}
+                            </Button>
+                        )}
+                        <div className="grid min-w-[260px] grid-cols-3 gap-2 text-xs">
+                            <div className="rounded-lg bg-muted px-3 py-2">
+                                <p className="text-muted-foreground">대상</p>
+                                <p className="font-semibold text-foreground">{assignment.progress.targetStudentCount}명</p>
+                            </div>
+                            <div className="rounded-lg bg-muted px-3 py-2">
+                                <p className="text-muted-foreground">완료</p>
+                                <p className="font-semibold text-foreground">{assignment.progress.completedCount}명</p>
+                            </div>
+                            <div className="rounded-lg bg-muted px-3 py-2">
+                                <p className="text-muted-foreground">정답률</p>
+                                <p className="font-semibold text-foreground">{metricText(assignment.progress.correctRate)}</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1036,7 +1261,7 @@ function AssignmentDetailPanel({
                     </TabsContent>
                     <TabsContent value="students">
                         <div className="space-y-4">
-                            {canManageRecipients && (
+                            {canManageRecipients && !recalled && (
                                 <FormSection title="새 대상 추가" description="과제 생성 이후 반에 들어온 학생을 수동으로 추가합니다.">
                                     <div className="grid gap-2 md:grid-cols-[1fr_auto]">
                                         <div className="relative">
@@ -1045,7 +1270,7 @@ function AssignmentDetailPanel({
                                         </div>
                                         <Button
                                             type="button"
-                                            disabled={candidateIds.size === 0 || addingRecipients}
+                                            disabled={candidateIds.size === 0 || addingRecipients || recalled}
                                             onClick={() => void onAddRecipients([...candidateIds]).then(() => setCandidateIds(new Set()))}
                                         >
                                             <UserPlus className="mr-2 h-4 w-4" />
@@ -1074,7 +1299,7 @@ function AssignmentDetailPanel({
                                             <TableHead>풀이</TableHead>
                                             <TableHead>정답률</TableHead>
                                             <TableHead>최근</TableHead>
-                                            {canManageRecipients && <TableHead>관리</TableHead>}
+                                            {canManageRecipients && !recalled && <TableHead>관리</TableHead>}
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -1086,7 +1311,7 @@ function AssignmentDetailPanel({
                                                 <TableCell>{row.attemptedProblemCount}/{row.requiredProblemCount}</TableCell>
                                                 <TableCell>{metricText(row.correctRate)}</TableCell>
                                                 <TableCell>{shortDate(row.lastActivityAt)}</TableCell>
-                                                {canManageRecipients && (
+                                                {canManageRecipients && !recalled && (
                                                     <TableCell>
                                                         <Button
                                                             type="button"
@@ -1145,6 +1370,150 @@ export function AssignmentsStatusPage() {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
     const [data, setData] = useState<AssignmentManagementData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [classFilter, setClassFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState<ProgressStatusFilter>('all');
+
+    const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
+        if (!academyId) return;
+        if (options.background) setRefreshing(true);
+        else setLoading(true);
+        try {
+            const next = await loadAssignmentManagementData(academyId, { force: options.force });
+            setData(next);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '과제 현황을 불러오지 못했습니다.');
+        } finally {
+            if (options.background) setRefreshing(false);
+            else setLoading(false);
+        }
+    }, [academyId]);
+
+    useEffect(() => {
+        void load();
+    }, [load]);
+
+    useEffect(() => {
+        if (!academyId) return undefined;
+        return addLmsInvalidationListener((payload) => {
+            if (payload.academyId && payload.academyId !== academyId) return;
+            const domain = payload.domain || 'lms';
+            if (!['assignments', 'students', 'classes', 'learning', 'lms', 'admin'].includes(domain)) return;
+            void load({ force: true, background: true });
+        });
+    }, [academyId, load]);
+
+    const rows = useMemo(() => studentAssignmentRows(data?.assignments || []), [data?.assignments]);
+    const filteredRows = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        return rows.filter((row) => {
+            if (query && !`${row.recipient.studentName} ${row.recipient.className || ''} ${row.assignment.title} ${row.assignment.bookTitle || ''}`.toLowerCase().includes(query)) {
+                return false;
+            }
+            if (classFilter !== 'all' && row.recipient.classId !== classFilter) return false;
+            if (statusFilter !== 'all' && row.recipient.status !== statusFilter) return false;
+            return true;
+        });
+    }, [classFilter, rows, searchQuery, statusFilter]);
+
+    if (!academyId) {
+        return (
+            <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
+                <Card>
+                    <CardHeader><CardTitle>학원 연결이 필요합니다.</CardTitle></CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">현재 계정에 연결된 academy가 없습니다.</CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    return (
+        <PageShell
+            title="과제 현황"
+            description="학생별로 어떤 과제를 얼마나 진행했는지만 확인합니다."
+            icon={ClipboardList}
+            actions={data?.permissions.canCreate ? (
+                <Button asChild>
+                    <Link href="/assignments/new">
+                        <SlidersHorizontal className="mr-2 h-4 w-4" />
+                        과제 관리
+                    </Link>
+                </Button>
+            ) : undefined}
+        >
+            {!loading && refreshing && (
+                <PageStatusBar tone="neutral" className="text-xs">
+                    <span className="flex items-center gap-2">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        과제 진행 데이터를 동기화하는 중
+                    </span>
+                </PageStatusBar>
+            )}
+
+            {loading && <SkeletonPanel className="min-h-[520px]" rows={8} />}
+            {!loading && error && (
+                <ErrorState title={error} retryLabel="다시 시도" onRetry={() => void load({ force: true })} />
+            )}
+            {!loading && !error && data && (
+                <div className="space-y-4">
+                    <section className="rounded-xl border border-border bg-card p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="min-w-0">
+                                <h2 className="text-base font-semibold text-foreground">학생별 과제 진행</h2>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    {filteredRows.length}/{rows.length}개 진행 내역 표시
+                                </p>
+                            </div>
+                            {data.permissions.scopedToAssignedClasses && (
+                                <StatusBadge tone="neutral" label="내 반만" />
+                            )}
+                        </div>
+                        <div className="mt-4 grid gap-2 lg:grid-cols-[minmax(240px,1fr)_180px_220px]">
+                            <div className="relative">
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                    className="pl-9"
+                                    value={searchQuery}
+                                    onChange={(event) => setSearchQuery(event.target.value)}
+                                    placeholder="학생, 반, 과제 검색"
+                                />
+                            </div>
+                            <Select value={classFilter} onValueChange={setClassFilter}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">전체 반</SelectItem>
+                                    {data.classes.map((row) => <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as ProgressStatusFilter)}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {progressStatusOptions.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </section>
+                    <StudentAssignmentProgressTable rows={filteredRows} />
+                </div>
+            )}
+        </PageShell>
+    );
+}
+
+function AssignmentsStatusLegacyPage() {
+    const { profile } = useAuth();
+    const academyId = academyIdOf(profile?.current_academy_id);
+    const [data, setData] = useState<AssignmentManagementData | null>(null);
     const [detail, setDetail] = useState<LearningAssignmentDetail | null>(null);
     const [selectedAssignmentId, setSelectedAssignmentId] = useState('');
     const [loading, setLoading] = useState(true);
@@ -1154,6 +1523,8 @@ export function AssignmentsStatusPage() {
     const [detailError, setDetailError] = useState<string | null>(null);
     const [addingRecipients, setAddingRecipients] = useState(false);
     const [removingStudentId, setRemovingStudentId] = useState('');
+    const [recallOpen, setRecallOpen] = useState(false);
+    const [recalling, setRecalling] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [classFilter, setClassFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState<AssignmentStatusFilter>('all');
@@ -1264,6 +1635,24 @@ export function AssignmentsStatusPage() {
         }
     };
 
+    const recallSelectedAssignment = async () => {
+        if (!academyId || !selectedAssignmentId) return;
+        setRecalling(true);
+        try {
+            await recallAssignment(academyId, selectedAssignmentId);
+            toast.success('과제를 회수했습니다.');
+            setRecallOpen(false);
+            await Promise.all([
+                load({ force: true, background: true }),
+                loadDetail(selectedAssignmentId, { force: true }),
+            ]);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : '과제 회수에 실패했습니다.');
+        } finally {
+            setRecalling(false);
+        }
+    };
+
     if (!academyId) {
         return (
             <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
@@ -1368,11 +1757,14 @@ export function AssignmentsStatusPage() {
                                 loading={detailLoading}
                                 error={detailError}
                                 canManageRecipients={data.permissions.canManageRecipients}
+                                canRecall={data.permissions.canRecall}
+                                recalling={recalling}
                                 addingRecipients={addingRecipients}
                                 removingStudentId={removingStudentId}
                                 onRetry={() => void loadDetail(selectedAssignment.id, { force: true })}
                                 onAddRecipients={addRecipients}
                                 onRemoveRecipient={removeRecipient}
+                                onRecall={() => setRecallOpen(true)}
                             />
                         ) : (
                             <Card>
@@ -1396,11 +1788,253 @@ export function AssignmentsStatusPage() {
                     </div>
                 </>
             )}
+            <Dialog open={recallOpen} onOpenChange={setRecallOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>과제 회수</DialogTitle>
+                        <DialogDescription>
+                            {selectedAssignment?.title || '선택한 과제'}를 학생 과제함에서 숨깁니다. 풀이 기록과 통계는 LMS에 남습니다.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="rounded-lg border border-warning/30 bg-warning-soft p-3 text-sm text-warning-foreground">
+                        회수 후 학생은 이 과제를 새로 열거나 제출할 수 없습니다. 필요한 경우 새 과제로 다시 배포하세요.
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setRecallOpen(false)} disabled={recalling}>
+                            취소
+                        </Button>
+                        <Button type="button" variant="destructive" onClick={() => void recallSelectedAssignment()} disabled={recalling}>
+                            {recalling ? '회수 중' : '과제 회수'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </PageShell>
     );
 }
 
 export function AssignmentCreatePage() {
+    const { profile } = useAuth();
+    const academyId = academyIdOf(profile?.current_academy_id);
+    const [data, setData] = useState<AssignmentManagementData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [tab, setTab] = useState<AssignmentManageTab>('manage');
+    const [recallAssignmentId, setRecallAssignmentId] = useState('');
+    const [deleteAssignmentId, setDeleteAssignmentId] = useState('');
+    const [recallingAssignmentId, setRecallingAssignmentId] = useState('');
+    const [deletingAssignmentId, setDeletingAssignmentId] = useState('');
+
+    const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
+        if (!academyId) return;
+        if (options.background) setRefreshing(true);
+        else setLoading(true);
+        try {
+            const next = await loadAssignmentManagementData(academyId, { force: options.force });
+            setData(next);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '과제 관리 데이터를 불러오지 못했습니다.');
+        } finally {
+            if (options.background) setRefreshing(false);
+            else setLoading(false);
+        }
+    }, [academyId]);
+
+    useEffect(() => {
+        void load();
+    }, [load]);
+
+    useEffect(() => {
+        if (!academyId) return undefined;
+        return addLmsInvalidationListener((payload) => {
+            if (payload.academyId && payload.academyId !== academyId) return;
+            const domain = payload.domain || 'lms';
+            if (!['assignments', 'students', 'classes', 'learning', 'lms', 'admin'].includes(domain)) return;
+            void load({ force: true, background: true });
+        });
+    }, [academyId, load]);
+
+    const recallTarget = data?.assignments.find((assignment) => assignment.id === recallAssignmentId) || null;
+    const deleteTarget = data?.assignments.find((assignment) => assignment.id === deleteAssignmentId) || null;
+
+    const submitAssignment = async (input: CreateLearningAssignmentInput, file: File | null) => {
+        if (!academyId) return;
+        setSubmitting(true);
+        try {
+            if (input.sourceType === 'worksheet') {
+                if (!file) throw new Error('학습지 export 파일을 선택하세요.');
+                await importWorksheetAssignment(academyId, input, file);
+            } else {
+                await createLearningAssignment(academyId, input);
+            }
+            toast.success('과제를 배포했습니다.');
+            await load({ force: true, background: true });
+            setTab('manage');
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : '과제 배포에 실패했습니다.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const recallSelectedAssignment = async () => {
+        if (!academyId || !recallAssignmentId) return;
+        setRecallingAssignmentId(recallAssignmentId);
+        try {
+            await recallAssignment(academyId, recallAssignmentId);
+            toast.success('과제를 회수했습니다.');
+            setRecallAssignmentId('');
+            await load({ force: true, background: true });
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : '과제 회수에 실패했습니다.');
+        } finally {
+            setRecallingAssignmentId('');
+        }
+    };
+
+    const deleteSelectedAssignment = async () => {
+        if (!academyId || !deleteAssignmentId) return;
+        setDeletingAssignmentId(deleteAssignmentId);
+        try {
+            await deleteAssignment(academyId, deleteAssignmentId);
+            toast.success('과제를 삭제했습니다.');
+            setDeleteAssignmentId('');
+            await load({ force: true, background: true });
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : '과제 삭제에 실패했습니다.');
+        } finally {
+            setDeletingAssignmentId('');
+        }
+    };
+
+    if (!academyId) {
+        return (
+            <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
+                <Card>
+                    <CardHeader><CardTitle>학원 연결이 필요합니다.</CardTitle></CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">현재 계정에 연결된 academy가 없습니다.</CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    return (
+        <PageShell
+            title="과제 관리"
+            description="과제 배포, 회수, 삭제만 관리합니다."
+            icon={SlidersHorizontal}
+            actions={(
+                <Button asChild variant="outline">
+                    <Link href="/assignments">
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        현황으로
+                    </Link>
+                </Button>
+            )}
+        >
+            {!loading && refreshing && (
+                <PageStatusBar tone="neutral" className="text-xs">
+                    <span className="flex items-center gap-2">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        과제 관리 데이터를 동기화하는 중
+                    </span>
+                </PageStatusBar>
+            )}
+
+            {loading && <SkeletonPanel className="min-h-[560px]" rows={9} />}
+            {!loading && error && (
+                <ErrorState title={error} retryLabel="다시 시도" onRetry={() => void load({ force: true })} />
+            )}
+            {!loading && !error && data && (
+                <>
+                    <Tabs value={tab} onValueChange={(value) => setTab(value as AssignmentManageTab)} variant="underline">
+                        <TabsList className="flex h-auto w-full flex-wrap justify-start overflow-x-auto">
+                            <TabsTrigger value="manage">
+                                <ClipboardList className="mr-2 h-4 w-4" />
+                                배포된 과제
+                            </TabsTrigger>
+                            <TabsTrigger value="deploy" disabled={!data.permissions.canCreate}>
+                                <Plus className="mr-2 h-4 w-4" />
+                                새 과제 배포
+                            </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="manage">
+                            <AssignmentManagementList
+                                assignments={data.assignments}
+                                permissions={data.permissions}
+                                recallingAssignmentId={recallingAssignmentId}
+                                deletingAssignmentId={deletingAssignmentId}
+                                onRecall={setRecallAssignmentId}
+                                onDelete={setDeleteAssignmentId}
+                            />
+                        </TabsContent>
+                        <TabsContent value="deploy">
+                            {data.permissions.canCreate ? (
+                                <AssignmentComposer
+                                    data={data}
+                                    submitting={submitting}
+                                    onCancel={() => setTab('manage')}
+                                    onSubmit={submitAssignment}
+                                />
+                            ) : (
+                                <EmptyState title="과제 배포 권한이 없습니다." description="관리자에게 권한을 요청하세요." />
+                            )}
+                        </TabsContent>
+                    </Tabs>
+
+                    <Dialog open={Boolean(recallAssignmentId)} onOpenChange={(open) => !open && setRecallAssignmentId('')}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>과제 회수</DialogTitle>
+                                <DialogDescription>
+                                    {recallTarget?.title || '선택한 과제'}를 학생 과제함에서 숨깁니다. 풀이 기록과 통계는 LMS에 남습니다.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="rounded-lg border border-warning/30 bg-warning-soft p-3 text-sm text-warning-foreground">
+                                회수 후 학생은 이 과제를 새로 열거나 제출할 수 없습니다. 기록을 남기려면 삭제 대신 회수를 사용하세요.
+                            </div>
+                            <DialogFooter>
+                                <Button type="button" variant="outline" onClick={() => setRecallAssignmentId('')} disabled={Boolean(recallingAssignmentId)}>
+                                    취소
+                                </Button>
+                                <Button type="button" variant="destructive" onClick={() => void recallSelectedAssignment()} disabled={Boolean(recallingAssignmentId)}>
+                                    {recallingAssignmentId ? '회수 중' : '과제 회수'}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
+                    <Dialog open={Boolean(deleteAssignmentId)} onOpenChange={(open) => !open && setDeleteAssignmentId('')}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>과제 삭제</DialogTitle>
+                                <DialogDescription>
+                                    {deleteTarget?.title || '선택한 과제'}를 과제 목록에서 완전히 삭제합니다.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                                삭제하면 LMS 과제 목록과 학생 과제함에서 사라집니다. 기록을 보존해야 하면 삭제하지 말고 회수하세요.
+                            </div>
+                            <DialogFooter>
+                                <Button type="button" variant="outline" onClick={() => setDeleteAssignmentId('')} disabled={Boolean(deletingAssignmentId)}>
+                                    취소
+                                </Button>
+                                <Button type="button" variant="destructive" onClick={() => void deleteSelectedAssignment()} disabled={Boolean(deletingAssignmentId)}>
+                                    {deletingAssignmentId ? '삭제 중' : '과제 삭제'}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                </>
+            )}
+        </PageShell>
+    );
+}
+
+function AssignmentCreateLegacyPage() {
     const router = useRouter();
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);

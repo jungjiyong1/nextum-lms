@@ -73,6 +73,8 @@ function permissionsForContext(context: LmsRoleContext): AssignmentOperationsPer
         canCreate: canManageAll || context.role === 'teacher' || context.role === 'instructor',
         canManageAll,
         canManageRecipients: canManageAll || context.role === 'teacher' || context.role === 'instructor',
+        canRecall: canManageAll || context.role === 'teacher' || context.role === 'instructor',
+        canDelete: canManageAll || context.role === 'teacher' || context.role === 'instructor',
         scopedToAssignedClasses: requiresAssignedClassScope(context.role),
     };
 }
@@ -494,8 +496,8 @@ async function loadAssignments(
 
     if (scoped) {
         rows = rows.filter((assignment) => {
-            const assignmentTargets = targets.filter((row) => row.assignment_id === assignment.id && row.active !== false);
-            const assignmentRecipients = recipients.filter((row) => row.assignment_id === assignment.id && row.active !== false);
+            const assignmentTargets = targets.filter((row) => row.assignment_id === assignment.id);
+            const assignmentRecipients = recipients.filter((row) => row.assignment_id === assignment.id);
             return assignmentTargets.some((row) => (
                 (row.class_id && allowedClassIds?.has(row.class_id))
                 || (row.student_id && allowedStudentSet.has(row.student_id))
@@ -539,6 +541,8 @@ async function loadAssignments(
             fallbackClassByStudent,
         });
         const classProgress = buildClassProgress(recipientProgress);
+        const studentProgress = recipientProgress
+            .sort((a, b) => (a.className || '').localeCompare(b.className || '', 'ko') || a.studentName.localeCompare(b.studentName, 'ko'));
         const classIdsForAssignment = uniqueStrings(classProgress.map((row) => row.classId));
         return {
             id: assignment.id,
@@ -556,7 +560,8 @@ async function loadAssignments(
             }),
             classIds: classIdsForAssignment,
             classProgress,
-            progress: summarizeRecipients(recipientProgress),
+            studentProgress,
+            progress: summarizeRecipients(studentProgress),
             createdAt: assignment.created_at,
         };
     });

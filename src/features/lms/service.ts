@@ -599,6 +599,20 @@ export async function removeAssignmentRecipient(
   await postLmsMutation('/api/lms/assignments/recipients', { academyId, assignmentId, removeStudentId: studentId });
 }
 
+export async function recallAssignment(
+  academyId: string,
+  assignmentId: string,
+): Promise<void> {
+  await postLmsMutation('/api/lms/assignments/recall', { academyId, assignmentId });
+}
+
+export async function deleteAssignment(
+  academyId: string,
+  assignmentId: string,
+): Promise<void> {
+  await postLmsMutation('/api/lms/assignments/delete', { academyId, assignmentId });
+}
+
 export async function setClassBook(academyId: string, classId: string, bookId: string, active: boolean): Promise<void> {
   if (!classId || !bookId) throw new Error('반과 교재를 선택하세요.');
   await postLmsMutation('/api/lms/class-books', { academyId, classId, bookId, active });

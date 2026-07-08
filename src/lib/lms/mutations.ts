@@ -702,24 +702,27 @@ async function assertCanManageAssignmentRecipients(
     learning: SchemaClient,
     context: LmsRoleContext,
     assignmentId: string,
+    options: { activeOnly?: boolean } = {},
 ) {
     if (canManageAcrossClasses(context)) return;
     const assignedClassIds = await loadAssignedClassIdsForContext(context);
     if (!assignedClassIds || assignedClassIds.size === 0) forbiddenAssignmentScope();
 
-    const [targetResult, recipientResult] = await Promise.all([
-        learning
-            .from('assignment_targets')
-            .select('class_id')
-            .eq('assignment_id', assignmentId)
-            .eq('target_type', 'class')
-            .eq('active', true),
-        learning
-            .from('assignment_recipients')
-            .select('class_id')
-            .eq('assignment_id', assignmentId)
-            .eq('active', true),
-    ]);
+    let targetQuery = learning
+        .from('assignment_targets')
+        .select('class_id')
+        .eq('assignment_id', assignmentId)
+        .eq('target_type', 'class');
+    let recipientQuery = learning
+        .from('assignment_recipients')
+        .select('class_id')
+        .eq('assignment_id', assignmentId);
+    if (options.activeOnly !== false) {
+        targetQuery = targetQuery.eq('active', true);
+        recipientQuery = recipientQuery.eq('active', true);
+    }
+
+    const [targetResult, recipientResult] = await Promise.all([targetQuery, recipientQuery]);
     ensureNoError(targetResult.error, 'Failed to verify assignment target scope');
     ensureNoError(recipientResult.error, 'Failed to verify assignment recipient scope');
     const classIds = [
@@ -1428,6 +1431,84 @@ export async function removeAssignmentRecipientForAcademy(
         .eq('assignment_id', assignmentId)
         .eq('student_id', studentId);
     ensureNoError(updateError, 'Failed to remove assignment recipient');
+}
+
+export async function recallLearningAssignmentForAcademy(
+    context: LmsRoleContext,
+    assignmentId: string,
+) {
+    if (!assignmentId) throw new Error('Assignment id is required.');
+
+    const client = createAdminClient();
+    const learning = client.schema('learning');
+    const { data: assignment, error } = await learning
+        .from('assignments')
+        .select('id,academy_id,active,status,metadata')
+        .eq('id', assignmentId)
+        .eq('academy_id', context.academyId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to load assignment');
+    if (!assignment?.id) throw new Error('Assignment was not found.');
+
+    await assertCanManageAssignmentRecipients(learning, context, assignmentId);
+
+    const recalledAt = new Date().toISOString();
+    const metadata = {
+        ...(((assignment as Row).metadata || {}) as Row),
+        recalled_at: recalledAt,
+        recalled_by: context.personId,
+    };
+
+    const { error: assignmentError } = await learning
+        .from('assignments')
+        .update({
+            active: false,
+            status: 'archived',
+            metadata,
+            updated_at: recalledAt,
+        })
+        .eq('id', assignmentId)
+        .eq('academy_id', context.academyId);
+    ensureNoError(assignmentError, 'Failed to recall assignment');
+
+    const { error: targetError } = await learning
+        .from('assignment_targets')
+        .update({ active: false })
+        .eq('assignment_id', assignmentId);
+    ensureNoError(targetError, 'Failed to recall assignment targets');
+
+    const { error: recipientError } = await learning
+        .from('assignment_recipients')
+        .update({ active: false, removed_at: recalledAt })
+        .eq('assignment_id', assignmentId);
+    ensureNoError(recipientError, 'Failed to recall assignment recipients');
+}
+
+export async function deleteLearningAssignmentForAcademy(
+    context: LmsRoleContext,
+    assignmentId: string,
+) {
+    if (!assignmentId) throw new Error('Assignment id is required.');
+
+    const client = createAdminClient();
+    const learning = client.schema('learning');
+    const { data: assignment, error } = await learning
+        .from('assignments')
+        .select('id,academy_id')
+        .eq('id', assignmentId)
+        .eq('academy_id', context.academyId)
+        .maybeSingle();
+    ensureNoError(error, 'Failed to load assignment');
+    if (!assignment?.id) throw new Error('Assignment was not found.');
+
+    await assertCanManageAssignmentRecipients(learning, context, assignmentId, { activeOnly: false });
+
+    const { error: deleteError } = await learning
+        .from('assignments')
+        .delete()
+        .eq('id', assignmentId)
+        .eq('academy_id', context.academyId);
+    ensureNoError(deleteError, 'Failed to delete assignment');
 }
 
 async function ensureLessonOccurrence(
