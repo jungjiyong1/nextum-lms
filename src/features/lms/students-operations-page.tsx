@@ -630,11 +630,45 @@ function LearningTab({
     );
 }
 
-function ProfileTab({ student }: { student: StudentSummary }) {
+function ProfileTab({
+    student,
+    canEdit,
+    classes,
+    formMode,
+    formProps,
+    onStartEdit,
+}: {
+    student: StudentSummary;
+    canEdit: boolean;
+    classes: ClassSummary[];
+    formMode: FormMode;
+    formProps: Omit<StudentFormProps, 'mode' | 'classes'>;
+    onStartEdit: () => void;
+}) {
+    if (canEdit && formMode === 'edit') {
+        return (
+            <div className="rounded-xl border bg-card p-4">
+                <div className="mb-4">
+                    <p className="text-sm font-medium text-foreground">프로필 수정</p>
+                    <p className="mt-1 text-xs text-muted-foreground">학생 기본 정보, 연락처, 반 배정, 청구 기준을 수정합니다.</p>
+                </div>
+                <StudentForm {...formProps} mode="edit" classes={classes} />
+            </div>
+        );
+    }
+
     return (
         <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-xl border bg-card p-4">
-                <p className="text-xs font-medium text-muted-foreground">학생 정보</p>
+                <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium text-muted-foreground">학생 정보</p>
+                    {canEdit && (
+                        <Button type="button" variant="outline" size="sm" onClick={onStartEdit}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            프로필 수정
+                        </Button>
+                    )}
+                </div>
                 <dl className="mt-3 grid gap-3 text-sm">
                     <div className="flex justify-between gap-3"><dt className="text-muted-foreground">이름</dt><dd className="font-medium">{student.name}</dd></div>
                     <div className="flex justify-between gap-3"><dt className="text-muted-foreground">상태</dt><dd><StudentStatusBadge status={student.status} /></dd></div>
@@ -762,6 +796,7 @@ interface StudentFormProps {
     classes: ClassSummary[];
     name: string;
     phone: string;
+    parentName: string;
     parentPhone: string;
     grade: string;
     status: StudentStatus;
@@ -773,6 +808,7 @@ interface StudentFormProps {
     submitting: boolean;
     onName: (value: string) => void;
     onPhone: (value: string) => void;
+    onParentName: (value: string) => void;
     onParentPhone: (value: string) => void;
     onGrade: (value: string) => void;
     onStatus: (value: StudentStatus) => void;
@@ -800,6 +836,10 @@ function StudentForm(props: StudentFormProps) {
                 <div>
                     <Label>학생 연락처</Label>
                     <Input value={props.phone} onChange={(event) => props.onPhone(event.target.value)} />
+                </div>
+                <div>
+                    <Label>보호자 이름</Label>
+                    <Input value={props.parentName} onChange={(event) => props.onParentName(event.target.value)} placeholder="보호자 이름" />
                 </div>
                 <div>
                     <Label>보호자 연락처</Label>
@@ -971,7 +1011,18 @@ function ManagementTab({
                             </Button>
                         )}
                     </div>
-                    {formMode === 'edit' ? <StudentForm {...formProps} mode="edit" classes={classes} /> : <ProfileTab student={detail.summary} />}
+                    {formMode === 'edit' ? (
+                        <StudentForm {...formProps} mode="edit" classes={classes} />
+                    ) : (
+                        <ProfileTab
+                            student={detail.summary}
+                            canEdit={false}
+                            classes={classes}
+                            formMode={formMode}
+                            formProps={formProps}
+                            onStartEdit={onStartEdit}
+                        />
+                    )}
                 </div>
             )}
 
@@ -1056,6 +1107,7 @@ export function StudentsOperationsPage() {
     const [editingStudentId, setEditingStudentId] = useState('');
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
+    const [parentName, setParentName] = useState('');
     const [parentPhone, setParentPhone] = useState('');
     const [grade, setGrade] = useState('');
     const [studentStatus, setStudentStatus] = useState<StudentStatus>('active');
@@ -1069,6 +1121,7 @@ export function StudentsOperationsPage() {
         setEditingStudentId('');
         setName('');
         setPhone('');
+        setParentName('');
         setParentPhone('');
         setGrade('');
         setStudentStatus('active');
@@ -1290,6 +1343,7 @@ export function StudentsOperationsPage() {
         setEditingStudentId(student.id);
         setName(student.name);
         setPhone(student.phone || '');
+        setParentName(student.parentName || '');
         setParentPhone(student.parentPhone || '');
         setGrade(student.grade || '');
         setStudentStatus(student.status);
@@ -1362,6 +1416,7 @@ export function StudentsOperationsPage() {
             const payload = {
                 name,
                 phone,
+                parentName,
                 parentPhone,
                 grade,
                 classIds,
@@ -1441,6 +1496,7 @@ export function StudentsOperationsPage() {
     const formProps = {
         name,
         phone,
+        parentName,
         parentPhone,
         grade,
         status: studentStatus,
@@ -1452,6 +1508,7 @@ export function StudentsOperationsPage() {
         submitting,
         onName: setName,
         onPhone: setPhone,
+        onParentName: setParentName,
         onParentPhone: setParentPhone,
         onGrade: setGrade,
         onStatus: setStudentStatus,
@@ -1629,7 +1686,16 @@ export function StudentsOperationsPage() {
                                             />
                                         )}
                                     </TabsContent>
-                                    <TabsContent value="profile"><ProfileTab student={detail.summary} /></TabsContent>
+                                    <TabsContent value="profile">
+                                        <ProfileTab
+                                            student={detail.summary}
+                                            canEdit={detail.permissions.canEdit}
+                                            classes={classes}
+                                            formMode={formMode}
+                                            formProps={formProps}
+                                            onStartEdit={startEdit}
+                                        />
+                                    </TabsContent>
                                     <TabsContent value="attendance">{sectionLoading.attendance ? <StudentTabSkeleton /> : <AttendanceTab detail={detail} />}</TabsContent>
                                     {detail.permissions.canViewBilling && (
                                         <TabsContent value="billing">
