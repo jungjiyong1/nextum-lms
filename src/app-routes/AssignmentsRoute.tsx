@@ -1,10 +1,10 @@
 import { AssignmentCreatePage, AssignmentsStatusPage } from '@/features/lms/assignments-operations-page';
 import { RouteScroll } from './RouteScroll';
 
-export function AssignmentsRoute() {
+export function AssignmentsRoute({ initialAssignmentId }: { initialAssignmentId?: string }) {
     return (
         <RouteScroll>
-            <AssignmentsStatusPage />
+            <AssignmentsStatusPage initialAssignmentId={initialAssignmentId} />
         </RouteScroll>
     );
 }

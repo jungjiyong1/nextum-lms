@@ -3,6 +3,7 @@ import { assertReauthCookie } from '@/lib/lms/reauth';
 import { createAdminConfirmToken } from '@/lib/lms/admin-confirm';
 import type { ResetTarget } from '@/lib/lms/admin-operations';
 import { assertCsrfToken } from '@/lib/lms/csrf-server';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 const RESET_CONFIRM_TEXT = '초기화';
 
@@ -33,12 +34,12 @@ export async function POST(request: Request) {
         try {
             body = await request.json() as ResetConfirmRequestBody;
         } catch {
-            return Response.json({ success: false, error: 'Invalid reset confirmation.' }, { status: 400 });
+            return mutationError('INVALID_RESET_CONFIRMATION', 'Invalid reset confirmation.', { request });
         }
         const { academyId, target, confirmText } = body;
 
         if (!academyId || !target || !resetTargets.has(target) || confirmText?.trim() !== RESET_CONFIRM_TEXT) {
-            return Response.json({ success: false, error: 'Invalid reset confirmation.' }, { status: 400 });
+            return mutationError('INVALID_RESET_CONFIRMATION', 'Invalid reset confirmation.', { request });
         }
 
         const admin = await assertLmsRoleForAcademy(academyId, ['owner', 'admin']);
@@ -51,12 +52,15 @@ export async function POST(request: Request) {
             target,
         });
 
-        return Response.json({ success: true, confirmToken: token, expiresAt });
+        return mutationSuccess({ confirmToken: token, expiresAt }, {
+            request,
+            aliases: { confirmToken: token, expiresAt },
+        });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Admin Reset Confirm] Failed:', error);
-        return Response.json({ success: false, error: 'Reset confirmation failed.' }, { status: 500 });
+        return mutationException(error, 'RESET_CONFIRMATION_FAILED', 'Reset confirmation failed.', { request });
     }
 }

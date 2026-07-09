@@ -99,6 +99,8 @@ export interface StudentOperationsOverview {
   students: StudentSummary[];
   classes: ClassSummary[];
   permissions: StudentOperationsPermissions;
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export type StudentDetailSection = 'learning' | 'attendance' | 'billing' | 'management' | 'full';
@@ -313,6 +315,8 @@ export interface StaffOperationsOverview {
   staff: StaffSummary[];
   classes: ClassSummary[];
   permissions: StaffOperationsPermissions;
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export type StaffDetailSection = 'profile' | 'classes' | 'payroll' | 'account' | 'management' | 'full';
@@ -524,10 +528,9 @@ export interface AssignmentUnitSummary {
   problemCount: number;
 }
 
-export interface AssignmentBookSummary extends BookSummary {
+export interface AssignmentBookCatalogSummary extends BookSummary {
   units: AssignmentUnitSummary[];
   problemTypes: AssignmentProblemTypeSummary[];
-  problems: AssignmentProblemSummary[];
 }
 
 export type AssignmentStudentProgressStatus = 'not_started' | 'in_progress' | 'completed';
@@ -612,7 +615,7 @@ export interface LearningAssignmentDetail {
 
 export interface AssignmentManagementData {
   assignments: LearningAssignmentSummary[];
-  books: AssignmentBookSummary[];
+  books: AssignmentBookCatalogSummary[];
   classes: ClassSummary[];
   students: StudentSummary[];
   permissions: AssignmentOperationsPermissions;
@@ -625,6 +628,7 @@ export interface CreateLearningAssignmentInput {
   unitIds?: string[];
   problemTypeIds?: string[];
   problemIds?: string[];
+  excludedProblemIds?: string[];
   classIds?: string[];
   studentIds?: string[];
   excludedStudentIds?: string[];
@@ -682,6 +686,17 @@ export interface ClassOperationsOverview {
   attendance: AttendanceRow[];
   staff: StaffSummary[];
   classrooms: ClassroomSummary[];
+  truncated: ClassOperationsTruncation;
+}
+
+export interface ClassOperationsTruncation {
+  classes: boolean;
+  scheduleRules: boolean;
+  occurrences: boolean;
+  attendance: boolean;
+  books: boolean;
+  staff: boolean;
+  classrooms: boolean;
 }
 
 export interface ClassOperationsDetail {

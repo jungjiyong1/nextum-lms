@@ -2,28 +2,26 @@ import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/
 import { assertAssignedClassAccess } from '@/lib/lms/class-access';
 import { updateLessonOccurrenceForAcademy } from '@/lib/lms/mutations';
 import type { UpdateLessonOccurrenceInput } from '@/features/lms/types';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
         assertSameOrigin(request);
         const body = await request.json() as { academyId?: string; input?: UpdateLessonOccurrenceInput };
         if (!body.academyId || !body.input) {
-            return Response.json({ success: false, error: 'Invalid lesson occurrence request.' }, { status: 400 });
+            return mutationError('INVALID_LESSON_OCCURRENCE_REQUEST', 'Invalid lesson occurrence request.', { request });
         }
 
         const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
         await assertAssignedClassAccess(actor, body.input);
         await updateLessonOccurrenceForAcademy(body.academyId, body.input);
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Lesson Occurrences] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Lesson occurrence update failed.',
-        }, { status: 500 });
+        return mutationException(error, 'LESSON_OCCURRENCE_UPDATE_FAILED', 'Lesson occurrence update failed.', { request });
     }
 }

@@ -26,6 +26,7 @@ import type { LmsRoleContext } from './auth';
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
 type SchemaClient = ReturnType<LmsAdminClient['schema']>;
+type DashboardScheduleRow = Awaited<ReturnType<typeof loadSchedule>>[number];
 
 function ensureNoError(error: { message?: string } | null, context: string) {
     if (error) {
@@ -164,7 +165,7 @@ async function loadStudents(
     const [classRowsResult, contractsResult] = await Promise.all([
         classRowsQuery,
         includeBilling
-            ? lms.from('student_billing_contracts').select('*').eq('academy_id', academyId).in('student_id', students.map((row) => row.id)).eq('status', 'active')
+            ? lms.from('student_billing_contracts').select('id,student_id,billing_mode,base_monthly_fee,hourly_rate').eq('academy_id', academyId).in('student_id', students.map((row) => row.id)).eq('status', 'active')
             : Promise.resolve({ data: [], error: null }),
     ]);
     ensureNoError(classRowsResult.error, 'Failed to load student classes');
@@ -237,7 +238,7 @@ async function loadWeakTypes(
 
     let query = reporting
         .from('v_student_type_weakness')
-        .select('*')
+        .select('student_id,student_name,class_id,type_name,sample_count,correct_count,score,status,last_attempted_at')
         .eq('academy_id', academyId)
         .in('status', ['weak', 'watch'])
         .order('status', { ascending: true })
@@ -280,8 +281,8 @@ async function buildBillingDrafts(
         { data: rulesData, error: rulesError },
         { data: occurrencesData, error: occurrencesError },
     ] = await Promise.all([
-        lms.from('student_billing_contracts').select('*').eq('academy_id', academyId).eq('status', 'active').in('student_id', studentIds),
-        lms.from('billing_class_rules').select('*').eq('academy_id', academyId),
+        lms.from('student_billing_contracts').select('id,student_id,billing_mode,base_monthly_fee,hourly_rate,effective_from,effective_to').eq('academy_id', academyId).eq('status', 'active').in('student_id', studentIds),
+        lms.from('billing_class_rules').select('contract_id,class_id,rule_type,amount,effective_from,effective_to').eq('academy_id', academyId),
         lms
             .from('lesson_occurrences')
             .select('id,class_id,occurrence_date')
@@ -296,8 +297,9 @@ async function buildBillingDrafts(
     const contracts = ((contractsData || []) as Row[]).filter((row) => isEffective(row, range.start, range.end));
     const contractMap = new Map(contracts.map((row) => [row.student_id, row]));
     const contractIds = contracts.map((row) => row.id);
+    const contractIdSet = new Set(contractIds);
     const rules = ((rulesData || []) as Row[])
-        .filter((row) => contractIds.includes(row.contract_id))
+        .filter((row) => contractIdSet.has(row.contract_id))
         .filter((row) => isEffective(row, range.start, range.end));
     const classIds = uniqueStrings([
         ...rules.map((row) => row.class_id),
@@ -476,8 +478,9 @@ function toHomeAssignment(
     assignment: LearningAssignmentSummary,
     classId: string,
     date: string,
+    classProgress?: LearningAssignmentSummary['classProgress'][number],
 ): HomeDashboardAssignment | null {
-    const progress = assignment.classProgress.find((row) => row.classId === classId);
+    const progress = classProgress || assignment.classProgress.find((row) => row.classId === classId);
     if (!progress) return null;
 
     return {
@@ -510,26 +513,44 @@ function attendanceLabel(status: string): string {
     return labels[status] || status;
 }
 
+type AttendanceLookup = Map<string, Row>;
+
+function attendanceLookupKey(occurrenceId: string, studentId: string): string {
+    return `${occurrenceId}\u0000${studentId}`;
+}
+
 function buildAttendanceSummary(
     lessons: HomeDashboardLesson[],
     students: StudentSummary[],
-    attendanceRows: Row[],
+    attendanceByStudentAndOccurrence: AttendanceLookup,
 ): HomeDashboardAttendanceSummary {
     const actualLessonIds = lessons.map((lesson) => lesson.actualId).filter((id): id is string => Boolean(id));
     const expected = actualLessonIds.length * students.length;
-    const scopedRecords = attendanceRows.filter((row) => (
-        actualLessonIds.includes(row.occurrence_id) && students.some((student) => student.id === row.student_id)
-    ));
+    const counts = {
+        recorded: 0,
+        present: 0,
+        late: 0,
+        absent: 0,
+        excused: 0,
+        makeup: 0,
+    };
+    for (const occurrenceId of actualLessonIds) {
+        for (const student of students) {
+            const record = attendanceByStudentAndOccurrence.get(attendanceLookupKey(occurrenceId, student.id));
+            if (!record) continue;
+            counts.recorded += 1;
+            if (record.status === 'present') counts.present += 1;
+            else if (record.status === 'late') counts.late += 1;
+            else if (record.status === 'absent') counts.absent += 1;
+            else if (record.status === 'excused') counts.excused += 1;
+            else if (record.status === 'makeup') counts.makeup += 1;
+        }
+    }
 
     return {
         totalExpected: expected,
-        recorded: scopedRecords.length,
-        missing: Math.max(0, expected - scopedRecords.length),
-        present: scopedRecords.filter((row) => row.status === 'present').length,
-        late: scopedRecords.filter((row) => row.status === 'late').length,
-        absent: scopedRecords.filter((row) => row.status === 'absent').length,
-        excused: scopedRecords.filter((row) => row.status === 'excused').length,
-        makeup: scopedRecords.filter((row) => row.status === 'makeup').length,
+        ...counts,
+        missing: Math.max(0, expected - counts.recorded),
     };
 }
 
@@ -550,7 +571,7 @@ function buildActionStudents(input: {
     lessons: HomeDashboardLesson[];
     assignments: LearningAssignmentSummary[];
     weakTypes: WeakTypeRow[];
-    attendanceRows: Row[];
+    attendanceByStudentAndOccurrence: AttendanceLookup;
 }): HomeDashboardActionStudent[] {
     const studentsById = new Map(input.students.map((student) => [student.id, student]));
     const buckets = new Map<string, {
@@ -586,7 +607,7 @@ function buildActionStudents(input: {
     const actualLessonIds = input.lessons.map((lesson) => lesson.actualId).filter((id): id is string => Boolean(id));
     for (const student of input.students) {
         for (const occurrenceId of actualLessonIds) {
-            const record = input.attendanceRows.find((row) => row.occurrence_id === occurrenceId && row.student_id === student.id);
+            const record = input.attendanceByStudentAndOccurrence.get(attendanceLookupKey(occurrenceId, student.id));
             if (!record) {
                 ensure(student.id)?.attendanceStatuses.add('missing');
                 continue;
@@ -671,13 +692,24 @@ export async function loadDashboardDataForContext(
         : schedule;
     const todaySchedule = scopedSchedule.filter((item) => item.date === date && item.status !== 'cancelled');
     const todayClassIds = [...new Set(todaySchedule.map((item) => item.classId))];
+    const todayClassIdSet = new Set(todayClassIds);
     const classMap = new Map(classes.map((row) => [row.id, row]));
+    const scheduleByClass = new Map<string, DashboardScheduleRow[]>();
+    for (const item of todaySchedule) {
+        const rows = scheduleByClass.get(item.classId) || [];
+        rows.push(item);
+        scheduleByClass.set(item.classId, rows);
+    }
     const activeStudents = students.filter((student) => student.status === 'active');
     const studentsByClass = new Map<string, StudentSummary[]>();
+    const activeStudentIdsForToday = new Set<string>();
     for (const student of activeStudents) {
         for (const classId of student.classIds) {
-            if (!todayClassIds.includes(classId)) continue;
-            studentsByClass.set(classId, [...(studentsByClass.get(classId) || []), student]);
+            if (!todayClassIdSet.has(classId)) continue;
+            const classStudents = studentsByClass.get(classId) || [];
+            classStudents.push(student);
+            studentsByClass.set(classId, classStudents);
+            activeStudentIdsForToday.add(student.id);
         }
     }
 
@@ -688,37 +720,71 @@ export async function loadDashboardDataForContext(
         occurrenceIds,
         activeStudents.map((student) => student.id),
     );
+    const attendanceByStudentAndOccurrence: AttendanceLookup = new Map();
+    for (const row of attendanceRows) {
+        attendanceByStudentAndOccurrence.set(attendanceLookupKey(row.occurrence_id, row.student_id), row);
+    }
     const relevantAssignments = assignments.filter((assignment) => isRelevantHomeAssignment(assignment, date));
+    const homeAssignmentsByClass = new Map<string, HomeDashboardAssignment[]>();
+    const assignmentSourcesByClass = new Map<string, LearningAssignmentSummary[]>();
+    for (const assignment of relevantAssignments) {
+        const seenClassIds = new Set<string>();
+        for (const progress of assignment.classProgress) {
+            const classId = progress.classId;
+            if (!classId || !todayClassIdSet.has(classId) || seenClassIds.has(classId)) continue;
+            seenClassIds.add(classId);
+            const homeAssignment = toHomeAssignment(assignment, classId, date, progress);
+            if (homeAssignment) {
+                const rows = homeAssignmentsByClass.get(classId) || [];
+                rows.push(homeAssignment);
+                homeAssignmentsByClass.set(classId, rows);
+            }
+            const sources = assignmentSourcesByClass.get(classId) || [];
+            sources.push(assignment);
+            assignmentSourcesByClass.set(classId, sources);
+        }
+    }
+    const weakTypesByClass = new Map<string, WeakTypeRow[]>();
+    for (const weakType of weakTypes) {
+        if (!weakType.classId || !todayClassIdSet.has(weakType.classId)) continue;
+        const rows = weakTypesByClass.get(weakType.classId) || [];
+        rows.push(weakType);
+        weakTypesByClass.set(weakType.classId, rows);
+    }
 
     const dashboardClasses: HomeDashboardClassRow[] = todayClassIds
         .map((classId) => {
             const classSummary = classMap.get(classId);
-            const classScheduleItems = todaySchedule.filter((item) => item.classId === classId);
+            const classScheduleItems = scheduleByClass.get(classId) || [];
             const lessons = classScheduleItems
                 .sort((a, b) => a.startTime.localeCompare(b.startTime))
                 .map(toHomeLesson);
             const classStudents = studentsByClass.get(classId) || [];
-            const classAssignments = relevantAssignments
-                .map((assignment) => toHomeAssignment(assignment, classId, date))
-                .filter((assignment): assignment is HomeDashboardAssignment => Boolean(assignment))
+            const classAssignments = (homeAssignmentsByClass.get(classId) || [])
                 .sort((a, b) => {
                     if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
                     if (a.dueSoon !== b.dueSoon) return a.dueSoon ? -1 : 1;
                     return a.title.localeCompare(b.title, 'ko');
                 });
-            const classAssignmentSource = relevantAssignments.filter((assignment) => (
-                assignment.classProgress.some((row) => row.classId === classId)
-            ));
-            const assignmentTargetCount = classAssignments.reduce((sum, row) => sum + row.targetStudentCount, 0);
-            const completedCount = classAssignments.reduce((sum, row) => sum + row.completedCount, 0);
-            const classWeakTypes = weakTypes.filter((row) => row.classId === classId);
+            const classAssignmentSource = assignmentSourcesByClass.get(classId) || [];
+            let assignmentTargetCount = 0;
+            let notStartedCount = 0;
+            let inProgressCount = 0;
+            let completedCount = 0;
+            for (const assignment of classAssignments) {
+                assignmentTargetCount += assignment.targetStudentCount;
+                notStartedCount += assignment.notStartedCount;
+                inProgressCount += assignment.inProgressCount;
+                completedCount += assignment.completedCount;
+            }
+            const classWeakTypes = weakTypesByClass.get(classId) || [];
             const actionStudents = buildActionStudents({
                 classId,
                 students: classStudents,
                 lessons,
                 assignments: classAssignmentSource,
                 weakTypes: classWeakTypes,
-                attendanceRows,
+                attendanceByStudentAndOccurrence,
             });
 
             return {
@@ -733,13 +799,13 @@ export async function loadDashboardDataForContext(
                 assignmentProgress: {
                     assignmentCount: classAssignments.length,
                     targetStudentCount: assignmentTargetCount,
-                    notStartedCount: classAssignments.reduce((sum, row) => sum + row.notStartedCount, 0),
-                    inProgressCount: classAssignments.reduce((sum, row) => sum + row.inProgressCount, 0),
+                    notStartedCount,
+                    inProgressCount,
                     completedCount,
                     completionRate: percent(completedCount, assignmentTargetCount),
                 },
                 assignments: classAssignments.slice(0, 4),
-                attendance: buildAttendanceSummary(lessons, classStudents, attendanceRows),
+                attendance: buildAttendanceSummary(lessons, classStudents, attendanceByStudentAndOccurrence),
                 weakTypeCount: classWeakTypes.length,
                 weakStudentCount: new Set(classWeakTypes.map((row) => row.studentId)).size,
                 actionStudents,
@@ -760,9 +826,7 @@ export async function loadDashboardDataForContext(
             date,
             todayLessonCount: todaySchedule.length,
             todayClassCount: dashboardClasses.length,
-            activeStudentCount: new Set(dashboardClasses.flatMap((row) => (
-                (studentsByClass.get(row.classId) || []).map((student) => student.id)
-            ))).size,
+            activeStudentCount: activeStudentIdsForToday.size,
             actionStudentCount: actionStudentIds.size,
             unpaidBillingCount: adminAlerts?.unpaidBillingCount ?? 0,
         },

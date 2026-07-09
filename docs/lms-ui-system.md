@@ -16,7 +16,7 @@ NEXTUM LMS uses a quiet, flat 2D operator-tool UI with restrained color. The bas
 Use `src/components/ui` first:
 
 - `Button`: commands and icon buttons. Variants are `default`, `secondary`, `outline`, `ghost`, `destructive`, and `link`.
-- `Input`, `Textarea`, `Select`, `SelectField`, `Checkbox`, `RadioGroup`: form controls. `SelectField` is a compatibility wrapper for existing `<option>` children; prefer direct `Select` primitives for new complex selects.
+- `Input`, `Textarea`, `Select`, `SelectField`, `Checkbox`: form controls. `SelectField` is a compatibility wrapper for existing `<option>` children; prefer direct `Select` primitives for new complex selects.
 - `Tabs`: page-level or panel-level tabs.
 - `Card`: bounded repeated items, dialogs, and tool panels. Do not nest cards.
 - `Dialog`: all modal interactions and destructive confirmations.
@@ -24,6 +24,7 @@ Use `src/components/ui` first:
 - `StatusBadge`: statuses, source labels, selected target tags.
 - `DataTable`: tables with overflow and consistent headers.
 - `EmptyState`, `ErrorState`: empty/error/loading-adjacent states.
+- `Skeleton`, `SkeletonPanel`: route and first-load placeholders.
 - `FormField`, `FormSection`: dense operational forms.
 - `SelectableCard`: selectable choices where a card-like button is expected.
 - `StatCard`: dashboard and summary metrics.
@@ -64,7 +65,15 @@ Use `src/components/ui` first:
 
 - Use `Dialog` primitives for all overlays.
 - Destructive actions belong in a dialog or a guarded management tab.
+- Sensitive admin actions use `PasswordConfirmDialog` and the server reauthentication/confirmation flow. PIN and idle-lock overlays are not part of the web UI.
 - Manual `fixed inset-0` modal overlays are not allowed.
+
+## Route-Level States
+
+- App Router owns global route states through `src/app/loading.tsx`, `src/app/error.tsx`, and `src/app/not-found.tsx`.
+- Use `ErrorState` for recoverable feature-panel fetch failures. Let unexpected render/runtime errors reach the nearest App Router `error.tsx` boundary.
+- Do not add a client-side global `ErrorBoundary` around the whole application. Authentication failures are handled by the protected server layout and redirect to `/login`.
+- Route-level loading and error screens use the same tokens and shared primitives as operational pages.
 
 ## Prohibited Patterns
 
@@ -74,6 +83,7 @@ Use `src/components/ui` first:
 - Inline hex colors or Tailwind color-family utilities in governed UI files.
 - Elevation shadows, strong focus rings, ring offsets, or press-depth transforms in governed UI files.
 - Decorative gradient/orb backgrounds in operational screens.
+- Global pointer-capture recovery layers, PIN screens, or idle-lock overlays.
 
 Allowed exceptions must be documented here before merging. Current built-in exceptions:
 
@@ -92,4 +102,4 @@ Allowed exceptions must be documented here before merging. Current built-in exce
 
 ## Current Scope
 
-The current pass standardizes shared primitives plus all routed LMS screens: `/`, `/students`, `/assignments`, `/classrooms`, `/instructors`, `/accounting`, `/settings`, login, PIN, access-denied, no-academy, and error-boundary screens. New routed UI should be treated as governed by `npm run ui:check` from the start.
+The current scope covers shared primitives and every routed LMS surface: dashboard, assignment list/create/detail, classroom overview/attendance/schedule/settings, student list/detail, instructor list/detail, accounting, settings, login, access-denied, and App Router loading/error/not-found states. New routed UI is governed by `npm run ui:check` from the start.

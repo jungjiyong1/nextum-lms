@@ -2,12 +2,11 @@ import 'server-only';
 
 import { requiresAssignedClassScope } from '@/core/auth/roles';
 import type {
-    AssignmentBookSummary,
+    AssignmentBookCatalogSummary,
     AssignmentClassProgressSummary,
     AssignmentManagementData,
     AssignmentOperationsPermissions,
     AssignmentProblemProgress,
-    AssignmentProblemSummary,
     AssignmentProblemTypeSummary,
     AssignmentProgressSummary,
     AssignmentRecipientProgress,
@@ -48,6 +47,18 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
     return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
+function groupRowsBy(rows: Row[], key: string): Map<string, Row[]> {
+    const grouped = new Map<string, Row[]>();
+    for (const row of rows) {
+        const value = row[key];
+        if (typeof value !== 'string' || !value) continue;
+        const group = grouped.get(value) || [];
+        group.push(row);
+        grouped.set(value, group);
+    }
+    return grouped;
+}
+
 function percent(numerator: number, denominator: number): number {
     if (denominator <= 0) return 0;
     return Math.round((numerator / denominator) * 100);
@@ -63,8 +74,11 @@ function assignmentProblemLabel(pagePrinted: unknown, number: unknown, descripto
 }
 
 function lastIso(values: Array<string | null | undefined>): string | null {
-    const sorted = values.filter((value): value is string => Boolean(value)).sort();
-    return sorted.at(-1) ?? null;
+    let latest: string | null = null;
+    for (const value of values) {
+        if (value && (!latest || value > latest)) latest = value;
+    }
+    return latest;
 }
 
 function permissionsForContext(context: LmsRoleContext): AssignmentOperationsPermissions {
@@ -198,30 +212,7 @@ async function loadStudents(
     });
 }
 
-async function fetchAssignmentProblemRows(content: SchemaClient, bookIds: string[]): Promise<Row[]> {
-    const rows: Row[] = [];
-    const pageSize = 1000;
-
-    for (let offset = 0; ; offset += pageSize) {
-        const { data, error } = await content
-            .from('problems')
-            .select('id,book_id,unit_id,concept_id,problem_type_id,type_id,page_printed,number,is_example')
-            .in('book_id', bookIds)
-            .eq('is_example', false)
-            .order('book_id')
-            .order('page_printed')
-            .range(offset, offset + pageSize - 1);
-        ensureNoError(error, 'Failed to load problems');
-
-        const pageRows = (data || []) as Row[];
-        rows.push(...pageRows);
-        if (pageRows.length < pageSize) break;
-    }
-
-    return rows;
-}
-
-async function loadAssignmentBooks(content: SchemaClient, academyId: string): Promise<AssignmentBookSummary[]> {
+async function loadAssignmentBookCatalog(content: SchemaClient, academyId: string): Promise<AssignmentBookCatalogSummary[]> {
     const { data: books, error: bookError } = await content
         .from('books')
         .select('id,book_key,title,subject,grade,metadata,academy_id')
@@ -233,58 +224,39 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
     const bookIds = bookRows.map((row) => row.id);
     if (bookIds.length === 0) return [];
 
-    const [unitResult, typeResult, problemRows] = await Promise.all([
+    const [unitResult, typeResult] = await Promise.all([
         content.from('units').select('id,book_id,name,part_name,sort_order').in('book_id', bookIds).order('sort_order'),
         content.from('problem_types').select('id,book_id,unit_id,concept_id,name,sort_order').in('book_id', bookIds).order('sort_order'),
-        fetchAssignmentProblemRows(content, bookIds),
     ]);
     ensureNoError(unitResult.error, 'Failed to load units');
     ensureNoError(typeResult.error, 'Failed to load problem types');
 
     const units = (unitResult.data || []) as Row[];
     const types = (typeResult.data || []) as Row[];
-    const problems = problemRows;
-    const typeName = new Map(types.map((row) => [row.id, row.name]));
-    const typeConceptId = new Map(types.map((row) => [row.id, row.concept_id ?? null]));
-    const conceptIds = uniqueStrings([
-        ...problems.map((row) => row.concept_id),
-        ...types.map((row) => row.concept_id),
-    ]);
-    const conceptResult = conceptIds.length
-        ? await content.from('concepts').select('id,name').in('id', conceptIds)
-        : { data: [], error: null };
-    ensureNoError(conceptResult.error, 'Failed to load concepts');
-    const conceptName = new Map(((conceptResult.data || []) as Row[]).map((row) => [row.id, row.name]));
+    const unitsByBook = new Map<string, Row[]>();
+    const typesByBook = new Map<string, Row[]>();
+    for (const unit of units) {
+        const rows = unitsByBook.get(unit.book_id) || [];
+        rows.push(unit);
+        unitsByBook.set(unit.book_id, rows);
+    }
+    for (const type of types) {
+        const rows = typesByBook.get(type.book_id) || [];
+        rows.push(type);
+        typesByBook.set(type.book_id, rows);
+    }
 
     return bookRows.map((book) => {
-        const bookProblems = sortByProblemOrder(problems.filter((row) => row.book_id === book.id));
-        const problemCountsByUnit = new Map<string, number>();
-        const problemCountsByType = new Map<string, number>();
-        const firstProblemIndexByType = new Map<string, number>();
-        bookProblems.forEach((problem, index) => {
-            problemCountsByUnit.set(problem.unit_id, (problemCountsByUnit.get(problem.unit_id) || 0) + 1);
-            const typeId = problem.problem_type_id || problem.type_id || null;
-            if (typeId) {
-                problemCountsByType.set(typeId, (problemCountsByType.get(typeId) || 0) + 1);
-                if (!firstProblemIndexByType.has(typeId)) firstProblemIndexByType.set(typeId, index);
-            }
-        });
-
-        const unitSummaries: AssignmentUnitSummary[] = units
-            .filter((row) => row.book_id === book.id)
+        const unitSummaries: AssignmentUnitSummary[] = (unitsByBook.get(book.id) || [])
             .map((row) => ({
                 id: row.id,
                 name: row.name,
                 partName: row.part_name ?? null,
-                problemCount: problemCountsByUnit.get(row.id) || 0,
+                // Counts and problem rows are intentionally loaded through the paged catalog endpoint.
+                problemCount: 0,
             }));
-        const typeSummaries: AssignmentProblemTypeSummary[] = types
-            .filter((row) => row.book_id === book.id && (problemCountsByType.get(row.id) || 0) > 0)
+        const typeSummaries: AssignmentProblemTypeSummary[] = (typesByBook.get(book.id) || [])
             .sort((a, b) => {
-                const firstA = firstProblemIndexByType.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-                const firstB = firstProblemIndexByType.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-                if (firstA !== firstB) return firstA - firstB;
-
                 const sortA = typeof a.sort_order === 'number' ? a.sort_order : Number.MAX_SAFE_INTEGER;
                 const sortB = typeof b.sort_order === 'number' ? b.sort_order : Number.MAX_SAFE_INTEGER;
                 if (sortA !== sortB) return sortA - sortB;
@@ -295,22 +267,8 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
                 id: row.id,
                 unitId: row.unit_id ?? null,
                 name: row.name,
-                problemCount: problemCountsByType.get(row.id) || 0,
+                problemCount: 0,
             }));
-        const problemSummaries: AssignmentProblemSummary[] = bookProblems.map((row) => {
-            const typeId = row.problem_type_id || row.type_id || null;
-            const conceptId = row.concept_id || (typeId ? typeConceptId.get(typeId) : null);
-            return {
-                id: row.id,
-                bookId: row.book_id,
-                unitId: row.unit_id,
-                problemTypeId: typeId,
-                number: String(row.number),
-                pagePrinted: Number(row.page_printed),
-                typeName: typeId ? typeName.get(typeId) ?? null : null,
-                conceptName: conceptId ? conceptName.get(conceptId) ?? null : null,
-            };
-        });
 
         return {
             id: book.id,
@@ -320,7 +278,6 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
             grade: book.grade ?? null,
             units: unitSummaries,
             problemTypes: typeSummaries,
-            problems: problemSummaries,
         };
     });
 }
@@ -362,17 +319,29 @@ function classifyRecipient(
             .filter((problemId) => requiredProblems.has(problemId)),
     );
     if (attemptedRequired.size === 0 && sessions.length === 0) return 'not_started';
-    if ([...requiredProblems].every((problemId) => attemptedRequired.has(problemId))) return 'completed';
-    return 'in_progress';
+    for (const problemId of requiredProblems) {
+        if (!attemptedRequired.has(problemId)) return 'in_progress';
+    }
+    return 'completed';
 }
 
 function summarizeRecipients(recipients: AssignmentRecipientProgress[]): AssignmentProgressSummary {
     if (recipients.length === 0) return { ...EMPTY_PROGRESS };
-    const completedCount = recipients.filter((row) => row.status === 'completed').length;
-    const inProgressCount = recipients.filter((row) => row.status === 'in_progress').length;
+    let completedCount = 0;
+    let inProgressCount = 0;
+    let attemptCount = 0;
+    let correctAttemptCount = 0;
+    let lastActivityAt: string | null = null;
+    for (const recipient of recipients) {
+        if (recipient.status === 'completed') completedCount += 1;
+        else if (recipient.status === 'in_progress') inProgressCount += 1;
+        attemptCount += recipient.attemptCount;
+        correctAttemptCount += recipient.correctAttemptCount;
+        if (recipient.lastActivityAt && (!lastActivityAt || recipient.lastActivityAt > lastActivityAt)) {
+            lastActivityAt = recipient.lastActivityAt;
+        }
+    }
     const notStartedCount = recipients.length - completedCount - inProgressCount;
-    const attemptCount = recipients.reduce((sum, row) => sum + row.attemptCount, 0);
-    const correctAttemptCount = recipients.reduce((sum, row) => sum + row.correctAttemptCount, 0);
     return {
         targetStudentCount: recipients.length,
         notStartedCount,
@@ -382,12 +351,11 @@ function summarizeRecipients(recipients: AssignmentRecipientProgress[]): Assignm
         attemptCount,
         correctAttemptCount,
         correctRate: accuracy(correctAttemptCount, attemptCount),
-        lastActivityAt: lastIso(recipients.map((row) => row.lastActivityAt)),
+        lastActivityAt,
     };
 }
 
 function buildRecipientProgress(input: {
-    assignmentId: string;
     recipients: Row[];
     items: Row[];
     attempts: Row[];
@@ -398,18 +366,16 @@ function buildRecipientProgress(input: {
 }): AssignmentRecipientProgress[] {
     const requiredProblems = new Set(
         input.items
-            .filter((row) => row.assignment_id === input.assignmentId && row.required !== false && row.problem_id)
+            .filter((row) => row.required !== false && row.problem_id)
             .map((row) => row.problem_id as string),
     );
+    const attemptsByStudent = groupRowsBy(input.attempts, 'core_student_id');
+    const sessionsByStudent = groupRowsBy(input.sessions, 'core_student_id');
     return input.recipients
-        .filter((row) => row.assignment_id === input.assignmentId && row.active !== false)
+        .filter((row) => row.active !== false)
         .map((recipient) => {
-            const studentAttempts = input.attempts.filter((row) => (
-                row.assignment_id === input.assignmentId && row.core_student_id === recipient.student_id
-            ));
-            const studentSessions = input.sessions.filter((row) => (
-                row.assignment_id === input.assignmentId && row.core_student_id === recipient.student_id
-            ));
+            const studentAttempts = attemptsByStudent.get(recipient.student_id) || [];
+            const studentSessions = sessionsByStudent.get(recipient.student_id) || [];
             const attemptedProblemCount = new Set(
                 studentAttempts
                     .map((row) => row.problem_id as string)
@@ -522,14 +488,19 @@ async function loadAssignments(
     const recipients = (recipientResult.data || []) as Row[];
     const sessions = (sessionResult.data || []) as Row[];
     const attempts = (attemptResult.data || []) as Row[];
+    const targetsByAssignment = groupRowsBy(targets, 'assignment_id');
+    const recipientsByAssignment = groupRowsBy(recipients, 'assignment_id');
+    const itemsByAssignment = groupRowsBy(items, 'assignment_id');
+    const sessionsByAssignment = groupRowsBy(sessions, 'assignment_id');
+    const attemptsByAssignment = groupRowsBy(attempts, 'assignment_id');
     const scoped = Boolean(allowedClassIds);
     const allowedStudentIds = await loadAllowedStudentIds(core, allowedClassIds);
     const allowedStudentSet = new Set(allowedStudentIds || []);
 
     if (scoped) {
         rows = rows.filter((assignment) => {
-            const assignmentTargets = targets.filter((row) => row.assignment_id === assignment.id);
-            const assignmentRecipients = recipients.filter((row) => row.assignment_id === assignment.id);
+            const assignmentTargets = targetsByAssignment.get(assignment.id) || [];
+            const assignmentRecipients = recipientsByAssignment.get(assignment.id) || [];
             return assignmentTargets.some((row) => (
                 (row.class_id && allowedClassIds?.has(row.class_id))
                 || (row.student_id && allowedStudentSet.has(row.student_id))
@@ -560,14 +531,14 @@ async function loadAssignments(
     const bookTitles = new Map(((bookResult.data || []) as Row[]).map((row) => [row.id, row.title]));
 
     return rows.map((assignment) => {
-        const assignmentTargets = visibleTargets.filter((row) => row.assignment_id === assignment.id && row.active !== false);
-        const recipientRows = visibleRecipients.filter((row) => row.assignment_id === assignment.id && row.active !== false);
+        const assignmentTargets = (targetsByAssignment.get(assignment.id) || []).filter((row) => row.active !== false);
+        const recipientRows = (recipientsByAssignment.get(assignment.id) || []).filter((row) => row.active !== false);
+        const assignmentItems = itemsByAssignment.get(assignment.id) || [];
         const recipientProgress = buildRecipientProgress({
-            assignmentId: assignment.id,
             recipients: recipientRows,
-            items,
-            attempts,
-            sessions,
+            items: assignmentItems,
+            attempts: attemptsByAssignment.get(assignment.id) || [],
+            sessions: sessionsByAssignment.get(assignment.id) || [],
             studentNames,
             classNames,
             fallbackClassByStudent,
@@ -585,7 +556,7 @@ async function loadAssignments(
             status: assignment.status,
             active: Boolean(assignment.active),
             bookTitle: assignment.book_id ? bookTitles.get(assignment.book_id) ?? null : null,
-            problemCount: items.filter((row) => row.assignment_id === assignment.id).length,
+            problemCount: assignmentItems.length,
             targetLabels: assignmentTargets.map((row) => {
                 if (row.target_type === 'class') return classNames.get(row.class_id) || 'Unknown class';
                 return studentNames.get(row.student_id)?.name || 'Unknown student';
@@ -646,10 +617,28 @@ async function loadProblemProgress(
         : { data: [], error: null };
     ensureNoError(conceptResult.error, 'Failed to load assignment problem concepts');
     const conceptNames = new Map(((conceptResult.data || []) as Row[]).map((row) => [row.id, row.name]));
+    const attemptStatsByProblem = new Map<string, {
+        attemptCount: number;
+        correctAttemptCount: number;
+        studentIds: Set<string>;
+    }>();
+    for (const attempt of attempts) {
+        if (attempt.assignment_id !== assignmentId || !attempt.problem_id) continue;
+        const stats = attemptStatsByProblem.get(attempt.problem_id) || {
+            attemptCount: 0,
+            correctAttemptCount: 0,
+            studentIds: new Set<string>(),
+        };
+        stats.attemptCount += 1;
+        if (attempt.correct === true) stats.correctAttemptCount += 1;
+        if (attempt.core_student_id) stats.studentIds.add(attempt.core_student_id);
+        attemptStatsByProblem.set(attempt.problem_id, stats);
+    }
 
     return sortByProblemOrder(problems).map((problem) => {
-        const rows = attempts.filter((row) => row.assignment_id === assignmentId && row.problem_id === problem.id);
-        const correctAttemptCount = rows.filter((row) => row.correct === true).length;
+        const stats = attemptStatsByProblem.get(problem.id);
+        const attemptCount = stats?.attemptCount || 0;
+        const correctAttemptCount = stats?.correctAttemptCount || 0;
         const typeId = problem.problem_type_id || problem.type_id || null;
         const typeName = typeId ? typeNames.get(typeId) ?? null : null;
         const conceptId = problem.concept_id || (typeId ? typeConceptIds.get(typeId) : null);
@@ -661,10 +650,10 @@ async function loadProblemProgress(
             unitId: problem.unit_id ?? null,
             unitName: problem.unit_id ? unitNames.get(problem.unit_id) ?? null : null,
             typeName: descriptor,
-            attemptCount: rows.length,
+            attemptCount,
             correctAttemptCount,
-            correctRate: accuracy(correctAttemptCount, rows.length),
-            attemptedStudentCount: new Set(rows.map((row) => row.core_student_id)).size,
+            correctRate: accuracy(correctAttemptCount, attemptCount),
+            attemptedStudentCount: stats?.studentIds.size || 0,
         };
     });
 }
@@ -716,7 +705,6 @@ export async function loadAssignmentDetail(
     ensureNoError(classResult.error, 'Failed to load assignment detail class names');
     const classNames = new Map(((classResult.data || []) as Row[]).map((row) => [row.id, row.name]));
     const recipientProgress = buildRecipientProgress({
-        assignmentId,
         recipients: activeRecipients,
         items,
         attempts,
@@ -749,7 +737,7 @@ export async function loadAssignmentManagementData(
 
     const [assignments, books, classes, students] = await Promise.all([
         loadAssignments(learning, content, core, context, assignedClassIds),
-        loadAssignmentBooks(content, context.academyId),
+        loadAssignmentBookCatalog(content, context.academyId),
         loadClasses(core, context.academyId, assignedClassIds),
         loadStudents(core, context.academyId, assignedClassIds),
     ]);

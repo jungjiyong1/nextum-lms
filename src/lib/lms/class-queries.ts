@@ -8,6 +8,7 @@ import type {
     ClassBookSummary,
     ClassOperationsDetail,
     ClassOperationsOverview,
+    ClassOperationsTruncation,
     ClassStudentSummary,
     ClassSummary,
     ClassroomSummary,
@@ -61,6 +62,143 @@ function weeksBetween(start: Date, target: Date): number {
 
 function normalizeTime(value: string | null | undefined): string {
     return (value || '').slice(0, 5);
+}
+
+function rowsFromJson(value: unknown, key: string): Row[] {
+    if (!value || typeof value !== 'object') return [];
+    const rows = (value as Row)[key];
+    return Array.isArray(rows) ? rows as Row[] : [];
+}
+
+function truncationFromJson(value: unknown): ClassOperationsTruncation {
+    const raw = value && typeof value === 'object' && (value as Row).truncated;
+    const row = raw && typeof raw === 'object' ? raw as Row : {};
+    return {
+        classes: row.classes === true,
+        scheduleRules: row.scheduleRules === true,
+        occurrences: row.occurrences === true,
+        attendance: row.attendance === true,
+        books: row.books === true,
+        staff: row.staff === true,
+        classrooms: row.classrooms === true,
+    };
+}
+
+function scheduleFromReadModel(
+    occurrenceRows: Row[],
+    ruleRows: Row[],
+    startDate: string,
+    endDate: string,
+): ScheduleItem[] {
+    const items: ScheduleItem[] = [];
+    const actualKeys = new Set<string>();
+
+    for (const row of occurrenceRows) {
+        const start = normalizeTime(row.start_time);
+        actualKeys.add(`${row.class_id}:${row.rule_id || 'none'}:${row.occurrence_date}:${start}`);
+        items.push({
+            id: String(row.id),
+            actualId: String(row.id),
+            virtual: false,
+            classId: String(row.class_id),
+            className: String(row.class_name || 'Unknown class'),
+            ruleId: row.rule_id ? String(row.rule_id) : null,
+            date: String(row.occurrence_date),
+            startTime: start,
+            endTime: normalizeTime(row.end_time),
+            status: row.status as ScheduleItem['status'],
+            classroomName: row.classroom_name ? String(row.classroom_name) : null,
+            instructorId: row.instructor_id ? String(row.instructor_id) : null,
+            instructorName: row.instructor_name ? String(row.instructor_name) : null,
+            cancelReason: row.cancel_reason ? String(row.cancel_reason) : null,
+        });
+    }
+
+    const rangeStart = parseDate(startDate);
+    const rangeEnd = parseDate(endDate);
+    for (const row of ruleRows) {
+        if (!row.active) continue;
+        const ruleStart = parseDate(String(row.start_date));
+        const ruleEnd = row.end_date ? parseDate(String(row.end_date)) : null;
+        let current = rangeStart > ruleStart ? new Date(rangeStart) : new Date(ruleStart);
+        while (current <= rangeEnd) {
+            if (ruleEnd && current > ruleEnd) break;
+            const day = mondayFirstDay(current);
+            const weekOffset = weeksBetween(ruleStart, current);
+            const date = dateString(current);
+            const start = normalizeTime(row.start_time);
+            const intervalWeeks = Math.max(1, toNumber(row.interval_weeks, 1));
+            const key = `${row.class_id}:${row.id}:${date}:${start}`;
+            if (day === toNumber(row.day_of_week) && weekOffset >= 0
+                && weekOffset % intervalWeeks === 0 && !actualKeys.has(key)) {
+                items.push({
+                    id: `virtual:${String(row.id)}:${date}`,
+                    actualId: null,
+                    virtual: true,
+                    classId: String(row.class_id),
+                    className: String(row.class_name || 'Unknown class'),
+                    ruleId: String(row.id),
+                    date,
+                    startTime: start,
+                    endTime: normalizeTime(row.end_time),
+                    status: 'scheduled',
+                    classroomName: row.classroom_name ? String(row.classroom_name) : null,
+                    instructorId: row.instructor_id ? String(row.instructor_id) : null,
+                    instructorName: row.instructor_name ? String(row.instructor_name) : null,
+                    cancelReason: null,
+                });
+            }
+            current = addDays(current, 1);
+        }
+    }
+
+    return items.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+}
+
+export function classOverviewFromReadModel(value: unknown, startDate: string, endDate: string): ClassOperationsOverview {
+    const ruleRows = rowsFromJson(value, 'scheduleRules');
+    const occurrenceRows = rowsFromJson(value, 'occurrences');
+    return {
+        classes: rowsFromJson(value, 'classes') as ClassSummary[],
+        schedule: scheduleFromReadModel(occurrenceRows, ruleRows, startDate, endDate),
+        scheduleRules: ruleRows.map((row) => ({
+            id: String(row.id),
+            classId: String(row.class_id),
+            className: String(row.class_name || 'Unknown class'),
+            dayOfWeek: toNumber(row.day_of_week),
+            startTime: normalizeTime(row.start_time),
+            endTime: normalizeTime(row.end_time),
+            startDate: String(row.start_date),
+            endDate: row.end_date ? String(row.end_date) : null,
+            active: Boolean(row.active),
+            classroomName: row.classroom_name ? String(row.classroom_name) : null,
+            instructorId: row.instructor_id ? String(row.instructor_id) : null,
+            instructorName: row.instructor_name ? String(row.instructor_name) : null,
+        })),
+        attendance: rowsFromJson(value, 'attendance').map((row) => ({
+            id: String(row.id),
+            occurrenceId: String(row.occurrence_id),
+            studentId: String(row.student_id),
+            studentName: String(row.student_name || 'Unknown student'),
+            classId: String(row.class_id),
+            className: String(row.class_name || 'Unknown class'),
+            date: String(row.occurrence_date),
+            startTime: normalizeTime(row.start_time),
+            endTime: normalizeTime(row.end_time),
+            status: row.status as AttendanceRow['status'],
+            attendedMinutes: row.attended_minutes === null ? null : toNumber(row.attended_minutes),
+            billableMinutes: row.billable_minutes === null ? null : toNumber(row.billable_minutes),
+            notes: row.notes ? String(row.notes) : null,
+        })),
+        books: rowsFromJson(value, 'books') as BookSummary[],
+        staff: rowsFromJson(value, 'staff').map((row) => ({
+            ...row,
+            phone: null,
+            email: null,
+        })) as StaffSummary[],
+        classrooms: rowsFromJson(value, 'classrooms') as ClassroomSummary[],
+        truncated: truncationFromJson(value),
+    };
 }
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
@@ -124,38 +262,45 @@ async function loadActiveStaffId(core: SchemaClient, context: LmsRoleContext): P
 }
 
 async function loadAssignedClassIds(
+    core: SchemaClient,
     lms: SchemaClient,
     academyId: string,
     staffMemberId: string,
 ): Promise<Set<string>> {
-    const [profilesResult, rulesResult, occurrencesResult] = await Promise.all([
+    const currentDate = new Date().toISOString().slice(0, 10);
+    const [profilesResult, rulesResult] = await Promise.all([
         lms
             .from('class_profiles')
             .select('class_id')
             .eq('academy_id', academyId)
+            .eq('status', 'active')
             .eq('default_instructor_staff_id', staffMemberId),
         lms
             .from('class_schedule_rules')
             .select('class_id')
             .eq('academy_id', academyId)
             .eq('active', true)
-            .eq('instructor_staff_id', staffMemberId),
-        lms
-            .from('lesson_occurrences')
-            .select('class_id')
-            .eq('academy_id', academyId)
-            .or(`instructor_staff_id.eq.${staffMemberId},substitute_staff_id.eq.${staffMemberId}`),
+            .eq('instructor_staff_id', staffMemberId)
+            .lte('start_date', currentDate)
+            .or(`end_date.is.null,end_date.gte.${currentDate}`),
     ]);
 
     ensureNoError(profilesResult.error, 'Failed to load assigned class profiles');
     ensureNoError(rulesResult.error, 'Failed to load assigned schedule rules');
-    ensureNoError(occurrencesResult.error, 'Failed to load assigned lesson occurrences');
-
-    return new Set([
+    const candidateIds = uniqueStrings([
         ...((profilesResult.data || []) as Row[]).map((row) => row.class_id),
         ...((rulesResult.data || []) as Row[]).map((row) => row.class_id),
-        ...((occurrencesResult.data || []) as Row[]).map((row) => row.class_id),
-    ].filter(Boolean));
+    ]);
+    if (candidateIds.length === 0) return new Set();
+
+    const { data: classes, error: classesError } = await core
+        .from('classes')
+        .select('id')
+        .eq('academy_id', academyId)
+        .eq('active', true)
+        .in('id', candidateIds);
+    ensureNoError(classesError, 'Failed to validate active assigned classes');
+    return new Set(((classes || []) as Row[]).map((row) => String(row.id)));
 }
 
 export async function loadAssignedClassIdsForContext(context: LmsRoleContext): Promise<Set<string> | null> {
@@ -165,7 +310,7 @@ export async function loadAssignedClassIdsForContext(context: LmsRoleContext): P
     const core = client.schema('core');
     const lms = client.schema('lms');
     const staffMemberId = await loadActiveStaffId(core, context);
-    return loadAssignedClassIds(lms, context.academyId, staffMemberId);
+    return loadAssignedClassIds(core, lms, context.academyId, staffMemberId);
 }
 
 async function assertClassBelongsToAcademy(core: SchemaClient, academyId: string, classId: string): Promise<void> {
@@ -231,9 +376,9 @@ async function loadClassSummaries(
         { data: classroomsData, error: classroomsError },
         { data: staffData, error: staffError },
     ] = await Promise.all([
-        lms.from('class_profiles').select('*').eq('academy_id', academyId).in('class_id', classIds),
+        lms.from('class_profiles').select('class_id,status,color,capacity,default_instructor_staff_id,default_classroom_id,course_id').eq('academy_id', academyId).in('class_id', classIds),
         core.from('class_students').select('class_id,student_id,status').in('class_id', classIds),
-        reporting.from('v_class_learning_summary').select('*').eq('academy_id', academyId).in('class_id', classIds),
+        reporting.from('v_class_learning_summary').select('class_id,weak_type_count,avg_type_score,last_learning_at').eq('academy_id', academyId).in('class_id', classIds),
         lms.from('courses').select('id,title').eq('academy_id', academyId),
         lms.from('classrooms').select('id,name').eq('academy_id', academyId),
         core.from('staff_members').select('id,person_id').eq('academy_id', academyId),
@@ -298,7 +443,7 @@ export async function loadClassSummariesForContext(context: LmsRoleContext): Pro
     if (!requiresAssignedClassScope(context.role)) return classes;
 
     const staffMemberId = await loadActiveStaffId(core, context);
-    const assignedClassIds = await loadAssignedClassIds(lms, context.academyId, staffMemberId);
+    const assignedClassIds = await loadAssignedClassIds(core, lms, context.academyId, staffMemberId);
     return classes.filter((row) => assignedClassIds.has(row.id));
 }
 
@@ -310,7 +455,7 @@ export async function loadClassOptionsForContext(context: LmsRoleContext): Promi
 
     if (requiresAssignedClassScope(context.role)) {
         const staffMemberId = await loadActiveStaffId(core, context);
-        allowedClassIds = await loadAssignedClassIds(lms, context.academyId, staffMemberId);
+        allowedClassIds = await loadAssignedClassIds(core, lms, context.academyId, staffMemberId);
         if (allowedClassIds.size === 0) return [];
     }
 
@@ -364,8 +509,8 @@ export async function loadSchedule(
     ] = await Promise.all([
         core.from('classes').select('id,name').eq('academy_id', academyId),
         lms.from('class_profiles').select('class_id,default_instructor_staff_id,default_classroom_id').eq('academy_id', academyId),
-        lms.from('class_schedule_rules').select('*').eq('academy_id', academyId).eq('active', true),
-        lms.from('lesson_occurrences').select('*').eq('academy_id', academyId).gte('occurrence_date', startDate).lte('occurrence_date', endDate),
+        lms.from('class_schedule_rules').select('id,class_id,day_of_week,start_time,end_time,start_date,end_date,active,classroom_id,instructor_staff_id,interval_weeks').eq('academy_id', academyId).eq('active', true),
+        lms.from('lesson_occurrences').select('id,class_id,rule_id,occurrence_date,start_time,end_time,status,classroom_id,substitute_staff_id,instructor_staff_id,cancel_reason').eq('academy_id', academyId).gte('occurrence_date', startDate).lte('occurrence_date', endDate),
         lms.from('classrooms').select('id,name').eq('academy_id', academyId),
         core.from('staff_members').select('id,person_id').eq('academy_id', academyId),
     ]);
@@ -462,7 +607,7 @@ async function loadScheduleRules(
 ): Promise<ScheduleRuleSummary[]> {
     let query = lms
         .from('class_schedule_rules')
-        .select('*')
+        .select('id,class_id,day_of_week,start_time,end_time,start_date,end_date,active,classroom_id,instructor_staff_id,interval_weeks')
         .eq('academy_id', academyId)
         .order('day_of_week', { ascending: true })
         .order('start_time', { ascending: true });
@@ -712,15 +857,19 @@ function restrictReferenceDataForAssignedRole(
         scheduleRules: scoped.scheduleRules,
         books: [],
         attendance: scoped.attendance,
-        staff: overview.staff.filter((row) => visibleStaffIds.has(row.id)),
+        staff: overview.staff
+            .filter((row) => visibleStaffIds.has(row.id))
+            .map((row) => ({ ...row, phone: null, email: null, hourlyRate: null })),
         classrooms: overview.classrooms.filter((row) => visibleClassroomIds.has(row.id)),
+        truncated: overview.truncated,
     };
 }
 
-export async function loadClassOperationsOverview(
+async function loadClassOperationsOverviewLegacy(
     context: LmsRoleContext,
     startDate: string,
     endDate: string,
+    view: 'overview' | 'schedule' | 'attendance' | 'settings' = 'overview',
 ): Promise<ClassOperationsOverview> {
     const client = createAdminClient();
     const core = client.schema('core');
@@ -728,15 +877,20 @@ export async function loadClassOperationsOverview(
     const content = client.schema('content');
     const reporting = client.schema('reporting');
     const academyId = context.academyId;
+    const needsSchedule = view === 'overview' || view === 'schedule' || view === 'attendance';
+    const needsRules = view === 'settings';
+    const needsBooks = view === 'overview' || view === 'settings';
+    const needsAttendance = view === 'attendance';
+    const needsReferenceData = view === 'settings';
 
     const [classes, schedule, scheduleRules, books, attendance, staff, classrooms] = await Promise.all([
         loadClassSummaries(core, lms, reporting, academyId),
-        loadSchedule(core, lms, academyId, startDate, endDate),
-        loadScheduleRules(core, lms, academyId),
-        requiresAssignedClassScope(context.role) ? Promise.resolve([]) : loadBooks(content, academyId),
-        loadAttendance(core, lms, academyId, startDate, endDate),
-        loadStaff(core, academyId),
-        loadClassrooms(lms, academyId),
+        needsSchedule ? loadSchedule(core, lms, academyId, startDate, endDate) : Promise.resolve([]),
+        needsRules ? loadScheduleRules(core, lms, academyId) : Promise.resolve([]),
+        needsBooks && !requiresAssignedClassScope(context.role) ? loadBooks(content, academyId) : Promise.resolve([]),
+        needsAttendance ? loadAttendance(core, lms, academyId, startDate, endDate) : Promise.resolve([]),
+        needsReferenceData ? loadStaff(core, academyId) : Promise.resolve([]),
+        needsReferenceData ? loadClassrooms(lms, academyId) : Promise.resolve([]),
     ]);
 
     const overview: ClassOperationsOverview = {
@@ -747,11 +901,59 @@ export async function loadClassOperationsOverview(
         attendance,
         staff,
         classrooms,
+        truncated: truncationFromJson(null),
     };
 
     if (!requiresAssignedClassScope(context.role)) return overview;
 
     const staffMemberId = await loadActiveStaffId(core, context);
+    return restrictReferenceDataForAssignedRole(overview, staffMemberId);
+}
+
+function isMissingReadModel(error: { code?: string; message?: string } | null): boolean {
+    if (!error) return false;
+    return error.code === '42883'
+        || error.code === 'PGRST202';
+}
+
+export async function loadClassOperationsOverview(
+    context: LmsRoleContext,
+    startDate: string,
+    endDate: string,
+    view: 'overview' | 'schedule' | 'attendance' | 'settings' = 'overview',
+): Promise<ClassOperationsOverview> {
+    if (process.env.LMS_USE_V2_READ_MODELS === 'false') {
+        return loadClassOperationsOverviewLegacy(context, startDate, endDate, view);
+    }
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    let staffMemberId: string | null = null;
+    let assignedClassIds: Set<string> | null = null;
+
+    if (requiresAssignedClassScope(context.role)) {
+        staffMemberId = await loadActiveStaffId(core, context);
+        assignedClassIds = await loadAssignedClassIds(core, lms, context.academyId, staffMemberId);
+    }
+
+    const { data, error } = await lms.rpc('class_operations_read_v2', {
+        p_academy_id: context.academyId,
+        p_view: view,
+        p_start_date: startDate,
+        p_end_date: endDate,
+        p_class_ids: assignedClassIds ? [...assignedClassIds] : null,
+        p_class_limit: 100,
+    });
+    if (error) {
+        if (isMissingReadModel(error)) {
+            return loadClassOperationsOverviewLegacy(context, startDate, endDate, view);
+        }
+        throw error;
+    }
+
+    const overview = classOverviewFromReadModel(data, startDate, endDate);
+    if (!staffMemberId) return overview;
     return restrictReferenceDataForAssignedRole(overview, staffMemberId);
 }
 

@@ -3,6 +3,7 @@ import { assertCsrfToken } from '@/lib/lms/csrf-server';
 import { assertReauthCookie } from '@/lib/lms/reauth';
 import { hardDeleteStaffForAcademy } from '@/lib/lms/staff-admin';
 import { loadStaffHardDeletePreview } from '@/lib/lms/staff-queries';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
         assertCsrfToken(request);
         const body = await request.json() as { academyId?: string; staffId?: string; confirmName?: string };
         if (!body.academyId || !body.staffId || !body.confirmName) {
-            return Response.json({ success: false, error: 'Invalid staff hard delete request.' }, { status: 400 });
+            return mutationError('INVALID_STAFF_HARD_DELETE_REQUEST', 'Invalid staff hard delete request.', { request });
         }
 
         const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
@@ -18,23 +19,20 @@ export async function POST(request: Request) {
 
         const preview = await loadStaffHardDeletePreview(body.academyId, body.staffId);
         if (body.confirmName.trim() !== preview.staffName) {
-            return Response.json({ success: false, error: 'Staff name confirmation does not match.' }, { status: 400 });
+            return mutationError('STAFF_CONFIRMATION_MISMATCH', 'Staff name confirmation does not match.', { request });
         }
         if (!preview.canHardDelete) {
-            return Response.json({ success: false, error: 'This staff member has historical records and can only be archived.' }, { status: 409 });
+            return mutationError('STAFF_HAS_HISTORY', 'This staff member has historical records and can only be archived.', { request, status: 409 });
         }
 
         const result = await hardDeleteStaffForAcademy(body.academyId, body.staffId, actor);
 
-        return Response.json({ success: true, data: result });
+        return mutationSuccess(result, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Staff Hard Delete] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Staff hard delete failed.',
-        }, { status: 500 });
+        return mutationException(error, 'STAFF_HARD_DELETE_FAILED', 'Staff hard delete failed.', { request });
     }
 }

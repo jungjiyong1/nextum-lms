@@ -3,6 +3,7 @@ import { assertCsrfToken } from '@/lib/lms/csrf-server';
 import { createStaffForAcademy, updateStaffForAcademy } from '@/lib/lms/mutations';
 import { loadStaffSummariesForAcademy } from '@/lib/lms/staff-queries';
 import type { CreateStaffInput, UpdateStaffInput } from '@/features/lms/types';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 function noStoreJson(body: unknown, init?: ResponseInit) {
     return Response.json(body, {
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
         assertCsrfToken(request);
         const body = await request.json() as { academyId?: string; staffId?: string; input?: CreateStaffInput | UpdateStaffInput };
         if (!body.academyId || !body.input) {
-            return Response.json({ success: false, error: 'Invalid staff request.' }, { status: 400 });
+            return mutationError('INVALID_STAFF_REQUEST', 'Invalid staff request.', { request });
         }
 
         await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
@@ -53,15 +54,12 @@ export async function POST(request: Request) {
             await createStaffForAcademy(body.academyId, body.input as CreateStaffInput);
         }
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Staff] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Staff creation failed.',
-        }, { status: 500 });
+        return mutationException(error, 'STAFF_OPERATION_FAILED', 'Staff creation failed.', { request });
     }
 }

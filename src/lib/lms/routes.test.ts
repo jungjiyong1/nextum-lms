@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isProtectedAppPath, isPublicAuthPath } from './routes';
+import { isApiPath, isProtectedAppPath, isPublicAuthPath } from './routes';
 
 describe('LMS route guards', () => {
     it('marks app pages as protected', () => {
@@ -20,5 +20,11 @@ describe('LMS route guards', () => {
         expect(isPublicAuthPath('/login')).toBe(true);
         expect(isPublicAuthPath('/signup')).toBe(false);
         expect(isPublicAuthPath('/students')).toBe(false);
+    });
+
+    it('classifies API paths so the page proxy can avoid duplicate authentication', () => {
+        expect(isApiPath('/api')).toBe(true);
+        expect(isApiPath('/api/lms/dashboard')).toBe(true);
+        expect(isApiPath('/assignments')).toBe(false);
     });
 });

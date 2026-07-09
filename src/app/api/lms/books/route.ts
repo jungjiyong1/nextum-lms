@@ -1,6 +1,7 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { createBookForAcademy, updateBookForAcademy } from '@/lib/lms/mutations';
 import type { CreateBookInput, UpdateBookInput } from '@/features/lms/types';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
             input?: CreateBookInput | UpdateBookInput;
         };
         if (!body.academyId || !body.input) {
-            return Response.json({ success: false, error: 'Invalid book request.' }, { status: 400 });
+            return mutationError('INVALID_BOOK_REQUEST', 'Invalid book request.', { request });
         }
 
         await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
@@ -21,15 +22,12 @@ export async function POST(request: Request) {
             await createBookForAcademy(body.academyId, body.input as CreateBookInput);
         }
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Books] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Book operation failed.',
-        }, { status: 500 });
+        return mutationException(error, 'BOOK_OPERATION_FAILED', 'Book operation failed.', { request });
     }
 }

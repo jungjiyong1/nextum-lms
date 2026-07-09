@@ -26,8 +26,18 @@ import type {
 } from '@/features/lms/types';
 import { COMPLETED_PAYMENT_STATUS } from '@/features/lms/status';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { ApiContractError, decodeCursor, encodeCursor, normalizeCursorLimit } from './api-contracts';
 import { loadAssignedClassIdsForContext, loadClassOptionsForContext } from './class-queries';
 import { LmsAuthError, type LmsRoleContext } from './auth';
+import {
+    assertRosterCursorFilter,
+    buildPeopleSearchOrFilter,
+    isStudentRosterCursor,
+    parseStudentRosterFilters,
+    studentRosterFilterKey,
+    type StudentRosterCursor,
+    type StudentRosterFilters,
+} from './roster-filters';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -116,7 +126,6 @@ async function fetchPeople(core: SchemaClient, personIds: string[]): Promise<Map
 
 async function loadAssignedStudentIds(core: SchemaClient, assignedClassIds: Set<string> | null): Promise<string[] | null> {
     if (!assignedClassIds) return null;
-
     const classIds = [...assignedClassIds];
     if (classIds.length === 0) return [];
 
@@ -126,7 +135,6 @@ async function loadAssignedStudentIds(core: SchemaClient, assignedClassIds: Set<
         .in('class_id', classIds)
         .eq('status', 'active');
     ensureNoError(error, 'Failed to load assigned students');
-
     return uniqueStrings(((data || []) as Row[]).map((row) => row.student_id));
 }
 
@@ -220,7 +228,7 @@ async function loadStudentSummaries(
     const [classRowsResult, contractsResult, people, weakMetrics] = await Promise.all([
         classRowsQuery,
         options.includeBilling
-            ? lms.from('student_billing_contracts').select('*').eq('academy_id', academyId).in('student_id', studentIds).eq('status', 'active')
+            ? lms.from('student_billing_contracts').select('id,student_id,billing_mode,base_monthly_fee,hourly_rate').eq('academy_id', academyId).in('student_id', studentIds).eq('status', 'active')
             : Promise.resolve({ data: [], error: null }),
         peoplePromise,
         weakMetricsPromise,
@@ -321,7 +329,7 @@ async function assertCanViewStudent(
 async function loadWeakTypes(reporting: SchemaClient, academyId: string, studentId: string): Promise<WeakTypeRow[]> {
     const { data, error } = await reporting
         .from('v_student_type_weakness')
-        .select('*')
+        .select('student_id,student_name,class_id,type_name,sample_count,correct_count,score,status,last_attempted_at')
         .eq('academy_id', academyId)
         .eq('student_id', studentId)
         .order('status', { ascending: true })
@@ -1176,20 +1184,131 @@ export async function loadStudentAiConversationFeed(
     return loadAiConversations(client.schema('ai'), learning, context.academyId, studentId, assignmentId || null, assignmentNames);
 }
 
-export async function loadStudentOperationsOverview(context: LmsRoleContext): Promise<StudentOperationsOverview> {
+export async function loadStudentRosterPageRows(input: {
+    core: SchemaClient;
+    academyId: string;
+    assignedClassIds: Set<string> | null;
+    filters: StudentRosterFilters;
+    cursor: StudentRosterCursor | null;
+    limit: number;
+    signal?: AbortSignal;
+}): Promise<Row[]> {
+    if (input.assignedClassIds?.size === 0) return [];
+    const classIds = input.filters.classId
+        ? [input.filters.classId]
+        : input.assignedClassIds ? [...input.assignedClassIds] : null;
+    const select = [
+        'id',
+        'created_at',
+        input.filters.q ? 'people!inner()' : null,
+        classIds ? 'class_students!inner()' : null,
+    ].filter((value): value is string => value !== null).join(',');
+
+    let query = input.core
+        .from('students')
+        .select(select)
+        .eq('academy_id', input.academyId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(input.limit + 1);
+    if (input.filters.q) {
+        query = query.or(buildPeopleSearchOrFilter(
+            input.filters.q,
+            ['display_name', 'full_name', 'phone', 'parent_name', 'parent_phone'],
+        ), { referencedTable: 'people' });
+    }
+    if (classIds) {
+        query = query
+            .eq('class_students.status', 'active')
+            .in('class_students.class_id', classIds);
+    }
+    if (input.filters.status === 'operations') query = query.neq('status', 'dropped');
+    else if (input.filters.status !== 'all') query = query.eq('status', input.filters.status);
+    if (input.cursor) {
+        query = query.or(
+            `created_at.lt.${input.cursor.createdAt},and(created_at.eq.${input.cursor.createdAt},id.lt.${input.cursor.id})`,
+        );
+    }
+    if (input.signal) query = query.abortSignal(input.signal);
+    const { data, error } = await query;
+    ensureNoError(error, 'Failed to load filtered student roster page');
+    return (data || []) as Row[];
+}
+
+export async function loadStudentOperationsOverview(
+    context: LmsRoleContext,
+    options: {
+        cursor?: string | null;
+        limit?: string | number | null;
+        q?: string | null;
+        classId?: string | null;
+        status?: string | null;
+        signal?: AbortSignal;
+    } = {},
+): Promise<StudentOperationsOverview> {
     const client = createAdminClient();
-    const assignedClassIds = await loadAssignedClassIdsForContext(context);
-    const assignedStudentIds = await loadAssignedStudentIds(client.schema('core'), assignedClassIds);
-    const permissions = permissionsForContext(context);
-    const [students, classes] = await Promise.all([
-        loadStudentSummaries(client, context.academyId, {
-            studentIds: assignedStudentIds,
-            assignedClassIds,
-            includeBilling: permissions.canViewBilling,
-            includeWeakMetrics: false,
-        }),
+    const core = client.schema('core');
+    const filters = parseStudentRosterFilters(options);
+    const filterKey = studentRosterFilterKey(filters);
+    const cursor = decodeCursor(options.cursor, isStudentRosterCursor);
+    if (cursor) assertRosterCursorFilter(cursor.filterKey, filterKey);
+    const [assignedClassIds, classes] = await Promise.all([
+        loadAssignedClassIdsForContext(context),
         loadClassOptionsForContext(context),
     ]);
+    const permissions = permissionsForContext(context);
+    const limit = normalizeCursorLimit(options.limit);
 
-    return { students, classes, permissions };
+    if (filters.classId && !classes.some((row) => row.id === filters.classId)) {
+        throw new ApiContractError({
+            code: 'INVALID_FILTER',
+            message: 'classId is not available in the current academy scope.',
+            fieldErrors: { classId: ['Select a class available to the current user.'] },
+        });
+    }
+
+    if (assignedClassIds?.size === 0) {
+        return {
+            students: [],
+            classes,
+            permissions,
+            nextCursor: null,
+            hasMore: false,
+        };
+    }
+
+    const fetchedRows = await loadStudentRosterPageRows({
+        core,
+        academyId: context.academyId,
+        assignedClassIds,
+        filters,
+        cursor,
+        limit,
+        signal: options.signal,
+    });
+    const hasMore = fetchedRows.length > limit;
+    const pageRows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+    const pageStudentIds = pageRows.map((row) => String(row.id));
+    const summaries = await loadStudentSummaries(client, context.academyId, {
+        studentIds: pageStudentIds,
+        assignedClassIds,
+        includeBilling: permissions.canViewBilling,
+        includeWeakMetrics: false,
+    });
+    const summaryById = new Map(summaries.map((student) => [student.id, student]));
+    const students = pageStudentIds.flatMap((id) => {
+        const student = summaryById.get(id);
+        return student ? [student] : [];
+    });
+    const lastRow = pageRows.at(-1);
+
+    return {
+        students,
+        classes,
+        permissions,
+        hasMore,
+        nextCursor: hasMore && lastRow
+            ? encodeCursor({ createdAt: String(lastRow.created_at), id: String(lastRow.id), filterKey })
+            : null,
+    };
 }

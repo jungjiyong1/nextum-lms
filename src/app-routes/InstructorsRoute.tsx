@@ -3,10 +3,10 @@
 import { InstructorsOperationsPage } from '@/features/lms/instructors-operations-page';
 import { RouteScroll } from './RouteScroll';
 
-export function InstructorsRoute() {
+export function InstructorsRoute({ initialStaffId }: { initialStaffId?: string }) {
     return (
         <RouteScroll>
-            <InstructorsOperationsPage />
+            <InstructorsOperationsPage initialStaffId={initialStaffId} />
         </RouteScroll>
     );
 }

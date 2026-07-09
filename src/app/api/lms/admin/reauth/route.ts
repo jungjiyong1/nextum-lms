@@ -5,6 +5,7 @@ import { setReauthCookie } from '@/lib/lms/reauth';
 import { recordAdminAction } from '@/lib/lms/audit';
 import { assertCsrfToken } from '@/lib/lms/csrf-server';
 import { shouldUseSecureCookies } from '@/lib/lms/secure-cookie';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 function authClient() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
         const academyId = typeof body?.academyId === 'string' ? body.academyId : '';
         const password = typeof body?.password === 'string' ? body.password : '';
         if (!academyId || !password) {
-            return Response.json({ success: false, error: 'Invalid reauthentication request.' }, { status: 400 });
+            return mutationError('INVALID_REAUTHENTICATION_REQUEST', 'Invalid reauthentication request.', { request });
         }
 
         const adminContext = await assertLmsRoleForAcademy(academyId, ['owner', 'admin']);
@@ -41,12 +42,12 @@ export async function POST(request: Request) {
 
         const email = userData.user?.email;
         if (!email) {
-            return Response.json({ success: false, error: 'Password confirmation is not available for this account.' }, { status: 403 });
+            return mutationError('PASSWORD_CONFIRMATION_UNAVAILABLE', 'Password confirmation is not available for this account.', { request, status: 403 });
         }
 
         const { data: verified, error: verifyError } = await authClient().auth.signInWithPassword({ email, password });
         if (verifyError || verified.user?.id !== adminContext.userId) {
-            return Response.json({ success: false, error: 'Password confirmation failed.' }, { status: 403 });
+            return mutationError('PASSWORD_CONFIRMATION_FAILED', 'Password confirmation failed.', { request, status: 403 });
         }
 
         await setReauthCookie(adminContext.userId, academyId, { secure: shouldUseSecureCookies(request) });
@@ -57,12 +58,12 @@ export async function POST(request: Request) {
             target: 'admin_session',
             payload: { method: 'password' },
         });
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Admin Reauth] Failed:', error);
-        return Response.json({ success: false, error: 'Password confirmation failed.' }, { status: 500 });
+        return mutationException(error, 'REAUTHENTICATION_FAILED', 'Password confirmation failed.', { request });
     }
 }

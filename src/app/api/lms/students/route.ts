@@ -2,6 +2,8 @@ import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/
 import { createStudentForAcademy, updateStudentForAcademy } from '@/lib/lms/mutations';
 import { loadStudentOperationsOverview } from '@/lib/lms/student-queries';
 import type { CreateStudentInput, UpdateStudentInput } from '@/features/lms/types';
+import { ApiContractError } from '@/lib/lms/api-contracts';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 function noStoreJson(body: unknown, init?: ResponseInit) {
     return Response.json(body, {
@@ -15,18 +17,32 @@ function noStoreJson(body: unknown, init?: ResponseInit) {
 
 export async function GET(request: Request) {
     try {
-        const academyId = new URL(request.url).searchParams.get('academyId') || '';
+        const params = new URL(request.url).searchParams;
+        const academyId = params.get('academyId') || '';
         if (!academyId) {
             return noStoreJson({ success: false, error: 'Invalid student overview request.' }, { status: 400 });
         }
 
         const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
-        const data = await loadStudentOperationsOverview(actor);
+        const data = await loadStudentOperationsOverview(actor, {
+            cursor: params.get('cursor'),
+            limit: params.get('limit'),
+            q: params.get('q'),
+            classId: params.get('classId'),
+            status: params.get('status'),
+            signal: request.signal,
+        });
 
         return noStoreJson({ success: true, data });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
+        if (error instanceof ApiContractError) {
+            return noStoreJson({ success: false, error: error.apiError }, {
+                status: 400,
+                headers: { 'X-Request-Id': error.apiError.requestId },
+            });
+        }
 
         console.error('[LMS Students] Failed:', error);
         return noStoreJson({
@@ -41,7 +57,7 @@ export async function POST(request: Request) {
         assertSameOrigin(request);
         const body = await request.json() as { academyId?: string; studentId?: string; input?: CreateStudentInput | UpdateStudentInput };
         if (!body.academyId || !body.input) {
-            return Response.json({ success: false, error: 'Invalid student request.' }, { status: 400 });
+            return mutationError('INVALID_STUDENT_REQUEST', 'Invalid student request.', { request });
         }
 
         await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
@@ -49,18 +65,15 @@ export async function POST(request: Request) {
             await updateStudentForAcademy(body.academyId, body.studentId, body.input as UpdateStudentInput);
         } else {
             const data = await createStudentForAcademy(body.academyId, body.input as CreateStudentInput);
-            return Response.json({ success: true, data });
+            return mutationSuccess(data, { request });
         }
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Students] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Student creation failed.',
-        }, { status: 500 });
+        return mutationException(error, 'STUDENT_OPERATION_FAILED', 'Student creation failed.', { request });
     }
 }

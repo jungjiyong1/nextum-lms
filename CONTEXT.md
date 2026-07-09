@@ -5,19 +5,20 @@ Nextum LMS is the operator-facing Next.js web app for academy management. It use
 ## Current State
 
 - App Router routes live in `src/app`.
-- Auth, route guards, the sidebar, idle lock, and global loading live in `src/App.tsx`.
+- The protected `(app)` server layout validates auth and loads the shell context before rendering `AppShell`.
+- App Router `loading.tsx`, `error.tsx`, and `not-found.tsx` own route-level fallback states.
 - Current routed LMS screens use `src/features/lms`.
-- Electron-era routed UI and legacy global domain CSS have been removed from the active codebase.
+- Electron compatibility, global pointer recovery, PIN/idle lock, and legacy Zustand stores have been removed from the active codebase.
 - Shared UI primitives live in `src/components/ui`; new UI work should start there.
 
 ## Architecture
 
 ```text
 Next.js App Router
-  -> AuthProvider / App shell
-  -> Route client components
-  -> src/features/lms services and UI
+  -> protected server layout / shell context
+  -> AppShell / bounded client feature screens
   -> src/app/api/lms Route Handlers
+  -> src/lib/lms server-only domain functions
   -> Supabase PostgreSQL / Auth / RLS
 ```
 
@@ -26,11 +27,11 @@ Next.js App Router
 ```text
 src/app/              App Router routes and API handlers
 src/components/ui/    Shared UI primitives and LMS design-system components
-src/components/layout/Sidebar.tsx
+src/components/layout/  AppShell and Sidebar
 src/components/security/
-src/contexts/         Auth context
-src/features/lms/     Routed LMS feature screens, services, types, tests
-src/lib/lms/          Server-side LMS auth/admin helpers
+src/contexts/         Minimal client auth lifecycle context
+src/features/lms/     Routed LMS feature screens, API clients, types, tests
+src/lib/lms/          Server-only domain queries, mutations, auth, and contracts
 src/lib/supabase/     Browser/server/admin Supabase clients
 supabase/migrations/  LMS database migrations
 docs/                 Architecture and operating docs
@@ -48,19 +49,18 @@ scripts/              Verification, seed, backup, and guard scripts
 ## Runtime Notes
 
 - Supabase browser code must use publishable keys only.
-- Server-only Supabase secrets are used only through server/admin modules and Route Handlers.
+- Browser Supabase use is limited to authentication lifecycle and Realtime invalidation.
+- Business reads/writes use Route Handlers and server-only domain modules; secret keys never cross the server boundary.
 - Admin reset/export/tax operations are handled under `/api/lms/admin/*` and must call `assertLmsAdmin()`.
-- Grade-app shared data should stay in shared schemas such as `core`, `content`, `learning`, `ai`, and `reporting`; avoid duplicating shared data inside `lms`.
+- This repository owns shared migrations. Grade App consumes approved `core`, `content`, `learning`, `ai`, and `reporting` contracts and must not apply independent DDL.
 
 ## Verification Commands
 
 ```bash
-npm run ui:check
-npm run lint
-npm run typecheck
-npm test -- --run
-npm run build
+npm run verify
 ```
+
+Database changes additionally require the runbook preflight and `npm run db:check`.
 
 ## Decision Log
 
@@ -69,3 +69,9 @@ npm run build
 - Standardized routed LMS UI around `src/components/ui`, token-based Tailwind classes, and `docs/lms-ui-system.md`.
 - Removed inactive legacy UI directories and legacy global domain CSS after import verification.
 - Added `npm run ui:check` and made `npm run lint` run the UI guard.
+
+### 2026-07-10
+
+- Moved protected identity/bootstrap work into the `(app)` server layout and reduced the browser auth context to session lifecycle.
+- Removed Electron/pointer/PIN/store compatibility code after importer verification.
+- Added TypeScript unused checks, Next/Promise ESLint rules, coverage thresholds, Knip, and the `npm run verify` CI gate.

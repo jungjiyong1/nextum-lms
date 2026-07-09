@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { randomBytes } from 'crypto';
 import { NextResponse, type NextRequest } from 'next/server';
-import { isProtectedAppPath, isPublicAuthPath } from '@/lib/lms/routes';
+import { isApiPath, isProtectedAppPath, isPublicAuthPath } from '@/lib/lms/routes';
 import { csrfCookieOptions, LMS_CSRF_COOKIE } from '@/lib/lms/csrf';
 import { shouldUseSecureCookies } from '@/lib/lms/secure-cookie';
 
@@ -42,7 +42,22 @@ export async function updateSession(request: NextRequest) {
         request,
     });
 
+    // API handlers perform their own claims, role, CSRF, and origin checks. Keeping
+    // them out of the page-session proxy avoids a duplicate getClaims() round trip.
+    if (isApiPath(request.nextUrl.pathname)) {
+        return response;
+    }
+
     if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+        return withCsrfCookie(request, response);
+    }
+
+    // A first visit to the public login page has no session to refresh. Avoid a
+    // guaranteed Auth round trip (and keep the login shell available during a
+    // transient Auth outage); chunked Supabase session cookies still contain
+    // the `-auth-token` marker and take the normal validation path below.
+    if (isPublicAuthPath(request.nextUrl.pathname)
+        && !request.cookies.getAll().some((cookie) => cookie.name.includes('-auth-token'))) {
         return withCsrfCookie(request, response);
     }
 

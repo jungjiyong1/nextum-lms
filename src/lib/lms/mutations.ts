@@ -40,6 +40,10 @@ import type {
 } from '@/features/lms/types';
 import type { LmsRoleContext } from './auth';
 import { LmsAuthError } from './auth';
+import {
+    hasAssignedAssignmentScope,
+    unresolvedAssignmentRecipientStudentIds,
+} from './assignment-scope';
 import { loadAssignedClassIdsForContext } from './class-queries';
 import { sortByProblemOrder } from './problem-order';
 
@@ -89,6 +93,14 @@ function uniqueClassIds(classIds: string[] | undefined) {
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
     return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function chunkValues<T>(values: readonly T[], size = 200): T[][] {
+    const chunks: T[][] = [];
+    for (let offset = 0; offset < values.length; offset += size) {
+        chunks.push(values.slice(offset, offset + size));
+    }
+    return chunks;
 }
 
 function inviteSecret(): string {
@@ -541,37 +553,63 @@ export async function createStudentForAcademy(academyId: string, input: CreateSt
 
 async function resolveAssignmentProblemIds(
     content: SchemaClient,
-    input: Pick<CreateLearningAssignmentInput, 'bookId' | 'unitIds' | 'problemTypeIds' | 'problemIds'>,
+    input: Pick<
+        CreateLearningAssignmentInput,
+        'bookId' | 'unitIds' | 'problemTypeIds' | 'problemIds' | 'excludedProblemIds'
+    >,
 ): Promise<string[]> {
-    if (!input.bookId) return uniqueStrings(input.problemIds || []);
+    const excludedProblemIds = new Set(uniqueStrings(input.excludedProblemIds || []));
+    if (!input.bookId) {
+        return uniqueStrings(input.problemIds || []).filter((id) => !excludedProblemIds.has(id));
+    }
 
     const unitIds = uniqueStrings(input.unitIds || []);
     const problemTypeIds = uniqueStrings(input.problemTypeIds || []);
     const explicitProblemIds = uniqueStrings(input.problemIds || []);
-    if (explicitProblemIds.length > 0) return explicitProblemIds;
+    if (explicitProblemIds.length > 0) {
+        return explicitProblemIds.filter((id) => !excludedProblemIds.has(id));
+    }
+    const unitIdSet = new Set(unitIds);
+    const problemTypeIdSet = new Set(problemTypeIds);
 
-    const { data, error } = await content
-        .from('problems')
-        .select('id,book_id,unit_id,problem_type_id,type_id,page_printed,number,is_example')
-        .eq('book_id', input.bookId)
-        .eq('is_example', false);
-    ensureNoError(error, 'Failed to load assignment problem scope');
+    const problemRows: Row[] = [];
+    const pageSize = 1_000;
+    let lastProblemId: string | null = null;
+    for (;;) {
+        let query = content
+            .from('problems')
+            .select('id,book_id,unit_id,problem_type_id,type_id,page_printed,number,is_example')
+            .eq('book_id', input.bookId)
+            .eq('is_example', false)
+            .order('id', { ascending: true })
+            .limit(pageSize);
+        if (unitIds.length > 0) query = query.in('unit_id', unitIds);
+        if (lastProblemId) query = query.gt('id', lastProblemId);
+        const { data, error } = await query;
+        ensureNoError(error, 'Failed to load assignment problem scope');
+        const page = (data || []) as Row[];
+        problemRows.push(...page);
+        if (page.length < pageSize) break;
+        lastProblemId = String(page.at(-1)?.id || '');
+        if (!lastProblemId) break;
+    }
 
-    const selected = new Set(explicitProblemIds);
+    const selected = new Set<string>();
     const wholeBook = unitIds.length === 0 && problemTypeIds.length === 0 && explicitProblemIds.length === 0;
-    for (const row of sortByProblemOrder((data || []) as Row[])) {
+    for (const row of sortByProblemOrder(problemRows)) {
         const typeId = row.problem_type_id || row.type_id || null;
+        if (excludedProblemIds.has(row.id)) continue;
         if (
             wholeBook
             || (
-                unitIds.length > 0
-                && unitIds.includes(row.unit_id)
-                && (problemTypeIds.length === 0 || (typeId && problemTypeIds.includes(typeId)))
+                unitIdSet.size > 0
+                && unitIdSet.has(row.unit_id)
+                && (problemTypeIdSet.size === 0 || (typeId && problemTypeIdSet.has(typeId)))
             )
             || (
-                unitIds.length === 0
+                unitIdSet.size === 0
                 && typeId
-                && problemTypeIds.includes(typeId)
+                && problemTypeIdSet.has(typeId)
             )
         ) {
             selected.add(row.id);
@@ -691,14 +729,16 @@ async function insertAssignmentRecipients(
     }
 
     const rows = [...rowsByStudent.values()];
-    if (rows.length === 0) return;
+    if (rows.length === 0) return 0;
     const { error } = await learning
         .from('assignment_recipients')
         .upsert(rows, { onConflict: 'assignment_id,student_id' });
     ensureNoError(error, 'Failed to create assignment recipients');
+    return rows.length;
 }
 
 async function assertCanManageAssignmentRecipients(
+    core: SchemaClient,
     learning: SchemaClient,
     context: LmsRoleContext,
     assignmentId: string,
@@ -715,7 +755,7 @@ async function assertCanManageAssignmentRecipients(
         .eq('target_type', 'class');
     let recipientQuery = learning
         .from('assignment_recipients')
-        .select('class_id')
+        .select('student_id,class_id')
         .eq('assignment_id', assignmentId);
     if (options.activeOnly !== false) {
         targetQuery = targetQuery.eq('active', true);
@@ -725,11 +765,30 @@ async function assertCanManageAssignmentRecipients(
     const [targetResult, recipientResult] = await Promise.all([targetQuery, recipientQuery]);
     ensureNoError(targetResult.error, 'Failed to verify assignment target scope');
     ensureNoError(recipientResult.error, 'Failed to verify assignment recipient scope');
-    const classIds = [
-        ...((targetResult.data || []) as Row[]).map((row) => row.class_id),
-        ...((recipientResult.data || []) as Row[]).map((row) => row.class_id),
-    ].filter(Boolean);
-    if (!classIds.some((classId) => assignedClassIds.has(classId))) forbiddenAssignmentScope();
+    const targetRows = (targetResult.data || []) as Row[];
+    const recipientRows = (recipientResult.data || []) as Row[];
+    if (hasAssignedAssignmentScope(assignedClassIds, targetRows, recipientRows)) return;
+
+    const recipientStudentIds = unresolvedAssignmentRecipientStudentIds(assignedClassIds, recipientRows);
+    if (recipientStudentIds.length === 0) forbiddenAssignmentScope();
+
+    const enrollmentResults = await Promise.all(chunkValues(recipientStudentIds).map((studentIds) => core
+        .from('class_students')
+        .select('student_id,class_id,status')
+        .in('student_id', studentIds)
+        .in('class_id', [...assignedClassIds])
+        .eq('status', 'active')));
+    const enrollmentRows: Row[] = [];
+    for (const result of enrollmentResults) {
+        ensureNoError(result.error, 'Failed to verify direct recipient class scope');
+        enrollmentRows.push(...((result.data || []) as Row[]));
+    }
+    if (!hasAssignedAssignmentScope(
+        assignedClassIds,
+        targetRows,
+        recipientRows,
+        enrollmentRows,
+    )) forbiddenAssignmentScope();
 }
 
 export async function updateClassForAcademy(academyId: string, classId: string, input: UpdateClassInput) {
@@ -1071,6 +1130,12 @@ export async function updateStaffForAcademy(academyId: string, staffId: string, 
     ensureNoError(memberError, 'Failed to sync staff membership');
 }
 
+function isMissingRpc(error: { code?: string } | null): boolean {
+    if (!error) return false;
+    return error.code === '42883'
+        || error.code === 'PGRST202';
+}
+
 export async function createScheduleRuleForAcademy(academyId: string, input: CreateScheduleRuleInput) {
     const client = createAdminClient();
     const core = client.schema('core');
@@ -1282,6 +1347,7 @@ export async function createLearningAssignmentForAcademy(
     const classIds = uniqueClassIds(input.classIds);
     const studentIds = uniqueStrings(input.studentIds || []);
     const excludedStudentIds = uniqueStrings(input.excludedStudentIds || []);
+    const excludedStudentIdSet = new Set(excludedStudentIds);
     if (classIds.length === 0 && studentIds.length === 0) {
         throw new Error('Assignment target is required.');
     }
@@ -1299,14 +1365,55 @@ export async function createLearningAssignmentForAcademy(
     if (input.bookId) await assertBookAssignableToAcademy(content, academyId, input.bookId);
 
     const problemIds = await resolveAssignmentProblemIds(content, input);
-    let problemRows: Row[] = [];
+    if (input.bookId && input.sourceType !== 'worksheet' && problemIds.length === 0) {
+        throw new Error('The selected assignment scope contains no problems.');
+    }
+
+    if (input.bookId && input.sourceType !== 'worksheet' && process.env.LMS_USE_V2_MUTATIONS !== 'false') {
+        const { data: rpcData, error: rpcError } = await learning.rpc('create_assignment_v2', {
+            p_academy_id: academyId,
+            p_book_id: input.bookId,
+            p_title: title,
+            p_problem_ids: problemIds,
+            p_class_ids: classIds,
+            p_student_ids: studentIds,
+            p_description: input.description?.trim() || null,
+            p_context: input.context || 'homework',
+            p_due_at: input.dueAt || null,
+            p_available_from: null,
+            p_metadata: {
+                unitIds: input.unitIds || [],
+                problemTypeIds: input.problemTypeIds || [],
+            },
+            p_excluded_student_ids: excludedStudentIds,
+            p_created_by: context?.personId || null,
+            p_source_type: input.sourceType || 'content_scope',
+        });
+        if (!rpcError) {
+            const row = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as Row | null;
+            if (!row?.assignment_id) throw new Error('Assignment transaction returned no assignment id.');
+            return {
+                id: String(row.assignment_id),
+                mutationId: row.mutation_id ? String(row.mutation_id) : null,
+                itemCount: toNumber(row.item_count),
+                recipientCount: toNumber(row.recipient_count),
+            };
+        }
+        if (!isMissingRpc(rpcError)) {
+            ensureNoError(rpcError, 'Failed to create assignment transaction');
+        }
+    }
+    const problemRows: Row[] = [];
     if (problemIds.length > 0) {
-        const { data, error } = await content
-            .from('problems')
-            .select('id,book_id,unit_id')
-            .in('id', problemIds);
-        ensureNoError(error, 'Failed to verify assignment problems');
-        problemRows = (data || []) as Row[];
+        const verificationBatchSize = 500;
+        for (let offset = 0; offset < problemIds.length; offset += verificationBatchSize) {
+            const { data, error } = await content
+                .from('problems')
+                .select('id,book_id,unit_id')
+                .in('id', problemIds.slice(offset, offset + verificationBatchSize));
+            ensureNoError(error, 'Failed to verify assignment problems');
+            problemRows.push(...((data || []) as Row[]));
+        }
         if (problemRows.length !== problemIds.length) {
             throw new Error('One or more selected problems do not exist.');
         }
@@ -1314,6 +1421,7 @@ export async function createLearningAssignmentForAcademy(
             throw new Error('Selected problems do not belong to the selected book.');
         }
     }
+    const problemById = new Map(problemRows.map((row) => [row.id, row]));
 
     const { data: assignment, error: assignmentError } = await learning
         .from('assignments')
@@ -1346,7 +1454,7 @@ export async function createLearningAssignmentForAcademy(
             lms_lesson_id: null,
             active: true,
         })),
-        ...studentIds.map((studentId) => ({
+        ...studentIds.filter((studentId) => !excludedStudentIdSet.has(studentId)).map((studentId) => ({
             assignment_id: assignmentId,
             target_type: 'student',
             class_id: null,
@@ -1357,7 +1465,7 @@ export async function createLearningAssignmentForAcademy(
     ];
     const { error: targetError } = await learning.from('assignment_targets').insert(targetRows);
     ensureNoError(targetError, 'Failed to create assignment targets');
-    await insertAssignmentRecipients(
+    const recipientCount = await insertAssignmentRecipients(
         core,
         learning,
         academyId,
@@ -1368,18 +1476,31 @@ export async function createLearningAssignmentForAcademy(
         'student_direct',
         excludedStudentIds,
     );
+    if (recipientCount === 0) {
+        const { error: cleanupError } = await learning
+            .from('assignments')
+            .delete()
+            .eq('id', assignmentId);
+        ensureNoError(cleanupError, 'Failed to roll back an assignment with no active recipients');
+        throw new Error('Assignment targets produced no active recipients.');
+    }
 
     if (problemIds.length > 0) {
         const itemRows = problemIds.map((problemId, index) => ({
             assignment_id: assignmentId,
             book_id: input.bookId || null,
-            unit_id: problemRows.find((row) => row.id === problemId)?.unit_id || null,
+            unit_id: problemById.get(problemId)?.unit_id || null,
             problem_id: problemId,
             sort_order: index,
             required: true,
         }));
-        const { error: itemError } = await learning.from('assignment_items').insert(itemRows);
-        ensureNoError(itemError, 'Failed to create assignment items');
+        const insertBatchSize = 500;
+        for (let offset = 0; offset < itemRows.length; offset += insertBatchSize) {
+            const { error: itemError } = await learning
+                .from('assignment_items')
+                .insert(itemRows.slice(offset, offset + insertBatchSize));
+            ensureNoError(itemError, 'Failed to create assignment items');
+        }
     }
 
     return { id: assignmentId };
@@ -1405,7 +1526,7 @@ export async function addAssignmentRecipientsForAcademy(
     ensureNoError(error, 'Failed to load assignment');
     if (!assignment?.id) throw new Error('Assignment was not found.');
 
-    await assertCanManageAssignmentRecipients(learning, context, assignmentId);
+    await assertCanManageAssignmentRecipients(core, learning, context, assignmentId);
     await assertStudentsBelongToAcademy(core, context.academyId, ids);
     await assertAssignmentInputScope(core, context, [], ids);
     await insertAssignmentRecipients(
@@ -1439,7 +1560,7 @@ export async function removeAssignmentRecipientForAcademy(
     ensureNoError(error, 'Failed to load assignment');
     if (!assignment?.id) throw new Error('Assignment was not found.');
 
-    await assertCanManageAssignmentRecipients(learning, context, assignmentId);
+    await assertCanManageAssignmentRecipients(core, learning, context, assignmentId);
     await assertStudentsBelongToAcademy(core, context.academyId, [studentId]);
     await assertAssignmentInputScope(core, context, [], [studentId]);
 
@@ -1458,6 +1579,7 @@ export async function recallLearningAssignmentForAcademy(
     if (!assignmentId) throw new Error('Assignment id is required.');
 
     const client = createAdminClient();
+    const core = client.schema('core');
     const learning = client.schema('learning');
     const { data: assignment, error } = await learning
         .from('assignments')
@@ -1468,7 +1590,7 @@ export async function recallLearningAssignmentForAcademy(
     ensureNoError(error, 'Failed to load assignment');
     if (!assignment?.id) throw new Error('Assignment was not found.');
 
-    await assertCanManageAssignmentRecipients(learning, context, assignmentId);
+    await assertCanManageAssignmentRecipients(core, learning, context, assignmentId);
 
     const recalledAt = new Date().toISOString();
     const metadata = {
@@ -1509,6 +1631,7 @@ export async function deleteLearningAssignmentForAcademy(
     if (!assignmentId) throw new Error('Assignment id is required.');
 
     const client = createAdminClient();
+    const core = client.schema('core');
     const learning = client.schema('learning');
     const { data: assignment, error } = await learning
         .from('assignments')
@@ -1519,7 +1642,7 @@ export async function deleteLearningAssignmentForAcademy(
     ensureNoError(error, 'Failed to load assignment');
     if (!assignment?.id) throw new Error('Assignment was not found.');
 
-    await assertCanManageAssignmentRecipients(learning, context, assignmentId, { activeOnly: false });
+    await assertCanManageAssignmentRecipients(core, learning, context, assignmentId, { activeOnly: false });
 
     const { error: deleteError } = await learning
         .from('assignments')
@@ -1903,11 +2026,11 @@ async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: s
     ] = await Promise.all([
         lms
             .from('student_billing_contracts')
-            .select('*')
+            .select('id,student_id,billing_mode,base_monthly_fee,hourly_rate,effective_from,effective_to')
             .eq('academy_id', academyId)
             .eq('status', 'active')
             .in('student_id', studentIds),
-        lms.from('billing_class_rules').select('*').eq('academy_id', academyId),
+        lms.from('billing_class_rules').select('contract_id,class_id,rule_type,amount,effective_from,effective_to').eq('academy_id', academyId),
         lms
             .from('lesson_occurrences')
             .select('id,class_id,occurrence_date')
@@ -1922,8 +2045,9 @@ async function buildBillingDraftsForAcademy(client: LmsAdminClient, academyId: s
     const contracts = ((contractsData || []) as Row[]).filter((row) => isEffective(row, range.start, range.end));
     const contractMap = new Map(contracts.map((row) => [row.student_id, row]));
     const contractIds = contracts.map((row) => row.id);
+    const contractIdSet = new Set(contractIds);
     const rules = ((rulesData || []) as Row[])
-        .filter((row) => contractIds.includes(row.contract_id))
+        .filter((row) => contractIdSet.has(row.contract_id))
         .filter((row) => isEffective(row, range.start, range.end));
     const occurrenceRows = (occurrencesData || []) as Row[];
     const classNames = await fetchClassNames(core, [

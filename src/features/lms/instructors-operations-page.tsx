@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
     CalendarDays,
@@ -11,7 +11,6 @@ import {
     RefreshCw,
     Search,
     ShieldAlert,
-    Trash2,
     UserRound,
     Users,
 } from 'lucide-react';
@@ -47,7 +46,6 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
-import { cn } from '@/lib/utils';
 import {
     addLmsInvalidationListener,
     archiveStaff,
@@ -59,6 +57,8 @@ import {
     previewHardDeleteStaff,
     updateStaff,
 } from './service';
+import { LatestAbortController } from './latest-abort-controller';
+import { useDebouncedValue } from './use-debounced-value';
 import type {
     ClassSummary,
     CreateInstructorPaymentInput,
@@ -641,14 +641,16 @@ function ManagementTab({
     );
 }
 
-export function InstructorsOperationsPage() {
+export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaffId?: string }) {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
     const [staff, setStaff] = useState<StaffSummary[]>([]);
-    const [classes, setClasses] = useState<ClassSummary[]>([]);
     const [permissions, setPermissions] = useState<StaffOperationsPermissions>(emptyPermissions);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const nextCursorRef = useRef<string | null>(null);
     const [error, setError] = useState('');
     const [selectedStaffId, setSelectedStaffId] = useState('');
     const [detail, setDetail] = useState<StaffDetail | null>(null);
@@ -658,6 +660,19 @@ export function InstructorsOperationsPage() {
     const [roleFilter, setRoleFilter] = useState<StaffRoleFilter>('all');
     const [statusFilter, setStatusFilter] = useState<StaffFilterStatus>('operations');
     const [sortMode, setSortMode] = useState<StaffSortMode>('name');
+    const [filtersHydrated, setFiltersHydrated] = useState(false);
+    const requestedRosterFilters = useMemo(() => ({
+        q: searchQuery.trim().replace(/\s+/gu, ' ').toLocaleLowerCase('ko-KR'),
+        role: roleFilter,
+        status: statusFilter,
+    }), [roleFilter, searchQuery, statusFilter]);
+    const rosterFilters = useDebouncedValue(requestedRosterFilters, 300);
+    const rosterFiltersReady = filtersHydrated
+        && rosterFilters.q === requestedRosterFilters.q
+        && rosterFilters.role === requestedRosterFilters.role
+        && rosterFilters.status === requestedRosterFilters.status;
+    const rosterRequestSequence = useRef(0);
+    const rosterAbortController = useMemo(() => new LatestAbortController(), []);
     const [formMode, setFormMode] = useState<FormMode>(null);
     const [submitting, setSubmitting] = useState(false);
     const [archiveOpen, setArchiveOpen] = useState(false);
@@ -687,29 +702,99 @@ export function InstructorsOperationsPage() {
     const [paymentRecipientName, setPaymentRecipientName] = useState('');
     const [paymentNotes, setPaymentNotes] = useState('');
 
-    const load = useCallback(async (options: { force?: boolean; background?: boolean } = {}) => {
-        if (!academyId) return;
-        if (options.background) setRefreshing(true);
+    useEffect(() => {
+        const readUrlState = () => {
+            const params = new URLSearchParams(window.location.search);
+            setSelectedStaffId(params.get('staffId') || initialStaffId);
+            setSearchQuery(params.get('q') || '');
+            setRoleFilter((params.get('role') as StaffRoleFilter | null) || 'all');
+            setStatusFilter((params.get('status') as StaffFilterStatus | null) || 'operations');
+            setSortMode((params.get('sort') as StaffSortMode | null) || 'name');
+            setFiltersHydrated(true);
+        };
+        readUrlState();
+        window.addEventListener('popstate', readUrlState);
+        return () => window.removeEventListener('popstate', readUrlState);
+    }, [initialStaffId]);
+
+    useEffect(() => {
+        if (!rosterFiltersReady) return;
+        const params = new URLSearchParams(window.location.search);
+        const setOrDelete = (key: string, value: string, defaultValue: string) => {
+            if (!value || value === defaultValue) params.delete(key);
+            else params.set(key, value);
+        };
+        setOrDelete('staffId', selectedStaffId, '');
+        setOrDelete('q', rosterFilters.q, '');
+        setOrDelete('role', rosterFilters.role, 'all');
+        setOrDelete('status', rosterFilters.status, 'operations');
+        setOrDelete('sort', sortMode, 'name');
+        const search = params.toString();
+        window.history.replaceState(null, '', search ? `${window.location.pathname}?${search}` : window.location.pathname);
+    }, [rosterFilters, rosterFiltersReady, selectedStaffId, sortMode]);
+
+    useEffect(() => {
+        if (!filtersHydrated) return;
+        rosterAbortController.abort();
+        rosterRequestSequence.current += 1;
+        nextCursorRef.current = null;
+        setHasMore(false);
+    }, [filtersHydrated, roleFilter, rosterAbortController, searchQuery, statusFilter]);
+
+    useEffect(() => () => {
+        rosterAbortController.abort();
+        rosterRequestSequence.current += 1;
+    }, [rosterAbortController]);
+
+    const load = useCallback(async (options: { force?: boolean; background?: boolean; append?: boolean } = {}) => {
+        if (!academyId || !rosterFiltersReady) return;
+        const controller = rosterAbortController.start();
+        const requestSequence = rosterRequestSequence.current + 1;
+        rosterRequestSequence.current = requestSequence;
+        if (!options.append) {
+            nextCursorRef.current = null;
+            setHasMore(false);
+        }
+        if (options.append) setLoadingMore(true);
+        else if (options.background) setRefreshing(true);
         else setLoading(true);
-        setError('');
+        if (!options.append) setError('');
         try {
-            const data = await loadStaffOperationsOverview(academyId, { force: options.force });
-            setStaff(data.staff);
-            setClasses(data.classes);
-            setPermissions(data.permissions);
-            setSelectedStaffId((current) => {
-                if (current && data.staff.some((row) => row.id === current)) return current;
-                return data.staff[0]?.id || '';
+            const data = await loadStaffOperationsOverview(academyId, {
+                force: options.force,
+                cursor: options.append ? nextCursorRef.current : null,
+                q: rosterFilters.q,
+                role: rosterFilters.role,
+                status: rosterFilters.status,
+                signal: controller.signal,
             });
+            if (controller.signal.aborted || rosterRequestSequence.current !== requestSequence) return;
+            setStaff((current) => {
+                if (!options.append) return data.staff;
+                const byId = new Map(current.map((row) => [row.id, row]));
+                for (const row of data.staff) byId.set(row.id, row);
+                return [...byId.values()];
+            });
+            setPermissions(data.permissions);
+            nextCursorRef.current = data.nextCursor;
+            setHasMore(data.hasMore);
+            if (!options.append) {
+                setSelectedStaffId((current) => current || data.staff[0]?.id || '');
+            }
         } catch (err) {
+            if (controller.signal.aborted || rosterRequestSequence.current !== requestSequence) return;
             const message = err instanceof Error ? err.message : '강사 정보를 불러오지 못했습니다.';
             setError(message);
             toast.error(message);
         } finally {
-            if (options.background) setRefreshing(false);
-            else setLoading(false);
+            rosterAbortController.clear(controller);
+            if (rosterRequestSequence.current === requestSequence) {
+                if (options.append) setLoadingMore(false);
+                else if (options.background) setRefreshing(false);
+                else setLoading(false);
+            }
         }
-    }, [academyId]);
+    }, [academyId, rosterAbortController, rosterFilters, rosterFiltersReady]);
 
     const loadDetail = useCallback(async (staffId: string, options: { force?: boolean; background?: boolean } = {}) => {
         if (!academyId || !staffId) {
@@ -730,8 +815,8 @@ export function InstructorsOperationsPage() {
     }, [academyId, serviceMonth]);
 
     useEffect(() => {
-        void load();
-    }, [load]);
+        if (rosterFiltersReady) void load();
+    }, [load, rosterFiltersReady]);
 
     useEffect(() => {
         if (selectedStaffId) void loadDetail(selectedStaffId, { force: true });
@@ -891,7 +976,7 @@ export function InstructorsOperationsPage() {
     };
 
     const filteredStaff = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
+        const query = requestedRosterFilters.q;
         const filtered = staff.filter((row) => {
             if (statusFilter === 'operations' && row.status !== 'active' && row.status !== 'on_leave') return false;
             if (statusFilter !== 'operations' && statusFilter !== 'all' && row.status !== statusFilter) return false;
@@ -901,12 +986,13 @@ export function InstructorsOperationsPage() {
                 row.name,
                 row.phone,
                 row.email,
+                row.role,
                 roleLabel(row.role),
                 ...(row.classNames || []),
             ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query));
         });
         return sortStaff(filtered, sortMode);
-    }, [roleFilter, searchQuery, sortMode, staff, statusFilter]);
+    }, [requestedRosterFilters.q, roleFilter, sortMode, staff, statusFilter]);
 
     if (!academyId) {
         return (
@@ -993,6 +1079,19 @@ export function InstructorsOperationsPage() {
                                 setSelectedStaffId(row.id);
                                 setFormMode(null);
                             }} />
+                            {hasMore && (
+                                <div className="border-t p-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="w-full"
+                                        disabled={loadingMore}
+                                        onClick={() => void load({ append: true })}
+                                    >
+                                        {loadingMore ? '강사/직원을 불러오는 중...' : '강사/직원 더 보기'}
+                                    </Button>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
 

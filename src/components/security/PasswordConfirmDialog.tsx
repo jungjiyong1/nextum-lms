@@ -62,10 +62,16 @@ export function PasswordConfirmDialog({
                 headers: jsonCsrfHeaders(),
                 body: JSON.stringify({ academyId: String(academyId), password })
             });
-            const result = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
+            const result = await response.json().catch(() => null) as {
+                success?: boolean;
+                error?: string | { message?: string };
+            } | null;
 
             if (!response.ok || !result?.success) {
-                setError(result?.error || '비밀번호가 올바르지 않습니다.');
+                const message = typeof result?.error === 'string'
+                    ? result.error
+                    : result?.error?.message;
+                setError(message || '비밀번호가 올바르지 않습니다.');
                 setPassword('');
                 inputRef.current?.focus();
                 return;

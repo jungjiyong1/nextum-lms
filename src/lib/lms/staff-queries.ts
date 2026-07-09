@@ -2,7 +2,6 @@ import 'server-only';
 
 import { requiresAssignedClassScope } from '@/core/auth/roles';
 import type {
-    ClassSummary,
     InstructorPaymentRow,
     ScheduleItem,
     StaffAccountState,
@@ -16,8 +15,17 @@ import type {
     StaffSummary,
 } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { decodeCursor, encodeCursor, normalizeCursorLimit } from './api-contracts';
 import { LmsAuthError, type LmsRoleContext } from './auth';
 import { loadAssignedClassIdsForContext, loadClassSummariesForContext } from './class-queries';
+import {
+    assertRosterCursorFilter,
+    isStaffRosterCursor,
+    parseStaffRosterFilters,
+    staffRosterFilterKey,
+    type StaffRosterCursor,
+    type StaffRosterFilters,
+} from './roster-filters';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -270,18 +278,25 @@ async function buildStaffSummaries(
     });
 }
 
-async function loadPeerVisibleStaffIds(
+interface PeerRosterScope {
+    assignedClassIds: Set<string>;
+    visibleStaffIds: Set<string>;
+}
+
+async function loadPeerRosterScope(
     core: SchemaClient,
     lms: SchemaClient,
     context: LmsRoleContext,
-): Promise<Set<string>> {
+): Promise<PeerRosterScope> {
     const currentStaffId = await loadCurrentStaffId(core, context);
     const visible = new Set<string>();
     if (currentStaffId) visible.add(currentStaffId);
 
     const assignedClassIds = await loadAssignedClassIdsForContext(context);
     const classIds = [...(assignedClassIds || new Set<string>())];
-    if (classIds.length === 0) return visible;
+    if (classIds.length === 0) {
+        return { assignedClassIds: new Set(), visibleStaffIds: visible };
+    }
 
     const [profilesResult, rulesResult, occurrencesResult] = await Promise.all([
         lms
@@ -317,7 +332,15 @@ async function loadPeerVisibleStaffIds(
         if (row.substitute_staff_id) visible.add(row.substitute_staff_id);
     }
 
-    return visible;
+    return { assignedClassIds: new Set(classIds), visibleStaffIds: visible };
+}
+
+async function loadPeerVisibleStaffIds(
+    core: SchemaClient,
+    lms: SchemaClient,
+    context: LmsRoleContext,
+): Promise<Set<string>> {
+    return (await loadPeerRosterScope(core, lms, context)).visibleStaffIds;
 }
 
 async function assertCanViewStaff(
@@ -354,22 +377,124 @@ export async function loadStaffSummariesForAcademy(academyId: string): Promise<S
     });
 }
 
-export async function loadStaffOperationsOverview(context: LmsRoleContext): Promise<StaffOperationsOverview> {
+function rolesMatchingStaffQuery(query: string): StaffRole[] {
+    const labels: Record<StaffRole, string[]> = {
+        admin: ['admin', '관리자'],
+        staff: ['staff', '직원'],
+        teacher: ['teacher', '교사'],
+        instructor: ['instructor', '강사'],
+    };
+    return STAFF_ROLES.filter((role) => labels[role].some((label) => label.includes(query)));
+}
+
+export async function loadStaffRosterPageRows(input: {
+    lms: SchemaClient;
+    academyId: string;
+    visibleStaffIds: string[] | null;
+    searchClassIds: string[] | null;
+    filters: StaffRosterFilters;
+    cursor: StaffRosterCursor | null;
+    permissions: StaffOperationsPermissions;
+    limit: number;
+    signal?: AbortSignal;
+}): Promise<Row[]> {
+    if (input.visibleStaffIds?.length === 0) return [];
+    let query = input.lms.rpc('list_staff_roster_v2', {
+        p_academy_id: input.academyId,
+        p_query: input.filters.q,
+        p_include_sensitive: input.permissions.canViewSensitiveProfile,
+        p_matching_roles: rolesMatchingStaffQuery(input.filters.q),
+        p_role: input.filters.role,
+        p_status: input.filters.status,
+        p_after_created_at: input.cursor?.createdAt || null,
+        p_after_id: input.cursor?.id || null,
+        p_visible_staff_ids: input.visibleStaffIds,
+        p_search_class_ids: input.searchClassIds,
+        p_peer_only: input.permissions.scopedToPeerClasses,
+        p_limit: input.limit,
+    });
+    if (input.signal) query = query.abortSignal(input.signal);
+    const { data, error } = await query;
+    ensureNoError(error, 'Failed to load filtered staff roster page');
+    return ((data || []) as Row[]).map((row) => ({
+        id: String(row.staff_id),
+        created_at: String(row.created_at),
+    }));
+}
+
+export async function loadStaffOperationsOverview(
+    context: LmsRoleContext,
+    options: {
+        cursor?: string | null;
+        limit?: string | number | null;
+        q?: string | null;
+        role?: string | null;
+        status?: string | null;
+        signal?: AbortSignal;
+    } = {},
+): Promise<StaffOperationsOverview> {
     const client = createAdminClient();
     const core = client.schema('core');
     const lms = client.schema('lms');
     const permissions = permissionsForContext(context);
+    const filters = parseStaffRosterFilters(options);
+    const filterKey = staffRosterFilterKey(filters);
+    const limit = normalizeCursorLimit(options.limit);
+    const cursor = decodeCursor(options.cursor, isStaffRosterCursor);
+    if (cursor) assertRosterCursorFilter(cursor.filterKey, filterKey);
 
-    const visibleStaffIds = permissions.scopedToPeerClasses
-        ? [...(await loadPeerVisibleStaffIds(core, lms, context))]
-        : undefined;
-    const rows = filterPeerRows(await loadStaffRows(core, context.academyId, { staffIds: visibleStaffIds }), permissions);
-    const [staff, classes] = await Promise.all([
-        buildStaffSummaries(core, lms, context.academyId, rows, permissions),
-        loadClassSummariesForContext(context),
-    ]);
+    const classesPromise = loadClassSummariesForContext(context);
 
-    return { staff, classes, permissions };
+    const peerScope = permissions.scopedToPeerClasses
+        ? await loadPeerRosterScope(core, lms, context)
+        : null;
+    const visibleStaffIds = peerScope ? [...peerScope.visibleStaffIds] : null;
+    if (visibleStaffIds?.length === 0) {
+        return {
+            staff: [],
+            classes: await classesPromise,
+            permissions,
+            nextCursor: null,
+            hasMore: false,
+        };
+    }
+
+    const classes = await classesPromise;
+    const fetchedRows = await loadStaffRosterPageRows({
+        lms,
+        academyId: context.academyId,
+        visibleStaffIds,
+        searchClassIds: peerScope ? [...peerScope.assignedClassIds] : null,
+        filters,
+        cursor,
+        permissions,
+        limit,
+        signal: options.signal,
+    });
+    const hasMore = fetchedRows.length > limit;
+    const pageRows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+    const pageStaffIds = pageRows.map((row) => String(row.id));
+    const rows = filterPeerRows(
+        await loadStaffRows(core, context.academyId, { staffIds: pageStaffIds }),
+        permissions,
+    );
+    const summaries = await buildStaffSummaries(core, lms, context.academyId, rows, permissions);
+    const staffById = new Map(summaries.map((row) => [row.id, row]));
+    const staff = pageStaffIds.flatMap((id) => {
+        const row = staffById.get(id);
+        return row ? [row] : [];
+    });
+    const lastRow = pageRows.at(-1);
+
+    return {
+        staff,
+        classes,
+        permissions,
+        hasMore,
+        nextCursor: hasMore && lastRow
+            ? encodeCursor({ createdAt: String(lastRow.created_at), id: String(lastRow.id), filterKey })
+            : null,
+    };
 }
 
 async function loadStaffSchedule(

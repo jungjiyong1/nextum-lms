@@ -48,20 +48,27 @@ export async function assertAssignedClassAccess(
     const core = client.schema('core');
     const lms = client.schema('lms');
     const staffId = await loadActiveStaffId(core, context);
+    const currentDate = new Date().toISOString().slice(0, 10);
 
     if (input.instructorId && input.instructorId !== staffId) forbidden();
 
-    const [profileResult, ruleResult, occurrenceResult, assignedRuleResult] = await Promise.all([
+    const [classResult, profileResult, ruleResult, occurrenceResult, assignedRuleResult] = await Promise.all([
+        core
+            .from('classes')
+            .select('id,active')
+            .eq('academy_id', context.academyId)
+            .eq('id', classId)
+            .maybeSingle(),
         lms
             .from('class_profiles')
-            .select('class_id,default_instructor_staff_id')
+            .select('class_id,default_instructor_staff_id,status')
             .eq('academy_id', context.academyId)
             .eq('class_id', classId)
             .maybeSingle(),
         input.ruleId
             ? lms
                 .from('class_schedule_rules')
-                .select('id,class_id,instructor_staff_id')
+                .select('id,class_id,instructor_staff_id,active,start_date,end_date')
                 .eq('academy_id', context.academyId)
                 .eq('id', input.ruleId)
                 .maybeSingle()
@@ -81,26 +88,38 @@ export async function assertAssignedClassAccess(
             .eq('class_id', classId)
             .eq('instructor_staff_id', staffId)
             .eq('active', true)
+            .lte('start_date', currentDate)
+            .or(`end_date.is.null,end_date.gte.${currentDate}`)
             .limit(1)
             .maybeSingle(),
     ]);
 
-    for (const result of [profileResult, ruleResult, occurrenceResult, assignedRuleResult]) {
+    for (const result of [classResult, profileResult, ruleResult, occurrenceResult, assignedRuleResult]) {
         if (result.error) throw result.error;
     }
 
+    const classRow = classResult.data as Row | null;
     const profile = profileResult.data as Row | null;
     const rule = ruleResult.data as Row | null;
     const occurrence = occurrenceResult.data as Row | null;
     const assignedRule = assignedRuleResult.data as Row | null;
 
-    if (!profile?.class_id) forbidden();
+    if (!classRow?.id || !classRow.active || !profile?.class_id) forbidden();
     if (rule && rule.class_id !== classId) forbidden();
     if (occurrence && occurrence.class_id !== classId) forbidden();
 
-    const classDefaultMatches = profile.default_instructor_staff_id === staffId;
+    const classDefaultMatches = profile.status === 'active'
+        && profile.default_instructor_staff_id === staffId;
+    const ruleIsCurrent = Boolean(
+        rule
+        && rule.active
+        && String(rule.start_date) <= currentDate
+        && (!rule.end_date || String(rule.end_date) >= currentDate),
+    );
     const ruleMatches = Boolean(
-        rule && (rule.instructor_staff_id === staffId || (!rule.instructor_staff_id && classDefaultMatches)),
+        ruleIsCurrent
+        && rule
+        && (rule.instructor_staff_id === staffId || (!rule.instructor_staff_id && classDefaultMatches)),
     );
     const occurrenceMatches = Boolean(
         occurrence && (

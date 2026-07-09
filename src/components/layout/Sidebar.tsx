@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
     Calculator,
@@ -14,12 +15,11 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
-import { Profile } from '../../contexts/AuthContext';
+import type { Profile } from '../../contexts/AuthContext';
 import { appPageHref, canAccessAppPage, getRoleLabel, type AppPage, type AppRole } from '../../core/auth/roles';
 
 interface SidebarProps {
     activePage: string;
-    onNavigate: (page: string) => void;
     onSignOut?: () => void;
     userProfile?: Profile | null;
     academyName?: string | null;
@@ -95,7 +95,7 @@ const navItems: NavItem[] = [
     },
 ];
 
-export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academyName }: SidebarProps) {
+export function Sidebar({ activePage, onSignOut, userProfile, academyName }: SidebarProps) {
     const pathname = usePathname();
     const [collapsed, setCollapsed] = React.useState(false);
     const [compactViewport, setCompactViewport] = React.useState(false);
@@ -146,7 +146,7 @@ export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academ
                 title={visuallyCollapsed ? '메뉴 열기' : '메뉴 닫기'}
             >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary-soft text-primary-strong">
-                    <img src="/icon.png" alt="NEXTUM LMS" className="h-8 w-8 rounded-xl" />
+                    <Image src="/icon.png" alt="NEXTUM LMS" width={32} height={32} className="h-8 w-8 rounded-xl" />
                 </span>
                 {!visuallyCollapsed && (
                     <span className="min-w-0 truncate text-left text-base font-semibold text-foreground">
@@ -176,7 +176,6 @@ export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academ
                                         if (active && prev.has(item.id)) return new Set();
                                         return new Set([item.id]);
                                     });
-                                    onNavigate(item.id);
                                 }}
                                 title={visuallyCollapsed ? item.label : undefined}
                                 aria-expanded={hasChildren ? expanded : undefined}

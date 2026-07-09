@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
     ArrowLeft,
     ArchiveX,
@@ -11,7 +10,6 @@ import {
     ChevronDown,
     ChevronRight,
     ClipboardList,
-    Clock3,
     FileText,
     Plus,
     RefreshCw,
@@ -66,8 +64,8 @@ import {
     recallAssignment,
     removeAssignmentRecipient,
 } from './service';
+import { loadAssignmentProblemCatalog } from './problem-catalog-client';
 import type {
-    AssignmentBookSummary,
     AssignmentClassProgressSummary,
     AssignmentManagementData,
     AssignmentProblemSummary,
@@ -81,24 +79,9 @@ import type {
 } from './types';
 
 type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
-type AssignmentViewMode = 'all' | 'by_class';
 type AssignmentStatusFilter = 'all' | 'open' | 'due_soon' | 'overdue' | 'completed' | 'recalled';
 type ProgressStatusFilter = 'all' | 'not_started' | 'in_progress' | 'completed';
 type AssignmentManageTab = 'manage' | 'deploy';
-type AssignmentSummaryStats = {
-    total: number;
-    completed: number;
-    dueSoon: number;
-    overdue: number;
-    recalled: number;
-    targetStudents: number;
-    averageCompletion: number;
-};
-
-const viewModeOptions: Array<{ value: AssignmentViewMode; label: string }> = [
-    { value: 'by_class', label: '반별' },
-    { value: 'all', label: '전체' },
-];
 
 const statusFilterOptions: Array<{ value: AssignmentStatusFilter; label: string }> = [
     { value: 'all', label: '전체' },
@@ -218,100 +201,7 @@ function classLabel(classProgress: AssignmentClassProgressSummary): string {
     return classProgress.className || '개별 학생';
 }
 
-function summarizeAssignments(assignments: LearningAssignmentSummary[]): AssignmentSummaryStats {
-    const total = assignments.length;
-    const completed = assignments.filter((assignment) => dueStatus(assignment) === 'completed').length;
-    const dueSoon = assignments.filter((assignment) => dueStatus(assignment) === 'due_soon').length;
-    const overdue = assignments.filter((assignment) => dueStatus(assignment) === 'overdue').length;
-    const recalled = assignments.filter((assignment) => dueStatus(assignment) === 'recalled').length;
-    const targetStudents = assignments.reduce((sum, assignment) => sum + assignment.progress.targetStudentCount, 0);
-    const completedStudents = assignments.reduce((sum, assignment) => sum + assignment.progress.completedCount, 0);
-    const averageCompletion = targetStudents === 0
-        ? 0
-        : Math.round((completedStudents / targetStudents) * 100);
 
-    return { total, completed, dueSoon, overdue, recalled, targetStudents, averageCompletion };
-}
-
-function AssignmentMetricTile({
-    icon: Icon,
-    label,
-    value,
-    description,
-    tone = 'neutral',
-}: {
-    icon: React.ComponentType<{ className?: string }>;
-    label: string;
-    value: string | number;
-    description?: string;
-    tone?: 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
-}) {
-    const toneClass = {
-        neutral: 'bg-muted text-muted-foreground',
-        primary: 'bg-primary-soft text-primary-strong',
-        success: 'bg-success-soft text-success-foreground',
-        warning: 'bg-warning-soft text-warning-foreground',
-        danger: 'bg-destructive/10 text-destructive',
-    }[tone];
-
-    return (
-        <div className="min-w-0 rounded-xl border border-border bg-card p-4">
-            <div className="flex items-center gap-3">
-                <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', toneClass)}>
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                </span>
-                <div className="min-w-0">
-                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                    <p className="mt-0.5 text-xl font-semibold leading-none text-foreground">{value}</p>
-                </div>
-            </div>
-            {description && <p className="mt-2 truncate text-xs text-muted-foreground">{description}</p>}
-        </div>
-    );
-}
-
-function AssignmentSummaryStrip({ assignments }: { assignments: LearningAssignmentSummary[] }) {
-    const stats = summarizeAssignments(assignments);
-    return (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            <AssignmentMetricTile icon={ClipboardList} label="전체 과제" value={stats.total} description={`${stats.targetStudents}명 배정`} tone="primary" />
-            <AssignmentMetricTile icon={CheckCircle2} label="완료" value={stats.completed} description="대상 전원 제출" tone="success" />
-            <AssignmentMetricTile icon={Clock3} label="기한 임박" value={stats.dueSoon} description="3일 이내 마감" tone="warning" />
-            <AssignmentMetricTile icon={SlidersHorizontal} label="기한 지남" value={stats.overdue} description="후속 확인 필요" tone={stats.overdue > 0 ? 'danger' : 'neutral'} />
-            <AssignmentMetricTile icon={ArchiveX} label="회수됨" value={stats.recalled} description="학생 과제함 숨김" />
-            <AssignmentMetricTile icon={BarChart3} label="평균 완료율" value={`${stats.averageCompletion}%`} description="전체 대상 기준" />
-        </div>
-    );
-}
-
-function SegmentedControl<T extends string>({
-    value,
-    options,
-    onChange,
-    className,
-}: {
-    value: T;
-    options: Array<{ value: T; label: string }>;
-    onChange: (value: T) => void;
-    className?: string;
-}) {
-    return (
-        <div className={cn('inline-flex rounded-lg border border-border bg-muted p-1', className)}>
-            {options.map((option) => (
-                <Button
-                    key={option.value}
-                    type="button"
-                    variant={value === option.value ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="h-8 px-3 text-xs"
-                    onClick={() => onChange(option.value)}
-                >
-                    {option.label}
-                </Button>
-            ))}
-        </div>
-    );
-}
 
 function AssignmentProgressSummary({ assignment }: { assignment: LearningAssignmentSummary }) {
     const progress = assignment.progress;
@@ -397,80 +287,6 @@ function AssignmentCard({
     );
 }
 
-function AssignmentList({
-    assignments,
-    classes,
-    selectedAssignmentId,
-    viewMode,
-    onSelect,
-}: {
-    assignments: LearningAssignmentSummary[];
-    classes: AssignmentManagementData['classes'];
-    selectedAssignmentId: string;
-    viewMode: AssignmentViewMode;
-    onSelect: (id: string) => void;
-}) {
-    if (assignments.length === 0) {
-        return <EmptyState title="조건에 맞는 과제가 없습니다." />;
-    }
-
-    if (viewMode === 'by_class') {
-        const classGroups = classes
-            .map((classRow) => ({
-                classRow,
-                rows: assignments
-                    .map((assignment) => ({
-                        assignment,
-                        progress: assignment.classProgress.find((row) => row.classId === classRow.id) || null,
-                    }))
-                    .filter((row) => row.progress),
-            }))
-            .filter((group) => group.rows.length > 0);
-        const individualRows = assignments
-            .map((assignment) => ({
-                assignment,
-                progress: assignment.classProgress.find((row) => row.classId === null) || null,
-            }))
-            .filter((row) => row.progress);
-
-        return (
-            <div className="space-y-4">
-                {[...classGroups, individualRows.length > 0 ? { classRow: null, rows: individualRows } : null].filter(Boolean).map((group) => (
-                    <div key={group!.classRow?.id || 'individual'} className="space-y-2">
-                        <div className="flex items-center justify-between px-1">
-                            <p className="text-sm font-semibold text-foreground">{group!.classRow?.name || '개별 학생'}</p>
-                            <span className="text-xs text-muted-foreground">{group!.rows.length}개 과제</span>
-                        </div>
-                        <div className="space-y-2">
-                            {group!.rows.map(({ assignment, progress }) => (
-                                <AssignmentCard
-                                    key={`${assignment.id}-${progress!.classId || 'individual'}`}
-                                    assignment={assignment}
-                                    selected={assignment.id === selectedAssignmentId}
-                                    classContext={progress}
-                                    onSelect={() => onSelect(assignment.id)}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                ))}
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-2">
-            {assignments.map((assignment) => (
-                <AssignmentCard
-                    key={assignment.id}
-                    assignment={assignment}
-                    selected={assignment.id === selectedAssignmentId}
-                    onSelect={() => onSelect(assignment.id)}
-                />
-            ))}
-        </div>
-    );
-}
 
 function selectedProblemIds(
     problems: AssignmentProblemSummary[],
@@ -484,7 +300,11 @@ function selectedProblemIds(
     return problems
         .filter((problem) => (
             selectedUnitIds.has(problem.unitId)
-            && (!problem.problemTypeId || selectedTypeIds.has(problem.problemTypeId))
+            && (
+                selectedTypeIds.size === 0
+                || !problem.problemTypeId
+                || selectedTypeIds.has(problem.problemTypeId)
+            )
             && !excludedProblemIds.has(problem.id)
         ))
         .map((problem) => problem.id);
@@ -510,7 +330,27 @@ type AssignmentUnitProblemRow = {
     pageGroups: Array<{ pagePrinted: number; problems: AssignmentProblemSummary[] }>;
     selectedCount: number;
     conceptPracticeCount: number;
+    totalCount: number | null;
+    nextCursor: string | null;
+    hasMore: boolean;
+    loading: boolean;
+    loaded: boolean;
+    error: string | null;
 };
+
+type UnitProblemCatalogState = {
+    items: AssignmentProblemSummary[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    totalCount: number | null;
+    loading: boolean;
+    loaded: boolean;
+    error: string | null;
+};
+
+function unitCatalogKey(bookId: string, unitId: string): string {
+    return `${bookId}\u0000${unitId}`;
+}
 
 function AssignmentComposer({
     data,
@@ -523,6 +363,8 @@ function AssignmentComposer({
     onCancel: () => void;
     onSubmit: (input: CreateLearningAssignmentInput, file: File | null) => Promise<void>;
 }) {
+    const { profile } = useAuth();
+    const academyId = academyIdOf(profile?.current_academy_id);
     const [title, setTitle] = useState('');
     const [dueAt, setDueAt] = useState('');
     const [bookId, setBookId] = useState(data.books[0]?.id || '');
@@ -538,22 +380,121 @@ function AssignmentComposer({
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
     const [excludedStudentIds, setExcludedStudentIds] = useState<Set<string>>(new Set());
     const [studentSearch, setStudentSearch] = useState('');
+    const [unitCatalogs, setUnitCatalogs] = useState<Map<string, UnitProblemCatalogState>>(() => new Map());
+    const catalogRequestSequence = useRef(new Map<string, number>());
+    const catalogControllers = useRef(new Map<string, AbortController>());
 
     const selectedBook = data.books.find((book) => book.id === bookId) || null;
+    const loadUnitProblems = useCallback(async (unitId: string, cursor: string | null = null) => {
+        if (!academyId || !bookId) return;
+        const key = unitCatalogKey(bookId, unitId);
+        catalogControllers.current.get(key)?.abort();
+        const controller = new AbortController();
+        catalogControllers.current.set(key, controller);
+        const sequence = (catalogRequestSequence.current.get(key) || 0) + 1;
+        catalogRequestSequence.current.set(key, sequence);
+        setUnitCatalogs((current) => {
+            const next = new Map(current);
+            const previous = next.get(key);
+            next.set(key, {
+                items: previous?.items || [],
+                nextCursor: previous?.nextCursor || null,
+                hasMore: previous?.hasMore || false,
+                totalCount: previous?.totalCount ?? null,
+                loading: true,
+                loaded: previous?.loaded || false,
+                error: null,
+            });
+            return next;
+        });
+
+        try {
+            const page = await loadAssignmentProblemCatalog({
+                academyId,
+                bookId,
+                unitId,
+                cursor,
+                limit: 50,
+                signal: controller.signal,
+            });
+            if (catalogRequestSequence.current.get(key) !== sequence) return;
+            setUnitCatalogs((current) => {
+                const next = new Map(current);
+                const previous = next.get(key);
+                const items = cursor
+                    ? [...new Map([...(previous?.items || []), ...page.items].map((item) => [item.id, item])).values()]
+                    : page.items;
+                next.set(key, {
+                    items: sortByProblemOrder(items),
+                    nextCursor: page.nextCursor,
+                    hasMore: page.hasMore,
+                    totalCount: page.totalCount ?? previous?.totalCount ?? null,
+                    loading: false,
+                    loaded: true,
+                    error: null,
+                });
+                return next;
+            });
+        } catch (error) {
+            if (controller.signal.aborted || catalogRequestSequence.current.get(key) !== sequence) return;
+            setUnitCatalogs((current) => {
+                const next = new Map(current);
+                const previous = next.get(key);
+                next.set(key, {
+                    items: previous?.items || [],
+                    nextCursor: previous?.nextCursor || null,
+                    hasMore: previous?.hasMore || false,
+                    totalCount: previous?.totalCount ?? null,
+                    loading: false,
+                    loaded: previous?.loaded || false,
+                    error: error instanceof Error ? error.message : '문제 목록을 불러오지 못했습니다.',
+                });
+                return next;
+            });
+        } finally {
+            if (catalogControllers.current.get(key) === controller) catalogControllers.current.delete(key);
+        }
+    }, [academyId, bookId]);
+
+    useEffect(() => () => {
+        for (const controller of catalogControllers.current.values()) controller.abort();
+        catalogControllers.current.clear();
+    }, [bookId]);
+
+    const firstSelectedUnitId = selectedBook?.units[0]?.id;
+    useEffect(() => {
+        if (firstSelectedUnitId) void loadUnitProblems(firstSelectedUnitId);
+    }, [firstSelectedUnitId, loadUnitProblems]);
+
     const orderedBookProblems = useMemo(
-        () => selectedBook ? sortByProblemOrder(selectedBook.problems) : [],
-        [selectedBook],
+        () => selectedBook
+            ? sortByProblemOrder(selectedBook.units.flatMap((unit) => (
+                unitCatalogs.get(unitCatalogKey(selectedBook.id, unit.id))?.items || []
+            )))
+            : [],
+        [selectedBook, unitCatalogs],
     );
     const previewProblemIds = useMemo(
         () => selectedProblemIds(orderedBookProblems, wholeBook, selectedUnitIds, selectedTypeIds, excludedProblemIds),
         [excludedProblemIds, orderedBookProblems, selectedTypeIds, selectedUnitIds, wholeBook],
     );
     const previewProblemIdSet = useMemo(() => new Set(previewProblemIds), [previewProblemIds]);
+    const problemTypesByUnit = useMemo(() => {
+        const grouped = new Map<string, AssignmentProblemTypeSummary[]>();
+        for (const type of selectedBook?.problemTypes || []) {
+            if (!type.unitId) continue;
+            const types = grouped.get(type.unitId) || [];
+            types.push(type);
+            grouped.set(type.unitId, types);
+        }
+        return grouped;
+    }, [selectedBook]);
     const unitProblemRows = useMemo<AssignmentUnitProblemRow[]>(() => {
         if (!selectedBook) return [];
         return selectedBook.units.map((unit) => {
-            const problems = orderedBookProblems.filter((problem) => problem.unitId === unit.id);
-            const types = selectedBook.problemTypes.filter((type) => type.unitId === unit.id);
+            const catalog = unitCatalogs.get(unitCatalogKey(selectedBook.id, unit.id));
+            const problems = catalog?.items || [];
+            const types = problemTypesByUnit.get(unit.id) || [];
             return {
                 unit,
                 problems,
@@ -561,9 +502,15 @@ function AssignmentComposer({
                 pageGroups: groupProblemsByPage(problems),
                 selectedCount: problems.filter((problem) => previewProblemIdSet.has(problem.id)).length,
                 conceptPracticeCount: problems.filter(isConceptPracticeProblem).length,
+                totalCount: catalog?.totalCount ?? null,
+                nextCursor: catalog?.nextCursor || null,
+                hasMore: catalog?.hasMore || false,
+                loading: catalog?.loading || false,
+                loaded: catalog?.loaded || false,
+                error: catalog?.error || null,
             };
         });
-    }, [orderedBookProblems, previewProblemIdSet, selectedBook]);
+    }, [previewProblemIdSet, problemTypesByUnit, selectedBook, unitCatalogs]);
     const selectedClassStudents = useMemo(() => {
         const classIds = selectedClassIds;
         return data.students.filter((student) => student.status === 'active' && student.classIds.some((classId) => classIds.has(classId)));
@@ -592,7 +539,7 @@ function AssignmentComposer({
         [data.classes, selectedClassIds],
     );
     const materialLabel = selectedBook?.title || '문제집 미선택';
-    const problemSummary = wholeBook ? '전체 문제집' : `${previewProblemIds.length}문항`;
+    const problemSummary = wholeBook ? '전체 문제집' : `${selectedUnitIds.size}개 단원 범위`;
     const dueSummary = dueAt ? formatDate(toDueIso(dueAt)) : '기한 없음';
 
     const resetScope = () => {
@@ -609,6 +556,10 @@ function AssignmentComposer({
             else next.delete(unitId);
             return next;
         });
+        if (expanded) {
+            const catalog = unitCatalogs.get(unitCatalogKey(bookId, unitId));
+            if (!catalog?.loaded && !catalog?.loading) void loadUnitProblems(unitId);
+        }
     };
 
     const selectUnitProblems = (
@@ -616,7 +567,6 @@ function AssignmentComposer({
         problems: AssignmentProblemSummary[],
         types: AssignmentProblemTypeSummary[],
     ) => {
-        if (problems.length === 0) return;
         setWholeBook(false);
         setExpandedUnit(unitId, true);
         setSelectedUnitIds((current) => new Set([...current, unitId]));
@@ -652,7 +602,7 @@ function AssignmentComposer({
     };
 
     const toggleUnitSelection = (row: AssignmentUnitProblemRow) => {
-        if (row.selectedCount > 0) clearUnitProblems(row.unit.id, row.problems, row.types);
+        if (selectedUnitIds.has(row.unit.id)) clearUnitProblems(row.unit.id, row.problems, row.types);
         else selectUnitProblems(row.unit.id, row.problems, row.types);
     };
 
@@ -685,6 +635,10 @@ function AssignmentComposer({
     };
 
     const toggleProblem = (problem: AssignmentProblemSummary) => {
+        if (!selectedUnitIds.has(problem.unitId)) {
+            toast.info('먼저 단원 범위를 선택한 뒤 제외할 문항을 조정하세요.');
+            return;
+        }
         if (previewProblemIdSet.has(problem.id)) excludeProblems([problem]);
         else includeProblems([problem]);
     };
@@ -732,7 +686,7 @@ function AssignmentComposer({
             toast.error('문제집을 선택하세요.');
             return;
         }
-        if (previewProblemIds.length === 0) {
+        if (!wholeBook && selectedUnitIds.size === 0 && selectedTypeIds.size === 0) {
             toast.error('배정할 문제 범위를 선택하세요.');
             return;
         }
@@ -746,7 +700,8 @@ function AssignmentComposer({
             bookId,
             unitIds: !wholeBook ? [...selectedUnitIds] : [],
             problemTypeIds: !wholeBook ? [...selectedTypeIds] : [],
-            problemIds: !wholeBook ? previewProblemIds : [],
+            problemIds: [],
+            excludedProblemIds: [...excludedProblemIds],
             classIds: [...selectedClassIds],
             studentIds: [...selectedStudentIds],
             excludedStudentIds: [...excludedStudentIds],
@@ -767,7 +722,7 @@ function AssignmentComposer({
                         </div>
                     </FormSection>
 
-                    <FormSection title="문제 범위" description={`${previewProblemIds.length}문항이 배정됩니다.`}>
+                    <FormSection title="문제 범위" description="선택 범위는 서버에서 계산하며, 문항 목록은 50개씩 불러옵니다.">
                             {data.books.length === 0 ? (
                                 <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-sm text-muted-foreground">
                                     등록된 문제집이 아직 없습니다. 문제집을 먼저 등록한 뒤 과제를 배포하세요.
@@ -816,15 +771,15 @@ function AssignmentComposer({
                                             <div className="flex flex-wrap items-center justify-between gap-2">
                                                 <div>
                                                     <div className="text-sm font-semibold text-foreground">단원별 문제 선택</div>
-                                                    <div className="text-xs text-muted-foreground">단원을 펼친 뒤 페이지별 문제를 바로 선택합니다.</div>
+                                                     <div className="text-xs text-muted-foreground">단원 전체 범위를 선택한 뒤 펼친 목록에서 예외 문항을 제외합니다.</div>
                                                 </div>
-                                                <StatusBadge tone="primary" label={`${previewProblemIds.length}문항 선택`} />
+                                                <StatusBadge tone="primary" label={`${selectedUnitIds.size}개 단원 선택`} />
                                             </div>
                                             <div className="max-h-[38rem] space-y-2 overflow-auto rounded-lg border bg-card p-2">
                                                 {unitProblemRows.map((row) => {
                                                     const expanded = expandedUnitIds.has(row.unit.id);
-                                                    const selected = row.selectedCount > 0;
-                                                    const hasProblems = row.problems.length > 0;
+                                                    const selected = selectedUnitIds.has(row.unit.id);
+                                                    const hasProblems = !row.loaded || row.totalCount === null || row.totalCount > 0;
 
                                                     return (
                                                         <section key={row.unit.id} className="rounded-lg border border-border bg-background">
@@ -844,7 +799,7 @@ function AssignmentComposer({
                                                                     <Checkbox
                                                                         className="mt-1"
                                                                         checked={selected}
-                                                                        disabled={!hasProblems}
+                                                                        disabled={!hasProblems && row.loaded}
                                                                         onCheckedChange={() => toggleUnitSelection(row)}
                                                                     />
                                                                     <Button
@@ -855,7 +810,9 @@ function AssignmentComposer({
                                                                     >
                                                                         <span className="block truncate text-sm font-semibold text-foreground">{row.unit.name}</span>
                                                                         <span className="mt-0.5 block text-xs text-muted-foreground">
-                                                                            {row.selectedCount}/{row.problems.length}문항 선택
+                                                                            {row.loaded
+                                                                                ? `${row.selectedCount}/${row.totalCount ?? row.problems.length}문항 선택`
+                                                                                : '펼치면 문제를 불러옵니다'}
                                                                         </span>
                                                                     </Button>
                                                                 </div>
@@ -864,7 +821,7 @@ function AssignmentComposer({
                                                                         type="button"
                                                                         variant="outline"
                                                                         size="xs"
-                                                                        disabled={!hasProblems}
+                                                                        disabled={!hasProblems && row.loaded}
                                                                         onClick={() => selectUnitProblems(row.unit.id, row.problems, row.types)}
                                                                     >
                                                                         전체
@@ -882,18 +839,30 @@ function AssignmentComposer({
                                                                         type="button"
                                                                         variant="ghost"
                                                                         size="xs"
-                                                                        disabled={row.selectedCount === 0}
+                                                                        disabled={!selected}
                                                                         onClick={() => clearUnitProblems(row.unit.id, row.problems, row.types)}
                                                                     >
                                                                         해제
                                                                     </Button>
-                                                                    <StatusBadge tone={row.selectedCount > 0 ? 'primary' : 'neutral'} label={`${row.selectedCount}문항`} />
+                                                                    <StatusBadge
+                                                                        tone={selected ? 'primary' : 'neutral'}
+                                                                        label={selected ? '단원 선택' : `${row.problems.length}개 불러옴`}
+                                                                    />
                                                                 </div>
                                                             </div>
 
                                                             {expanded && (
                                                                 <div className="border-t border-border p-3">
-                                                                    {row.problems.length === 0 ? (
+                                                                    {row.loading && row.problems.length === 0 ? (
+                                                                        <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">문제 목록을 불러오는 중입니다.</p>
+                                                                    ) : row.error && row.problems.length === 0 ? (
+                                                                        <div className="flex items-center justify-between gap-2 rounded-md bg-destructive/10 p-3 text-xs text-destructive">
+                                                                            <span>{row.error}</span>
+                                                                            <Button type="button" variant="outline" size="xs" onClick={() => void loadUnitProblems(row.unit.id)}>
+                                                                                다시 시도
+                                                                            </Button>
+                                                                        </div>
+                                                                    ) : row.problems.length === 0 ? (
                                                                         <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">이 단원에 선택 가능한 문제가 없습니다.</p>
                                                                     ) : (
                                                                         <div className="space-y-3">
@@ -943,6 +912,19 @@ function AssignmentComposer({
                                                                                         </div>
                                                                                     );
                                                                                 })}
+                                                                                {row.hasMore && row.nextCursor && (
+                                                                                    <div className="flex justify-center pt-1">
+                                                                                        <Button
+                                                                                            type="button"
+                                                                                            variant="outline"
+                                                                                            size="sm"
+                                                                                            disabled={row.loading}
+                                                                                            onClick={() => void loadUnitProblems(row.unit.id, row.nextCursor)}
+                                                                                        >
+                                                                                            {row.loading ? '불러오는 중' : '문제 더 불러오기'}
+                                                                                        </Button>
+                                                                                    </div>
+                                                                                )}
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -1062,88 +1044,7 @@ function statusBadgeForRecipient(row: AssignmentRecipientProgress) {
     return <StatusBadge tone="neutral" label="미시작" />;
 }
 
-type StudentAssignmentProgressRow = {
-    id: string;
-    assignment: LearningAssignmentSummary;
-    recipient: AssignmentRecipientProgress;
-    completionRate: number;
-};
 
-function recipientCompletionRate(row: AssignmentRecipientProgress): number {
-    if (row.requiredProblemCount > 0) {
-        return Math.min(100, Math.round((row.attemptedProblemCount / row.requiredProblemCount) * 100));
-    }
-    if (row.status === 'completed') return 100;
-    if (row.status === 'in_progress') return 50;
-    return 0;
-}
-
-function studentAssignmentRows(assignments: LearningAssignmentSummary[]): StudentAssignmentProgressRow[] {
-    return assignments
-        .filter((assignment) => dueStatus(assignment) !== 'recalled')
-        .flatMap((assignment) => (assignment.studentProgress || []).map((recipient) => ({
-            id: `${assignment.id}-${recipient.studentId}`,
-            assignment,
-            recipient,
-            completionRate: recipientCompletionRate(recipient),
-        })))
-        .sort((a, b) => (
-            (a.recipient.className || '').localeCompare(b.recipient.className || '', 'ko')
-            || a.recipient.studentName.localeCompare(b.recipient.studentName, 'ko')
-            || a.assignment.title.localeCompare(b.assignment.title, 'ko')
-        ));
-}
-
-function StudentAssignmentProgressTable({ rows }: { rows: StudentAssignmentProgressRow[] }) {
-    if (rows.length === 0) {
-        return <EmptyState title="표시할 과제 진행 내역이 없습니다." description="조건을 바꾸거나 새 과제를 배포하세요." />;
-    }
-
-    return (
-        <DataTable>
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>학생</TableHead>
-                        <TableHead>과제</TableHead>
-                        <TableHead>진행</TableHead>
-                        <TableHead>상태</TableHead>
-                        <TableHead>정답률</TableHead>
-                        <TableHead>최근</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {rows.map((row) => (
-                        <TableRow key={row.id}>
-                            <TableCell className="min-w-[150px]">
-                                <p className="font-medium text-foreground">{row.recipient.studentName}</p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">{row.recipient.className || '반 없음'}</p>
-                            </TableCell>
-                            <TableCell className="min-w-[220px]">
-                                <p className="font-medium text-foreground">{row.assignment.title}</p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">
-                                    {row.assignment.bookTitle || '외부 학습지'} · {formatDate(row.assignment.dueAt)}
-                                </p>
-                            </TableCell>
-                            <TableCell className="min-w-[180px]">
-                                <div className="space-y-1.5">
-                                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                                        <span>{row.recipient.attemptedProblemCount}/{row.recipient.requiredProblemCount}문항</span>
-                                        <span>{row.completionRate}%</span>
-                                    </div>
-                                    <ProgressLine value={row.completionRate} />
-                                </div>
-                            </TableCell>
-                            <TableCell>{statusBadgeForRecipient(row.recipient)}</TableCell>
-                            <TableCell>{metricText(row.recipient.correctRate)}</TableCell>
-                            <TableCell>{shortDate(row.recipient.lastActivityAt)}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        </DataTable>
-    );
-}
 
 function AssignmentManagementList({
     assignments,
@@ -1437,7 +1338,7 @@ function AssignmentDetailPanel({
                                                 <TableCell>{shortDate(row.lastActivityAt)}</TableCell>
                                                 <TableCell>
                                                     <Button asChild variant="ghost" size="sm">
-                                                        <Link href={`/students?studentId=${encodeURIComponent(row.studentId)}`}>
+                                                        <Link href={`/students/${encodeURIComponent(row.studentId)}`}>
                                                             학생 상세
                                                         </Link>
                                                     </Button>
@@ -1738,13 +1639,15 @@ function ClassAssignmentList({
     );
 }
 
-export function AssignmentsStatusPage() {
+export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAssignmentId?: string }) {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
     const [data, setData] = useState<AssignmentManagementData | null>(null);
     const [detail, setDetail] = useState<LearningAssignmentDetail | null>(null);
     const [selectedClassKey, setSelectedClassKey] = useState('');
-    const [selectedAssignmentId, setSelectedAssignmentId] = useState('');
+    const [selectedAssignmentId, setSelectedAssignmentId] = useState(initialAssignmentId);
+    const initialSelectionApplied = useRef(false);
+    const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [loading, setLoading] = useState(true);
     const [detailLoading, setDetailLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -1795,6 +1698,43 @@ export function AssignmentsStatusPage() {
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (!initialAssignmentId) setSelectedAssignmentId(params.get('assignmentId') || '');
+        setSearchQuery(params.get('q') || '');
+        setStatusFilter((params.get('status') as AssignmentStatusFilter | null) || 'all');
+        setIncludeCompleted(params.get('completed') === '1');
+        setFiltersHydrated(true);
+    }, [initialAssignmentId]);
+
+    useEffect(() => {
+        if (!data || !initialAssignmentId || initialSelectionApplied.current) return;
+        const assignment = data.assignments.find((row) => row.id === initialAssignmentId);
+        if (!assignment) return;
+        initialSelectionApplied.current = true;
+        setSearchQuery('');
+        setStatusFilter('all');
+        setIncludeCompleted(true);
+        setSelectedAssignmentId(initialAssignmentId);
+        const classId = assignment.classProgress[0]?.classId ?? null;
+        setSelectedClassKey(assignmentClassKey(classId));
+    }, [data, initialAssignmentId]);
+
+    useEffect(() => {
+        if (!filtersHydrated) return;
+        const params = new URLSearchParams(window.location.search);
+        if (selectedAssignmentId) params.set('assignmentId', selectedAssignmentId);
+        else params.delete('assignmentId');
+        if (searchQuery.trim()) params.set('q', searchQuery.trim());
+        else params.delete('q');
+        if (statusFilter !== 'all') params.set('status', statusFilter);
+        else params.delete('status');
+        if (includeCompleted) params.set('completed', '1');
+        else params.delete('completed');
+        const search = params.toString();
+        window.history.replaceState(null, '', search ? `${window.location.pathname}?${search}` : window.location.pathname);
+    }, [filtersHydrated, includeCompleted, searchQuery, selectedAssignmentId, statusFilter]);
 
     const classOptions = useMemo(() => (
         data ? buildAssignmentClassOptions(data, searchQuery, statusFilter, includeCompleted) : []
@@ -2102,308 +2042,6 @@ export function AssignmentsStatusPage() {
     );
 }
 
-function AssignmentsStatusLegacyPage() {
-    const { profile } = useAuth();
-    const academyId = academyIdOf(profile?.current_academy_id);
-    const [data, setData] = useState<AssignmentManagementData | null>(null);
-    const [detail, setDetail] = useState<LearningAssignmentDetail | null>(null);
-    const [selectedAssignmentId, setSelectedAssignmentId] = useState('');
-    const [loading, setLoading] = useState(true);
-    const [detailLoading, setDetailLoading] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [detailError, setDetailError] = useState<string | null>(null);
-    const [addingRecipients, setAddingRecipients] = useState(false);
-    const [removingStudentId, setRemovingStudentId] = useState('');
-    const [recallOpen, setRecallOpen] = useState(false);
-    const [recalling, setRecalling] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [classFilter, setClassFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState<AssignmentStatusFilter>('all');
-    const [viewMode, setViewMode] = useState<AssignmentViewMode>('by_class');
-
-    const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
-        if (!academyId) return;
-        if (options.background) setRefreshing(true);
-        else setLoading(true);
-        try {
-            const next = await loadAssignmentManagementData(academyId, { force: options.force });
-            setData(next);
-            setSelectedAssignmentId((current) => (
-                current && next.assignments.some((assignment) => assignment.id === current)
-                    ? current
-                    : next.assignments[0]?.id || ''
-            ));
-            setError(null);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : '과제 데이터를 불러오지 못했습니다.');
-        } finally {
-            if (options.background) setRefreshing(false);
-            else setLoading(false);
-        }
-    }, [academyId]);
-
-    const loadDetail = useCallback(async (assignmentId: string, options: AssignmentPageLoadOptions = {}) => {
-        if (!academyId || !assignmentId) {
-            setDetail(null);
-            return;
-        }
-        if (!options.background) setDetailLoading(true);
-        try {
-            const next = await loadAssignmentDetail(academyId, assignmentId, { force: options.force });
-            setDetail(next);
-            setDetailError(null);
-        } catch (err) {
-            setDetailError(err instanceof Error ? err.message : '과제 상세를 불러오지 못했습니다.');
-        } finally {
-            if (!options.background) setDetailLoading(false);
-        }
-    }, [academyId]);
-
-    useEffect(() => {
-        void load();
-    }, [load]);
-
-    useEffect(() => {
-        void loadDetail(selectedAssignmentId);
-    }, [loadDetail, selectedAssignmentId]);
-
-    useEffect(() => {
-        if (!academyId) return undefined;
-        return addLmsInvalidationListener((payload) => {
-            if (payload.academyId && payload.academyId !== academyId) return;
-            const domain = payload.domain || 'lms';
-            if (!['assignments', 'students', 'classes', 'learning', 'lms', 'admin'].includes(domain)) return;
-            void load({ force: true, background: true });
-            if (selectedAssignmentId) void loadDetail(selectedAssignmentId, { force: true, background: true });
-        });
-    }, [academyId, load, loadDetail, selectedAssignmentId]);
-
-    const filteredAssignments = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
-        return (data?.assignments || []).filter((assignment) => {
-            if (query && !`${assignment.title} ${assignment.bookTitle || ''} ${assignment.targetLabels.join(' ')}`.toLowerCase().includes(query)) {
-                return false;
-            }
-            if (classFilter !== 'all' && !assignment.classIds.includes(classFilter)) return false;
-            if (statusFilter !== 'all' && dueStatus(assignment) !== statusFilter) return false;
-            return true;
-        });
-    }, [classFilter, data?.assignments, searchQuery, statusFilter]);
-
-    const selectedAssignment = data?.assignments.find((assignment) => assignment.id === selectedAssignmentId) || null;
-
-    const addRecipients = async (studentIds: string[]) => {
-        if (!academyId || !selectedAssignmentId || studentIds.length === 0) return;
-        setAddingRecipients(true);
-        try {
-            await addAssignmentRecipients(academyId, selectedAssignmentId, studentIds);
-            toast.success('대상 학생을 추가했습니다.');
-            await Promise.all([
-                load({ force: true, background: true }),
-                loadDetail(selectedAssignmentId, { force: true }),
-            ]);
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : '대상 학생 추가에 실패했습니다.');
-        } finally {
-            setAddingRecipients(false);
-        }
-    };
-
-    const removeRecipient = async (studentId: string) => {
-        if (!academyId || !selectedAssignmentId) return;
-        setRemovingStudentId(studentId);
-        try {
-            await removeAssignmentRecipient(academyId, selectedAssignmentId, studentId);
-            toast.success('대상 학생을 제외했습니다.');
-            await Promise.all([
-                load({ force: true, background: true }),
-                loadDetail(selectedAssignmentId, { force: true }),
-            ]);
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : '대상 학생 제외에 실패했습니다.');
-        } finally {
-            setRemovingStudentId('');
-        }
-    };
-
-    const recallSelectedAssignment = async () => {
-        if (!academyId || !selectedAssignmentId) return;
-        setRecalling(true);
-        try {
-            await recallAssignment(academyId, selectedAssignmentId);
-            toast.success('과제를 회수했습니다.');
-            setRecallOpen(false);
-            await Promise.all([
-                load({ force: true, background: true }),
-                loadDetail(selectedAssignmentId, { force: true }),
-            ]);
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : '과제 회수에 실패했습니다.');
-        } finally {
-            setRecalling(false);
-        }
-    };
-
-    if (!academyId) {
-        return (
-            <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
-                <Card>
-                    <CardHeader><CardTitle>학원 연결이 필요합니다.</CardTitle></CardHeader>
-                    <CardContent className="text-sm text-muted-foreground">현재 계정에 연결된 academy가 없습니다.</CardContent>
-                </Card>
-            </div>
-        );
-    }
-
-    return (
-        <PageShell
-            title="과제 현황"
-            description="배포된 과제의 대상, 진행률, 정답률을 확인합니다."
-            icon={ClipboardList}
-            actions={data?.permissions.canCreate ? (
-                <Button asChild>
-                    <Link href="/assignments/new">
-                        <Plus className="mr-2 h-4 w-4" />
-                        과제 등록
-                    </Link>
-                </Button>
-            ) : undefined}
-        >
-            {!loading && refreshing && (
-                <PageStatusBar tone="neutral" className="text-xs">
-                    <span className="flex items-center gap-2">
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        최신 과제 데이터를 동기화하는 중
-                    </span>
-                </PageStatusBar>
-            )}
-
-            {loading && <SkeletonPanel className="min-h-[520px]" rows={8} />}
-            {!loading && error && (
-                <ErrorState title={error} retryLabel="다시 시도" onRetry={() => void load({ force: true })} />
-            )}
-
-            {!loading && !error && data && (
-                <>
-                    <AssignmentSummaryStrip assignments={data.assignments} />
-                    <div className="grid min-h-[620px] gap-5 xl:grid-cols-[minmax(340px,0.88fr)_minmax(560px,1.42fr)]">
-                        <section className="overflow-hidden rounded-xl border border-border bg-card">
-                            <div className="sticky top-0 z-10 border-b border-border bg-card/95 p-4 backdrop-blur">
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <h2 className="truncate text-base font-semibold text-foreground">과제 목록</h2>
-                                        <p className="mt-0.5 text-xs text-muted-foreground">
-                                            {filteredAssignments.length}/{data.assignments.length}개 표시
-                                        </p>
-                                    </div>
-                                    {data.permissions.scopedToAssignedClasses && (
-                                        <StatusBadge tone="neutral" label="내 반만" />
-                                    )}
-                                </div>
-                                <div className="space-y-3">
-                                    <div className="relative">
-                                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                        <Input className="pl-9" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="과제명, 교재, 대상 검색" />
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <SegmentedControl value={viewMode} options={viewModeOptions} onChange={setViewMode} />
-                                        <Select value={classFilter} onValueChange={setClassFilter}>
-                                            <SelectTrigger className="h-10 min-w-[150px] flex-1 sm:flex-none">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="all">전체 반</SelectItem>
-                                                {data.classes.map((row) => <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                                        <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
-                                            <SlidersHorizontal className="h-3.5 w-3.5" />
-                                            상태
-                                        </span>
-                                        <SegmentedControl
-                                            value={statusFilter}
-                                            options={statusFilterOptions}
-                                            onChange={setStatusFilter}
-                                            className="shrink-0"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="max-h-[calc(100vh-21rem)] overflow-auto p-4">
-                                <AssignmentList
-                                    assignments={filteredAssignments}
-                                    classes={data.classes}
-                                    selectedAssignmentId={selectedAssignmentId}
-                                    viewMode={viewMode}
-                                    onSelect={setSelectedAssignmentId}
-                                />
-                            </div>
-                        </section>
-
-                        {selectedAssignment ? (
-                            <AssignmentDetailPanel
-                                detail={detail}
-                                loading={detailLoading}
-                                error={detailError}
-                                canManageRecipients={data.permissions.canManageRecipients}
-                                canRecall={data.permissions.canRecall}
-                                recalling={recalling}
-                                addingRecipients={addingRecipients}
-                                removingStudentId={removingStudentId}
-                                onRetry={() => void loadDetail(selectedAssignment.id, { force: true })}
-                                onAddRecipients={addRecipients}
-                                onRemoveRecipient={removeRecipient}
-                                onRecall={() => setRecallOpen(true)}
-                            />
-                        ) : (
-                            <Card>
-                                <CardContent className="flex min-h-[520px] flex-col items-center justify-center gap-3 text-center">
-                                    <CheckCircle2 className="h-9 w-9 text-muted-foreground" />
-                                    <div>
-                                        <p className="text-sm font-medium text-foreground">과제가 없습니다.</p>
-                                        <p className="mt-1 text-xs text-muted-foreground">새 과제를 만들면 반별 현황이 이곳에 표시됩니다.</p>
-                                    </div>
-                                    {data.permissions.canCreate && (
-                                        <Button asChild variant="outline" size="sm">
-                                            <Link href="/assignments/new">
-                                                <Plus className="mr-2 h-4 w-4" />
-                                                과제 등록
-                                            </Link>
-                                        </Button>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        )}
-                    </div>
-                </>
-            )}
-            <Dialog open={recallOpen} onOpenChange={setRecallOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>과제 회수</DialogTitle>
-                        <DialogDescription>
-                            {selectedAssignment?.title || '선택한 과제'}를 학생 과제함에서 숨깁니다. 풀이 기록과 통계는 LMS에 남습니다.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="rounded-lg border border-warning/30 bg-warning-soft p-3 text-sm text-warning-foreground">
-                        회수 후 학생은 이 과제를 새로 열거나 제출할 수 없습니다. 필요한 경우 새 과제로 다시 배포하세요.
-                    </div>
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setRecallOpen(false)} disabled={recalling}>
-                            취소
-                        </Button>
-                        <Button type="button" variant="destructive" onClick={() => void recallSelectedAssignment()} disabled={recalling}>
-                            {recalling ? '회수 중' : '과제 회수'}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </PageShell>
-    );
-}
 
 export function AssignmentCreatePage() {
     const { profile } = useAuth();
@@ -2626,117 +2264,6 @@ export function AssignmentCreatePage() {
     );
 }
 
-function AssignmentCreateLegacyPage() {
-    const router = useRouter();
-    const { profile } = useAuth();
-    const academyId = academyIdOf(profile?.current_academy_id);
-    const [data, setData] = useState<AssignmentManagementData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [submitting, setSubmitting] = useState(false);
-
-    const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
-        if (!academyId) return;
-        if (options.background) setRefreshing(true);
-        else setLoading(true);
-        try {
-            const next = await loadAssignmentManagementData(academyId, { force: options.force });
-            setData(next);
-            setError(null);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : '과제 등록 데이터를 불러오지 못했습니다.');
-        } finally {
-            if (options.background) setRefreshing(false);
-            else setLoading(false);
-        }
-    }, [academyId]);
-
-    useEffect(() => {
-        void load();
-    }, [load]);
-
-    useEffect(() => {
-        if (!academyId) return undefined;
-        return addLmsInvalidationListener((payload) => {
-            if (payload.academyId && payload.academyId !== academyId) return;
-            const domain = payload.domain || 'lms';
-            if (!['assignments', 'students', 'classes', 'learning', 'lms', 'admin'].includes(domain)) return;
-            void load({ force: true, background: true });
-        });
-    }, [academyId, load]);
-
-    const submitAssignment = async (input: CreateLearningAssignmentInput, file: File | null) => {
-        if (!academyId) return;
-        setSubmitting(true);
-        try {
-            if (input.sourceType === 'worksheet') {
-                if (!file) throw new Error('학습지 export 파일을 선택하세요.');
-                await importWorksheetAssignment(academyId, input, file);
-            } else {
-                await createLearningAssignment(academyId, input);
-            }
-            toast.success('과제를 생성했습니다.');
-            router.push('/assignments');
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : '과제 생성에 실패했습니다.');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    if (!academyId) {
-        return (
-            <div className="mx-auto flex h-full max-w-xl items-center justify-center p-8">
-                <Card>
-                    <CardHeader><CardTitle>학원 연결이 필요합니다.</CardTitle></CardHeader>
-                    <CardContent className="text-sm text-muted-foreground">현재 계정에 연결된 academy가 없습니다.</CardContent>
-                </Card>
-            </div>
-        );
-    }
-
-    return (
-        <PageShell
-            title="과제 등록"
-            description="등록된 문제집에서 범위를 선택해 학생에게 배포합니다."
-            icon={Plus}
-            actions={(
-                <Button asChild variant="outline">
-                    <Link href="/assignments">
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        현황으로
-                    </Link>
-                </Button>
-            )}
-        >
-            {!loading && refreshing && (
-                <PageStatusBar tone="neutral" className="text-xs">
-                    <span className="flex items-center gap-2">
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        등록 기준 데이터를 동기화하는 중
-                    </span>
-                </PageStatusBar>
-            )}
-
-            {loading && <SkeletonPanel className="min-h-[560px]" rows={9} />}
-            {!loading && error && (
-                <ErrorState title={error} retryLabel="다시 시도" onRetry={() => void load({ force: true })} />
-            )}
-            {!loading && !error && data && !data.permissions.canCreate && (
-                <EmptyState title="과제 생성 권한이 없습니다." description="관리자에게 권한을 요청하세요." />
-            )}
-            {!loading && !error && data?.permissions.canCreate && (
-                <AssignmentComposer
-                    data={data}
-                    submitting={submitting}
-                    onCancel={() => router.push('/assignments')}
-                    onSubmit={submitAssignment}
-                />
-            )}
-        </PageShell>
-    );
-}
 
 export function AssignmentsOperationsPage() {
     return <AssignmentsStatusPage />;

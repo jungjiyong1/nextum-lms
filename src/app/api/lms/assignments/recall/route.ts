@@ -1,5 +1,6 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { recallLearningAssignmentForAcademy } from '@/lib/lms/mutations';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
@@ -9,21 +10,18 @@ export async function POST(request: Request) {
             assignmentId?: string;
         };
         if (!body.academyId || !body.assignmentId) {
-            return Response.json({ success: false, error: 'Invalid assignment recall request.' }, { status: 400 });
+            return mutationError('INVALID_ASSIGNMENT_RECALL_REQUEST', 'Invalid assignment recall request.', { request });
         }
 
         const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
         await recallLearningAssignmentForAcademy(actor, body.assignmentId);
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Assignment Recall] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Assignment recall failed.',
-        }, { status: 500 });
+        return mutationException(error, 'ASSIGNMENT_RECALL_FAILED', 'Assignment recall failed.', { request });
     }
 }

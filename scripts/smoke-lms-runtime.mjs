@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { mkdir } from 'node:fs/promises';
-import { chromium } from 'playwright';
+import { chromium } from '@playwright/test';
 
 const baseUrl = normalizeBaseUrl(process.env.LMS_SMOKE_BASE_URL || 'http://localhost:3102');
 const loginId = process.env.LMS_SMOKE_LOGIN_ID || 'admin';

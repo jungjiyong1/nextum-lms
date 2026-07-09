@@ -1,7 +1,9 @@
 import 'server-only';
 
+import { randomUUID } from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { isValidCsrfPair, LMS_CSRF_HEADER } from './csrf';
 
 export class LmsAuthError extends Error {
     constructor(
@@ -177,18 +179,23 @@ export async function assertLmsRoleForAcademy(
 
 export function assertSameOrigin(request: Request) {
     const origin = request.headers.get('origin');
-    if (!origin) return;
+    if (origin) {
+        try {
+            const requestOrigin = new URL(request.url).origin;
+            const suppliedOrigin = new URL(origin).origin;
 
-    try {
-        const requestOrigin = new URL(request.url).origin;
-        const suppliedOrigin = new URL(origin).origin;
-
-        if (requestOrigin !== suppliedOrigin) {
-            throw new LmsAuthError('Cross-origin admin requests are not allowed.', 403);
+            if (requestOrigin !== suppliedOrigin) {
+                throw new LmsAuthError('Cross-origin admin requests are not allowed.', 403);
+            }
+        } catch (error) {
+            if (error instanceof LmsAuthError) throw error;
+            throw new LmsAuthError('Invalid admin request origin.', 403);
         }
-    } catch (error) {
-        if (error instanceof LmsAuthError) throw error;
-        throw new LmsAuthError('Invalid admin request origin.', 403);
+    }
+
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase())
+        && !isValidCsrfPair(request.headers.get(LMS_CSRF_HEADER), request.headers.get('cookie'))) {
+        throw new LmsAuthError('Invalid admin request token.', 403);
     }
 }
 
@@ -220,8 +227,22 @@ export async function assertLmsAdminRequest(
 export function authErrorResponse(error: unknown): Response | null {
     if (!(error instanceof LmsAuthError)) return null;
 
+    const requestId = randomUUID();
     return Response.json(
-        { success: false, error: error.message },
-        { status: error.status },
+        {
+            success: false,
+            error: {
+                code: error.status === 401 ? 'AUTHENTICATION_REQUIRED' : 'FORBIDDEN',
+                message: error.message,
+                requestId,
+            },
+        },
+        {
+            status: error.status,
+            headers: {
+                'Cache-Control': 'no-store',
+                'X-Request-Id': requestId,
+            },
+        },
     );
 }

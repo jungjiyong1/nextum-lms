@@ -1,5 +1,6 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { issueStudentInvitationForAcademy } from '@/lib/lms/mutations';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
             loginHint?: string | null;
         };
         if (!body.academyId || !body.studentId) {
-            return Response.json({ success: false, error: 'Invalid invitation request.' }, { status: 400 });
+            return mutationError('INVALID_INVITATION_REQUEST', 'Invalid invitation request.', { request });
         }
 
         await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
@@ -20,15 +21,12 @@ export async function POST(request: Request) {
             body.loginHint,
         );
 
-        return Response.json({ success: true, invitation });
+        return mutationSuccess(invitation, { request, aliases: { invitation } });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Student Invitations] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Student invitation failed.',
-        }, { status: 500 });
+        return mutationException(error, 'STUDENT_INVITATION_FAILED', 'Student invitation failed.', { request });
     }
 }

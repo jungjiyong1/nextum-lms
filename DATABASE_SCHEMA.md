@@ -1,152 +1,194 @@
-﻿# DB 구조 요약 (비개발자용)
+# NEXTUM 공유 데이터베이스 구조
 
-레거시를 제외하고, 현재 실제로 사용되는 테이블만 한 눈에 보이도록 정리했습니다.
+이 문서는 현재 NEXTUM LMS가 사용하는 Supabase PostgreSQL 구조를 요약한다.
+Electron/SQLite 파일은 현재 런타임이나 데이터 원본이 아니다. 실제 스키마의
+단일 원본은 이 저장소의 `supabase/migrations/`이며, 적용 순서는 파일명의
+타임스탬프 순서다.
 
-## 1) 데이터베이스 파일 위치
-- 앱 실행 시 `app.getPath('userData')` 아래에 `lms2.sqlite` 파일이 생성됩니다.
-- 운영체제에 따라 실제 폴더 위치는 달라집니다.
+## 소유권과 원칙
 
-## 2) 테이블 한눈에 (현재 사용 구조)
-| 구분 | 테이블 | 한 줄 설명 |
+- NEXTUM LMS 저장소가 공유 DB의 DDL, migration, RLS, Data API 노출 설정을
+  단독으로 소유한다.
+- Grade App은 승인된 `core`, `content`, `learning`, `ai`,
+  `reporting` 계약을 소비하며 별도 DDL을 적용하지 않는다.
+- 사람/계정과 학생 업무 ID는 분리한다. `auth.users.id`는 인증 ID이고,
+  학습·수업·과제의 기준 학생 ID는 `core.students.id`다.
+- 모든 학원 운영 데이터는 `academy_id`로 tenant 범위를 가진다.
+- 브라우저는 publishable key만 사용한다. secret/service-role key는
+  Route Handler와 서버 전용 모듈에서만 사용한다.
+
+## 스키마 지도
+
+| 스키마 | 역할 | 대표 객체 |
 | --- | --- | --- |
-| 기본 | classrooms | 교실 배치(위치/크기/색/이름) |
-| 기본 | lessons | 수업 기본 정보(요일/시간/교실/강사/과정 등) |
-| 기본 | meta | 내부 설정값 저장 |
-| 인원 | instructors | 강사 정보 |
-| 인원 | students | 학생 정보 + 보호자/결제 관련 |
-| 과정 | courses | 과목/과정 정보 |
-| 과정 | enrollments | 학생-수업 연결(수강 등록) |
-| 일정 | lesson_rules | 정규 수업 반복 규칙(요일/시간/기간) |
-| 일정 | lesson_schedules | 날짜별 실제 수업 일정(정규/비정규 모두) |
-| 설정 | settings | 앱 설정값 |
-| 회계 | account_types | 계정 과목(회계 분류) |
-| 회계 | transactions | 거래(1건) |
-| 회계 | transaction_lines | 거래 상세(차변/대변) |
-| 회계 | student_payments | 학생 수납 |
-| 회계 | instructor_payments | 강사 급여 |
-| 회계 | expenses | 기타 지출 |
-| 회계 | other_income | 기타 수입 |
+| `core` | 학원, 사람, 계정 연결, 학생/직원, 멤버십, 반/명단 | `academies`, `people`, `user_accounts`, `students`, `staff_members`, `academy_members`, `classes`, `class_students` |
+| `content` | 교재·단원·개념·유형·문제의 단일 원본 | `books`, `units`, `concepts`, `problem_types`, `problems`, `assets`, `student_problems` |
+| `learning` | 과제, 풀이 세션, 채점 시도, 오답, 리포트 | `assignments`, `assignment_recipients`, `sessions`, `attempts`, `wrong_notes`, `reports` |
+| `lms` | 학원 운영 전용 데이터 | `classrooms`, `class_profiles`, `class_schedule_rules`, `lesson_occurrences`, `attendance_records`, 청구·수납·비용·급여 |
+| `reporting` | RLS를 따르는 읽기 전용 집계 | `v_student_type_weakness`, `v_class_learning_summary` |
+| `audit` | 중요 관리자 조작 기록 | `admin_actions` |
+| `ai` | Grade App AI 튜터 대화 | `conversations`, `messages` |
+| `data` | 앱 간 append-only 이벤트 | `events` |
+| `private` | RLS/조회 최적화용 내부 함수 | 접근 가능한 학생·반·과제 ID helper, Realtime v2 emitter |
 
-## 3) 테이블 상세 (필요한 정보만 요약)
-### classrooms
-- **무엇**: 교실(강의실) 배치 정보
-- **주요 항목**: 위치(x, y), 크기(width, height), 색상(color), 이름(name)
+`private`는 Data API에 노출하지 않는다. `public`, `graphql_public`,
+`auth` 등은 Supabase 플랫폼 영역이며 애플리케이션 원본 테이블을 두는
+장소가 아니다.
 
-### lessons
-- **무엇**: 수업/강의 기본 정보
-- **주요 항목**:
-  - 교실(classroom_id)
-  - 수업명(title), 담당강사 텍스트(instructor)
-  - 담당강사 연결(instructor_id), 과정 연결(course_id)
-  - 상태(status)
-  - 비고(note), 생성/수정 시간(created_at, updated_at)
-- **관계**: `classroom_id`는 classrooms.id와 연결
+## Canonical 도메인
 
-### lesson_rules (정규 수업 규칙)
-- **무엇**: 매주 반복되는 정규 수업 규칙
-- **주요 항목**:
-  - 수업(lesson_id), 요일(day), 시작/끝 슬롯(start_slot, end_slot)
-  - 시작/종료 날짜(start_date, end_date), 반복 주기(interval_weeks)
-  - 활성(active), 생성/수정 시간(created_at, updated_at)
-- **관계**: lessons.id와 연결
+### 1. `core`: 신원, 권한, 반 명단
 
-### meta
-- **무엇**: 내부 설정값 저장
-- **주요 항목**: key, value
-- **예시 키**: `auto_migrate`, `schema_version`
+| 테이블 | 설명 |
+| --- | --- |
+| `core.academies` | 학원/조직 tenant |
+| `core.people` | 이름과 연락처 등 사람 공통 정보 |
+| `core.user_accounts` | `auth.users.id`와 `core.people.id` 연결 |
+| `core.students` | 학원별 학생 업무 원본 |
+| `core.staff_members` | 학원별 직원/강사 업무 원본 |
+| `core.academy_members` | 계정의 학원 역할과 활성 상태 |
+| `core.classes` | LMS와 Grade App이 공유하는 반 |
+| `core.class_students` | 반-학생 명단 및 재원 상태 |
+| `core.class_books` | 이전 Grade App 교재 접근 호환 데이터 |
+| `core.account_invitations` | 학생/직원 계정 연결용 초대 코드 계약 |
+| `core.user_security_settings` | 과거 PIN/idle 설정 호환 테이블 |
 
-### instructors (강사)
-- **무엇**: 강사 정보
-- **주요 항목**: 이름(first_name/last_name), 이메일, 전화번호, 시급, 자격, 입사일, 상태, 메모
-- **상태 값**: active, inactive, on_leave
-- **비고**: 이름 병합 마이그레이션으로 실제로는 `first_name`에 전체 이름이 들어가고 `last_name`은 비어있는 경우가 많습니다.
+권한은 `core.current_account_id()`, `core.current_person_id()`,
+`core.has_academy_role(...)` 같은 helper와 RLS 정책으로 계산한다. 새 기능이
+`auth.uid() = core.students.id`라고 가정해서는 안 된다.
 
-### students (학생)
-- **무엇**: 학생 정보
-- **주요 항목**: 이름, 연락처, 생년월일, 등록일, 상태, 보호자 정보, 결제 정보, 주소/메모
-- **상태 값**: active, inactive, graduated, dropped
-- **추가 정보**: 학교급(school_type), 학년(grade)
+### 2. `content`: 채점 가능한 콘텐츠
 
-### courses (과정)
-- **무엇**: 과목/과정 정보
-- **주요 항목**: 코드(code), 이름(title), 설명, 학점/정원/수강료, 상태
-- **상태 값**: active, inactive, archived
+| 테이블/뷰 | 설명 |
+| --- | --- |
+| `content.books` | 공용 또는 학원 전용 교재 |
+| `content.units` | 교재 단원 |
+| `content.concepts` | 개념 분류 |
+| `content.problem_types` | 문제 유형 |
+| `content.problems` | 문제 본문, 정답, 해설, 메타데이터 |
+| `content.assets` | 이미지/PDF 등 Storage 자산 메타데이터 |
+| `content.problem_reports` | 문제 오류 신고 |
+| `content.student_problems` | 정답 필드를 제외한 학생용 `security_invoker` 뷰 |
 
-### settings (설정)
-- **무엇**: 앱 설정값
-- **대표 키**:
-  - `use_course_system`: 과정 시스템 사용 여부
-  - `school_name`: 학원 이름
+브라우저의 학생 화면은 `content.problems.answer`를 직접 읽지 않는다.
+학생 DTO는 `content.student_problems` 또는 정답을 제거한 서버 API를
+사용하고, 채점은 권한이 있는 서버/RPC 경계에서 수행한다.
 
-### enrollments (수강 등록)
-- **무엇**: 학생이 어떤 수업을 수강하는지
-- **주요 항목**: student_id, lesson_id, 등록일, 상태, 성적
-- **상태 값**: enrolled, completed, dropped, pending
-- **관계**: students.id, lessons.id와 연결
+### 3. `learning`: 과제와 학습 기록
 
-### lesson_schedules (수업 일정)
-- **무엇**: 날짜별 실제 수업 일정 (정규/비정규 모두의 원본 데이터)
-- **주요 항목**: lesson_id, 날짜, 시작/종료 시간, 진행 상태
-- **상태 값**: scheduled, completed, cancelled, makeup
-- **관계**: lessons.id와 연결, rule_id는 정규 수업 규칙과 연결(정규 수업인 경우)
+| 테이블 | 설명 |
+| --- | --- |
+| `learning.book_assignments` | 반/학생 단위 교재 접근의 새 canonical 기록 |
+| `learning.assignments` | LMS가 발행한 과제 |
+| `learning.assignment_targets` | 반/학생 대상 선택 |
+| `learning.assignment_recipients` | 발행 시점 학생 대상 스냅샷과 진행 상태 |
+| `learning.assignment_items` | 과제 문제 목록과 정렬 |
+| `learning.assignment_files` | 배포 학습지 파일 메타데이터 |
+| `learning.sessions` | 학생 풀이 세션 |
+| `learning.attempts` | 문제별 채점 시도; 이력 중심으로 누적 |
+| `learning.wrong_notes` | 학생별 오답 상태 |
+| `learning.reports` | 내부 분석/학부모/진도 리포트 산출물 |
 
-### 회계(수입/지출) 관련
-#### account_types (계정 과목)
-- **무엇**: 회계 분류(예: 수강료, 급여 등)
-- **주요 항목**: 코드, 이름, 카테고리(revenue/expense/asset/liability/equity)
+`assignment_targets`는 강사가 지정한 대상이고,
+`assignment_recipients`는 실제 학생별 진행 추적 스냅샷이다.
+`sessions.core_student_id`와 `attempts.core_student_id`가 canonical
+학생 FK다.
 
-#### transactions (거래)
-- **무엇**: 하나의 거래 기록(예: 수강료 입금 1건)
-- **주요 항목**: 거래일, 설명, 참조 타입/ID, 총액, 상태
-- **상태 값**: pending, completed, cancelled
+### 4. `lms`: 학원 운영
 
-#### transaction_lines (거래 상세)
-- **무엇**: 거래의 차변/대변 분해 내역
-- **주요 항목**: transaction_id, account_type_id, entry_type, 금액
-- **entry_type 값**: debit, credit
+| 영역 | 테이블 |
+| --- | --- |
+| 과정/공간 | `courses`, `classrooms`, `class_profiles` |
+| 일정 | `class_schedule_rules`, `lesson_occurrences` |
+| 출결 | `attendance_records` |
+| 학생 청구 계약 | `student_billing_contracts`, `billing_class_rules` |
+| 청구/수납 | `invoices`, `invoice_lines`, `payments` |
+| 지출/급여 | `expenses`, `instructor_payments` |
+| 설정 | `settings` — `(academy_id, key)` 단위 |
 
-#### student_payments (학생 결제)
-- **무엇**: 학생별 수납 기록
-- **주요 항목**: student_id, 결제일, 금액, 결제수단, 예상일, 상태
-- **결제수단 값**: cash, card, bank_transfer, check, zeropay, other
-- **상태 값**: completed, pending, overdue, failed, cancelled
+`lms`는 학생이나 직원의 신원 원본을 중복 보관하지 않는다. 학생·직원·반
+FK는 각각 `core.students`, `core.staff_members`, `core.classes`를
+참조한다.
 
-#### instructor_payments (강사 급여)
-- **무엇**: 강사 급여 지급 기록
-- **주요 항목**: instructor_id, 지급일, 금액, 근무시간, 급여기간, 상태
-- **상태 값**: pending, completed, cancelled
+### 5. `reporting`과 `audit`
 
-#### expenses (기타 지출)
-- **무엇**: 강사 급여 외 지출
-- **주요 항목**: 지출일, 카테고리, 금액, 결제수단, 수령인, 메모
-- **카테고리 값**: labor, rent, utilities, supplies, marketing, tax, insurance, maintenance, other
+`reporting.v_student_type_weakness`는 첫 시도 정답률과 unsure 상태를
+유형/단원 기준으로 집계한다. `reporting.v_class_learning_summary`는
+반별 학생 수와 위험/취약 유형을 집계한다. 두 뷰는
+`security_invoker = true`로 호출자의 RLS 권한을 따른다.
 
-#### other_income (기타 수입)
-- **무엇**: 수강료 외 수입
-- **주요 항목**: 수입일, 카테고리, 금액, 결제수단, 수입자, 메모
-- **카테고리 값**: material_sales, facility_rental, consulting, subsidy, interest, other
+`audit.admin_actions`는 reset, 권한 변경, 민감 관리자 작업처럼 추적이
+필요한 조작을 저장한다. 일반 운영 로그를 대체하는 테이블은 아니다.
 
-## 4) 관계 한눈에 (요약)
-- **classrooms 1:N lessons**
-- **lessons 1:N lesson_rules**
-- **lesson_rules 1:N lesson_schedules** (정규 수업)
-- **lessons 1:N lesson_schedules** (수업 세션 원본)
-- **students N:M lessons** (중간 테이블: enrollments)
-- **students 1:N student_payments**
-- **instructors 1:N instructor_payments**
-- **transactions 1:N transaction_lines**
-- **account_types 1:N transaction_lines**
+## 핵심 관계
 
-## 5) 간단한 다이어그램 (Mermaid ERD)
 ```mermaid
 erDiagram
-  CLASSROOMS ||--o{ LESSONS : has
-  LESSONS ||--o{ LESSON_RULES : has
-  LESSON_RULES ||--o{ LESSON_SCHEDULES : has
-  STUDENTS ||--o{ ENROLLMENTS : enrolls
-  LESSONS ||--o{ ENROLLMENTS : includes
-  STUDENTS ||--o{ STUDENT_PAYMENTS : pays
-  INSTRUCTORS ||--o{ INSTRUCTOR_PAYMENTS : pays
-  TRANSACTIONS ||--o{ TRANSACTION_LINES : has
-  ACCOUNT_TYPES ||--o{ TRANSACTION_LINES : categorizes
+  AUTH_USERS ||--o| CORE_USER_ACCOUNTS : authenticates
+  CORE_PEOPLE ||--o| CORE_USER_ACCOUNTS : owns
+  CORE_ACADEMIES ||--o{ CORE_STUDENTS : contains
+  CORE_ACADEMIES ||--o{ CORE_STAFF_MEMBERS : employs
+  CORE_CLASSES ||--o{ CORE_CLASS_STUDENTS : has
+  CORE_STUDENTS ||--o{ CORE_CLASS_STUDENTS : joins
+  CONTENT_BOOKS ||--o{ CONTENT_UNITS : contains
+  CONTENT_UNITS ||--o{ CONTENT_PROBLEMS : contains
+  LEARNING_ASSIGNMENTS ||--o{ LEARNING_ASSIGNMENT_RECIPIENTS : snapshots
+  LEARNING_ASSIGNMENTS ||--o{ LEARNING_ASSIGNMENT_ITEMS : contains
+  CORE_STUDENTS ||--o{ LEARNING_SESSIONS : starts
+  LEARNING_SESSIONS ||--o{ LEARNING_ATTEMPTS : records
+  CORE_CLASSES ||--o{ LMS_LESSON_OCCURRENCES : schedules
+  LMS_LESSON_OCCURRENCES ||--o{ LMS_ATTENDANCE_RECORDS : records
 ```
+
+## RLS와 서버 경계
+
+- Data API 노출 스키마는 `supabase/config.toml`에서 관리한다.
+- 노출된 테이블은 RLS를 사용하며, `authenticated` 역할 자체만으로 다른
+  학원의 행에 접근할 수 없다.
+- 보호 페이지의 신원/멤버십은 서버 레이아웃에서 한 번 검증한다.
+- Route Handler는 API 요청마다 인증, academy 범위, 역할, 입력값,
+  same-origin/CSRF 조건을 직접 확인한다.
+- secret/service-role client는 RLS를 우회할 수 있으므로 서버 도메인 함수가
+  먼저 정확한 academy/role 권한을 검증한 뒤 사용한다.
+- Realtime은 원본 조회 수단이 아니라 변경 무효화 신호다. 실제 데이터는
+  다시 서버 read model에서 읽는다.
+
+## Legacy compatibility
+
+기존 `nextum-data`와 Grade App을 한 번에 전환하지 않기 위해 아래
+호환 계층을 제한적으로 유지한다.
+
+- 원격 DB에 존재할 수 있는 `learning.books/units/problems` 등 과거
+  learning-content 테이블과 정책은 Grade App 전환 기간에만 보존한다. 새 LMS
+  코드는 `content.*`에 쓴다.
+- `core.class_books`는 이전 교재 접근 흐름을 위해 남아 있지만, 새 과제와
+  교재 배정 경로는 `learning.book_assignments` 및
+  `learning.assignments`를 기준으로 한다.
+- `learning.sessions.student_id` 같은 auth-user 호환 컬럼이 남아 있어도
+  업무 ID 기준은 `core_student_id`다.
+- `core.user_security_settings.pin_hash/idle_timeout`은 삭제된 LMS
+  PIN/idle-lock UI의 롤백 호환 데이터다. 새 런타임은 사용하지 않는다.
+- `learning.can_access_*`와 `content.can_report_problem` wrapper는
+  `private` helper로 위임하는 호환 API다.
+- 과거 remote repair/compat migration은 적용 이력의 일부이지 별도의
+  canonical 스키마가 아니다.
+
+호환 객체는 Grade App 전환, contract smoke test, 백업/복구 확인, 운영 접근
+0건 관찰 기간을 모두 통과하기 전에는 제거하지 않는다. 구체적인 gate는
+[Grade App 영향 문서](docs/grade-app-optimization-impact.md)와
+[Supabase v2 runbook](docs/supabase-optimization-v2-runbook.md)을 따른다.
+
+## Migration과 검증
+
+새 변경은 적용된 SQL을 수정하지 않고 새 forward migration으로 만든다.
+
+```powershell
+npx supabase migration new <description>
+npx supabase db reset
+npm run db:check
+npx supabase migration list --local
+```
+
+원격 적용 전에는 반드시 preservation backup, advisor, contract check,
+rollback 조건을 runbook대로 확인한다. `0001_nextum_lms_baseline.sql`만
+단독 적용하거나 기존 DB에 파괴적으로 재적용해서는 안 된다.

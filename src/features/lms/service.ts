@@ -28,6 +28,8 @@ import type {
   StaffHardDeletePreview,
   StaffMutationResult,
   StaffOperationsOverview,
+  StaffRole,
+  StaffStatus,
   StaffSummary,
   StudentAiConversationRow,
   StudentDetail,
@@ -37,6 +39,7 @@ import type {
   StudentLearningPeriod,
   StudentMutationResult,
   StudentOperationsOverview,
+  StudentStatus,
   StudentSignupInvitation,
   LearningAssignmentDetail,
   UpdateBookInput,
@@ -53,6 +56,7 @@ export type LmsCachePolicy = 'static' | 'operational' | 'volatile' | 'live';
 export interface LmsRequestOptions {
   force?: boolean;
   policy?: LmsCachePolicy;
+  signal?: AbortSignal;
 }
 
 export interface StudentDetailRequestOptions extends LmsRequestOptions {
@@ -61,20 +65,42 @@ export interface StudentDetailRequestOptions extends LmsRequestOptions {
 }
 
 export interface LmsInvalidationPayload {
-  academyId?: string | null;
-  domain?: string;
-  entity?: string;
-  id?: string | null;
-  studentId?: string | null;
-  classId?: string | null;
-  changedAt?: string;
-  operation?: string;
+  version: 2;
+  eventId: string;
+  academyId: string;
+  domains: string[];
+  entityType?: string;
+  entityIds?: string[];
+  coreStudentId?: string;
+  occurredAt: string;
   sourceId?: string;
+  /** @deprecated v1 listener alias; use domains. */
+  domain?: string;
+  /** @deprecated v1 listener alias; use coreStudentId. */
+  studentId?: string;
+}
+
+export interface CursorRequestOptions extends LmsRequestOptions {
+  cursor?: string | null;
+  limit?: number;
+}
+
+export interface StudentRosterRequestOptions extends CursorRequestOptions {
+  q?: string;
+  classId?: string | null;
+  status?: 'operations' | 'all' | StudentStatus;
+}
+
+export interface StaffRosterRequestOptions extends CursorRequestOptions {
+  q?: string;
+  role?: 'all' | StaffRole;
+  status?: 'operations' | 'all' | StaffStatus;
 }
 
 interface LmsCacheInvalidationScope {
   academyId?: string | null;
   pathPrefix?: string;
+  domains?: readonly string[];
 }
 
 interface LmsMutationOptions {
@@ -91,26 +117,89 @@ const CACHE_TTL_MS: Record<LmsCachePolicy, number> = {
 const LMS_LOCAL_CACHE_CHANNEL = 'nextum-lms-cache';
 const LMS_STORAGE_EVENT_KEY = 'nextum-lms-cache-invalidated';
 const LMS_REALTIME_EVENT = 'lms-cache-invalidated';
+const LMS_REALTIME_EVENT_V2 = 'lms-cache-invalidated-v2';
+const INVALIDATION_COALESCE_MS = 300;
+const SEEN_EVENT_TTL_MS = 60_000;
+const MAX_CACHE_ENTRIES = 200;
 const instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-const getCache = new Map<string, { expiresAt: number; promise: Promise<unknown>; policy: LmsCachePolicy }>();
+const getCache = new Map<string, { expiresAt: number; promise: Promise<unknown>; lastAccessedAt: number }>();
+const inFlightGets = new Map<string, Promise<unknown>>();
 const invalidationListeners = new Set<(payload: LmsInvalidationPayload) => void>();
 const realtimeChannels = new Map<string, { channel: RealtimeChannel; refCount: number }>();
+const seenEventIds = new Map<string, number>();
+const pendingInvalidations = new Map<string, { payload: LmsInvalidationPayload; timer: ReturnType<typeof setTimeout> }>();
 let localCacheChannel: BroadcastChannel | null = null;
 let localInvalidationBridgeReady = false;
 
-function normalizeInvalidationPayload(value: unknown): LmsInvalidationPayload | null {
+function apiErrorMessage(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value) return value;
+  if (value && typeof value === 'object') {
+    const message = (value as Record<string, unknown>).message;
+    if (typeof message === 'string' && message) return message;
+  }
+  return fallback;
+}
+
+function newEventId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function normalizeInvalidationPayload(value: unknown): LmsInvalidationPayload | null {
   if (!value || typeof value !== 'object') return null;
   const payload = value as Record<string, unknown>;
+
+  if (payload.version === 2) {
+    const academyId = typeof payload.academyId === 'string' ? payload.academyId : '';
+    const domains = Array.isArray(payload.domains)
+      ? [...new Set(payload.domains.filter((domain): domain is string => typeof domain === 'string' && domain.length > 0))]
+      : [];
+    if (!academyId || domains.length === 0) return null;
+    return {
+      version: 2,
+      eventId: typeof payload.eventId === 'string' && payload.eventId
+        ? payload.eventId
+        : newEventId(),
+      academyId,
+      domains,
+      entityType: typeof payload.entityType === 'string' ? payload.entityType : undefined,
+      entityIds: Array.isArray(payload.entityIds)
+        ? payload.entityIds.filter((id): id is string => typeof id === 'string')
+        : undefined,
+      coreStudentId: typeof payload.coreStudentId === 'string' ? payload.coreStudentId : undefined,
+      occurredAt: typeof payload.occurredAt === 'string' ? payload.occurredAt : new Date().toISOString(),
+      sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : undefined,
+      domain: domains.length === 1 ? domains[0] : undefined,
+      studentId: typeof payload.coreStudentId === 'string' ? payload.coreStudentId : undefined,
+    };
+  }
+
+  // Compatibility adapter for the Grade App and older LMS database triggers.
+  const academyId = typeof payload.academyId === 'string' ? payload.academyId : '';
+  const domain = typeof payload.domain === 'string' && payload.domain ? payload.domain : 'lms';
+  if (!academyId) return null;
+  const legacyId = typeof payload.id === 'string' ? payload.id : null;
+  const changedAt = typeof payload.changedAt === 'string' ? payload.changedAt : new Date().toISOString();
   return {
-    academyId: typeof payload.academyId === 'string' ? payload.academyId : null,
-    domain: typeof payload.domain === 'string' ? payload.domain : undefined,
-    entity: typeof payload.entity === 'string' ? payload.entity : undefined,
-    id: typeof payload.id === 'string' ? payload.id : null,
-    studentId: typeof payload.studentId === 'string' ? payload.studentId : null,
-    classId: typeof payload.classId === 'string' ? payload.classId : null,
-    changedAt: typeof payload.changedAt === 'string' ? payload.changedAt : new Date().toISOString(),
-    operation: typeof payload.operation === 'string' ? payload.operation : undefined,
+    version: 2,
+    eventId: typeof payload.eventId === 'string' && payload.eventId
+      ? payload.eventId
+      : `v1:${academyId}:${domain}:${legacyId ?? ''}:${changedAt}`,
+    academyId,
+    domains: [domain],
+    entityType: typeof payload.entity === 'string' ? payload.entity : undefined,
+    entityIds: legacyId ? [legacyId] : undefined,
+    coreStudentId: typeof payload.coreStudentId === 'string'
+      ? payload.coreStudentId
+      : (typeof payload.studentId === 'string' ? payload.studentId : undefined),
+    occurredAt: changedAt,
     sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : undefined,
+    domain,
+    studentId: typeof payload.coreStudentId === 'string'
+      ? payload.coreStudentId
+      : (typeof payload.studentId === 'string' ? payload.studentId : undefined),
   };
 }
 
@@ -125,19 +214,57 @@ function academyIdFromPath(path: string): string | null {
 
 function shouldClearCacheKey(path: string, scope?: LmsCacheInvalidationScope): boolean {
   if (scope?.pathPrefix && !path.startsWith(scope.pathPrefix)) return false;
-  if (!scope?.academyId) return true;
-  const cacheAcademyId = academyIdFromPath(path);
-  return !cacheAcademyId || cacheAcademyId === scope.academyId;
+  if (scope?.academyId) {
+    const cacheAcademyId = academyIdFromPath(path);
+    if (cacheAcademyId && cacheAcademyId !== scope.academyId) return false;
+  }
+  if (!scope?.domains?.length || scope.domains.includes('lms') || scope.domains.includes('admin')) return true;
+  if (path.includes('/dashboard')) return true;
+
+  return scope.domains.some((domain) => {
+    if (domain === 'students') return path.includes('/students');
+    if (domain === 'staff') return path.includes('/staff');
+    if (domain === 'assignments') return path.includes('/assignments') || path.includes('/books');
+    if (domain === 'accounting') {
+      return path.includes('/accounting')
+        || path.includes('/billing')
+        || path.includes('/payments')
+        || path.includes('/expenses')
+        || path.includes('/payroll')
+        || path.includes('/tax-settings');
+    }
+    if (domain === 'classes') {
+      return path.includes('/classes')
+        || path.includes('/classrooms')
+        || path.includes('/schedule')
+        || path.includes('/lesson')
+        || path.includes('/attendance')
+        || path.includes('/class-books');
+    }
+    return true;
+  });
 }
 
 export function clearLmsGetCache(scope?: LmsCacheInvalidationScope) {
   if (!scope) {
     getCache.clear();
+    inFlightGets.clear();
     return;
   }
   for (const key of [...getCache.keys()]) {
     if (shouldClearCacheKey(key, scope)) getCache.delete(key);
   }
+  for (const key of [...inFlightGets.keys()]) {
+    if (shouldClearCacheKey(key, scope)) inFlightGets.delete(key);
+  }
+}
+
+export function __resetLmsServiceStateForTests() {
+  clearLmsGetCache();
+  for (const pending of pendingInvalidations.values()) clearTimeout(pending.timer);
+  pendingInvalidations.clear();
+  seenEventIds.clear();
+  invalidationListeners.clear();
 }
 
 function emitInvalidation(payload: LmsInvalidationPayload) {
@@ -153,9 +280,50 @@ function emitInvalidation(payload: LmsInvalidationPayload) {
   }
 }
 
-function applyReceivedInvalidation(payload: LmsInvalidationPayload) {
-  clearLmsGetCache({ academyId: payload.academyId ?? null });
-  emitInvalidation(payload);
+function rememberEvent(eventId: string): boolean {
+  const now = Date.now();
+  for (const [seenId, seenAt] of seenEventIds) {
+    if (now - seenAt > SEEN_EVENT_TTL_MS) seenEventIds.delete(seenId);
+  }
+  if (seenEventIds.has(eventId)) return false;
+  seenEventIds.set(eventId, now);
+  return true;
+}
+
+function mergeInvalidations(current: LmsInvalidationPayload, next: LmsInvalidationPayload): LmsInvalidationPayload {
+  const domains = [...new Set([...current.domains, ...next.domains])];
+  const coreStudentId = current.coreStudentId ?? next.coreStudentId;
+  return {
+    ...current,
+    domains,
+    entityIds: [...new Set([...(current.entityIds ?? []), ...(next.entityIds ?? [])])],
+    coreStudentId,
+    occurredAt: current.occurredAt > next.occurredAt ? current.occurredAt : next.occurredAt,
+    domain: domains.length === 1 ? domains[0] : undefined,
+    studentId: coreStudentId,
+  };
+}
+
+export function applyLmsInvalidation(payload: LmsInvalidationPayload) {
+  if (!rememberEvent(payload.eventId)) return;
+  clearLmsGetCache({ academyId: payload.academyId, domains: payload.domains });
+
+  const pending = pendingInvalidations.get(payload.academyId);
+  if (pending) {
+    pending.payload = mergeInvalidations(pending.payload, payload);
+    return;
+  }
+
+  const entry = {
+    payload,
+    timer: setTimeout(() => {
+      const queued = pendingInvalidations.get(payload.academyId);
+      if (!queued) return;
+      pendingInvalidations.delete(payload.academyId);
+      emitInvalidation(queued.payload);
+    }, INVALIDATION_COALESCE_MS),
+  };
+  pendingInvalidations.set(payload.academyId, entry);
 }
 
 function ensureLocalInvalidationBridge() {
@@ -163,52 +331,46 @@ function ensureLocalInvalidationBridge() {
   localInvalidationBridgeReady = true;
 
   if ('BroadcastChannel' in window) {
-    localCacheChannel = new BroadcastChannel(LMS_LOCAL_CACHE_CHANNEL);
-    localCacheChannel.onmessage = (event: MessageEvent<unknown>) => {
-      const payload = normalizeInvalidationPayload(event.data);
-      if (!payload || payload.sourceId === instanceId) return;
-      applyReceivedInvalidation(payload);
-    };
+    try {
+      localCacheChannel = new BroadcastChannel(LMS_LOCAL_CACHE_CHANNEL);
+      localCacheChannel.onmessage = (event: MessageEvent<unknown>) => {
+        const payload = normalizeInvalidationPayload(event.data);
+        if (!payload || payload.sourceId === instanceId) return;
+        applyLmsInvalidation(payload);
+      };
+    } catch {
+      localCacheChannel = null;
+    }
   }
 
-  window.addEventListener('storage', (event) => {
-    if (event.key !== LMS_STORAGE_EVENT_KEY || !event.newValue) return;
-    try {
-      const payload = normalizeInvalidationPayload(JSON.parse(event.newValue));
-      if (!payload || payload.sourceId === instanceId) return;
-      applyReceivedInvalidation(payload);
-    } catch {
-      // Ignore malformed invalidation signals from older tabs.
-    }
-  });
+  if (!localCacheChannel) {
+    window.addEventListener('storage', (event) => {
+      if (event.key !== LMS_STORAGE_EVENT_KEY || !event.newValue) return;
+      try {
+        const payload = normalizeInvalidationPayload(JSON.parse(event.newValue));
+        if (!payload || payload.sourceId === instanceId) return;
+        applyLmsInvalidation(payload);
+      } catch {
+        // Ignore malformed invalidation signals from older tabs.
+      }
+    });
+  }
 }
 
 function publishLocalInvalidation(payload: LmsInvalidationPayload) {
   if (typeof window === 'undefined') return;
   ensureLocalInvalidationBridge();
   const nextPayload = { ...payload, sourceId: instanceId };
-  localCacheChannel?.postMessage(nextPayload);
+  if (localCacheChannel) {
+    localCacheChannel.postMessage(nextPayload);
+    return;
+  }
   try {
     window.localStorage.setItem(LMS_STORAGE_EVENT_KEY, JSON.stringify(nextPayload));
     window.localStorage.removeItem(LMS_STORAGE_EVENT_KEY);
   } catch {
     // Storage can be blocked; BroadcastChannel is the primary path.
   }
-}
-
-function publishRemoteInvalidation(payload: LmsInvalidationPayload) {
-  const academyId = payload.academyId;
-  if (!academyId) return;
-  const entry = realtimeChannels.get(academyId);
-  if (!entry) return;
-  const nextPayload = { ...payload, sourceId: instanceId };
-  void Promise.resolve(entry.channel.send({
-    type: 'broadcast',
-    event: LMS_REALTIME_EVENT,
-    payload: nextPayload,
-  })).catch((err) => {
-    console.warn('[LMS] Failed to broadcast cache invalidation:', err);
-  });
 }
 
 function mutationDomainFromPath(path: string): string {
@@ -227,23 +389,53 @@ function idFromMutationPayload(payload: Record<string, unknown>): string | null 
 }
 
 function invalidationFromMutation(path: string, payload: Record<string, unknown>): LmsInvalidationPayload {
+  const academyId = typeof payload.academyId === 'string' ? payload.academyId : '';
+  const entityId = idFromMutationPayload(payload);
   return {
-    academyId: typeof payload.academyId === 'string' ? payload.academyId : null,
+    version: 2,
+    eventId: newEventId(),
+    academyId,
+    domains: [mutationDomainFromPath(path)],
+    entityType: path,
+    entityIds: entityId ? [entityId] : undefined,
+    coreStudentId: typeof payload.coreStudentId === 'string'
+      ? payload.coreStudentId
+      : (typeof payload.studentId === 'string' ? payload.studentId : undefined),
+    occurredAt: new Date().toISOString(),
     domain: mutationDomainFromPath(path),
-    entity: path,
-    id: idFromMutationPayload(payload),
-    studentId: typeof payload.studentId === 'string' ? payload.studentId : null,
-    classId: typeof payload.classId === 'string' ? payload.classId : null,
-    changedAt: new Date().toISOString(),
-    operation: 'mutation',
+    studentId: typeof payload.studentId === 'string' ? payload.studentId : undefined,
+  };
+}
+
+function invalidationFromMetadata(
+  value: unknown,
+  path: string,
+  payload: Record<string, unknown>,
+): LmsInvalidationPayload | null {
+  if (!value || typeof value !== 'object') return null;
+  const metadata = value as Record<string, unknown>;
+  const domains = Array.isArray(metadata.domains)
+    ? metadata.domains.filter((domain): domain is string => typeof domain === 'string' && domain.length > 0)
+    : [];
+  const academyId = typeof payload.academyId === 'string' ? payload.academyId : '';
+  if (!academyId || domains.length === 0 || typeof metadata.eventId !== 'string') return null;
+  const fallback = invalidationFromMutation(path, payload);
+  return {
+    ...fallback,
+    eventId: metadata.eventId,
+    domains,
+    domain: domains.length === 1 ? domains[0] : undefined,
   };
 }
 
 function invalidateAfterMutation(path: string, payload: Record<string, unknown>) {
   const invalidation = invalidationFromMutation(path, payload);
-  clearLmsGetCache({ academyId: invalidation.academyId ?? null });
+  if (!invalidation.academyId) {
+    clearLmsGetCache();
+    return;
+  }
+  applyLmsInvalidation(invalidation);
   publishLocalInvalidation(invalidation);
-  publishRemoteInvalidation(invalidation);
 }
 
 export function addLmsInvalidationListener(listener: (payload: LmsInvalidationPayload) => void): () => void {
@@ -277,11 +469,13 @@ export function subscribeLmsInvalidations(academyId: string): () => void {
     },
   });
 
-  channel.on('broadcast', { event: LMS_REALTIME_EVENT }, (message: { payload: unknown }) => {
+  const handleRealtimeInvalidation = (message: { payload: unknown }) => {
     const payload = normalizeInvalidationPayload(message.payload);
     if (!payload || payload.sourceId === instanceId) return;
-    applyReceivedInvalidation(payload);
-  });
+    applyLmsInvalidation(payload);
+  };
+  channel.on('broadcast', { event: LMS_REALTIME_EVENT }, handleRealtimeInvalidation);
+  channel.on('broadcast', { event: LMS_REALTIME_EVENT_V2 }, handleRealtimeInvalidation);
 
   realtimeChannels.set(academyId, { channel, refCount: 1 });
   channel.subscribe((status) => {
@@ -311,43 +505,84 @@ async function postLmsMutation<T = undefined>(
     headers: jsonCsrfHeaders(),
     body: JSON.stringify(payload),
   });
-  const result = await response.json().catch(() => null) as { success?: boolean; error?: string } & Record<string, unknown> | null;
+  const result = await response.json().catch(() => null) as ({
+    success?: boolean;
+    error?: unknown;
+    invalidation?: unknown;
+  } & Record<string, unknown>) | null;
   if (!response.ok || !result?.success) {
-    throw new Error(result?.error || '요청 처리에 실패했습니다.');
+    throw new Error(apiErrorMessage(result?.error, '요청 처리에 실패했습니다.'));
   }
-  if (options.mutates !== false) invalidateAfterMutation(path, payload);
+  if (options.mutates !== false) {
+    const serverInvalidation = normalizeInvalidationPayload(result.invalidation)
+      ?? invalidationFromMetadata(result.invalidation, path, payload);
+    if (serverInvalidation) {
+      applyLmsInvalidation(serverInvalidation);
+      publishLocalInvalidation(serverInvalidation);
+    } else {
+      invalidateAfterMutation(path, payload);
+    }
+  }
   return result as T;
 }
 
 async function getLmsJson<T>(path: string, options: LmsRequestOptions = {}): Promise<T> {
   const policy = options.policy ?? 'operational';
   const ttl = CACHE_TTL_MS[policy];
-  if (options.force || ttl <= 0) {
-    return fetchLmsJson<T>(path);
+  if (options.signal || policy === 'live') {
+    return fetchLmsJson<T>(path, options.signal);
+  }
+  const now = Date.now();
+  for (const [key, entry] of getCache) {
+    if (entry.expiresAt <= now) getCache.delete(key);
   }
 
-  const now = Date.now();
-  const cached = getCache.get(path);
-  if (cached && cached.expiresAt > now) {
-    return cached.promise as Promise<T>;
+  if (!options.force && ttl > 0) {
+    const cached = getCache.get(path);
+    if (cached) {
+      cached.lastAccessedAt = now;
+      getCache.delete(path);
+      getCache.set(path, cached);
+      return cached.promise as Promise<T>;
+    }
   }
+
+  const inFlight = inFlightGets.get(path);
+  if (inFlight) return inFlight as Promise<T>;
 
   const promise = fetchLmsJson<T>(path);
-  getCache.set(path, { expiresAt: now + ttl, promise, policy });
-  promise.catch(() => {
-    if (getCache.get(path)?.promise === promise) getCache.delete(path);
-  });
+  inFlightGets.set(path, promise);
+  if (ttl > 0) {
+    while (getCache.size >= MAX_CACHE_ENTRIES) {
+      const oldestKey = getCache.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      getCache.delete(oldestKey);
+    }
+    // Forced refreshes replace the cached promise so subsequent reads reuse the
+    // fresh result instead of immediately issuing another request.
+    getCache.set(path, { expiresAt: now + ttl, promise, lastAccessedAt: now });
+  }
+  void promise.then(
+    () => {
+      if (inFlightGets.get(path) === promise) inFlightGets.delete(path);
+    },
+    () => {
+      if (inFlightGets.get(path) === promise) inFlightGets.delete(path);
+      if (getCache.get(path)?.promise === promise) getCache.delete(path);
+    },
+  );
   return promise;
 }
 
-async function fetchLmsJson<T>(path: string): Promise<T> {
+async function fetchLmsJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     headers: { Accept: 'application/json' },
     cache: 'no-store',
+    signal,
   });
-  const result = await response.json().catch(() => null) as { success?: boolean; error?: string; data?: T } | null;
+  const result = await response.json().catch(() => null) as { success?: boolean; error?: unknown; data?: T } | null;
   if (!response.ok || !result?.success) {
-    throw new Error(result?.error || '요청 처리에 실패했습니다.');
+    throw new Error(apiErrorMessage(result?.error, '요청 처리에 실패했습니다.'));
   }
   return result.data as T;
 }
@@ -375,8 +610,8 @@ async function postLmsCsvExport(path: string, payload: Record<string, unknown>):
   });
 
   if (!response.ok) {
-    const result = await response.json().catch(() => null) as { error?: string } | null;
-    throw new Error(result?.error || 'CSV 내보내기에 실패했습니다.');
+    const result = await response.json().catch(() => null) as { error?: unknown } | null;
+    throw new Error(apiErrorMessage(result?.error, 'CSV 내보내기에 실패했습니다.'));
   }
 
   return {
@@ -391,17 +626,24 @@ async function postLmsForm<T = undefined>(path: string, form: FormData): Promise
     headers: csrfHeaders(),
     body: form,
   });
-  const result = await response.json().catch(() => null) as { success?: boolean; error?: string } & Record<string, unknown> | null;
+  const result = await response.json().catch(() => null) as ({
+    success?: boolean;
+    error?: unknown;
+    invalidation?: unknown;
+  } & Record<string, unknown>) | null;
   if (!response.ok || !result?.success) {
-    throw new Error(result?.error || '요청 처리에 실패했습니다.');
+    throw new Error(apiErrorMessage(result?.error, '요청 처리에 실패했습니다.'));
   }
-  invalidateAfterMutation(path, { academyId: String(form.get('academyId') || '') });
+  const payload = { academyId: String(form.get('academyId') || '') };
+  const serverInvalidation = normalizeInvalidationPayload(result.invalidation)
+    ?? invalidationFromMetadata(result.invalidation, path, payload);
+  if (serverInvalidation) {
+    applyLmsInvalidation(serverInvalidation);
+    publishLocalInvalidation(serverInvalidation);
+  } else {
+    invalidateAfterMutation(path, payload);
+  }
   return result as T;
-}
-
-export async function getAcademyName(academyId: string, options: LmsRequestOptions = {}): Promise<string | null> {
-  const params = new URLSearchParams({ academyId });
-  return getLmsJson<string | null>(`/api/lms/academy?${params.toString()}`, { policy: 'static', ...options });
 }
 
 export async function getDashboardData(academyId: string, date: string, serviceMonth: string, options: LmsRequestOptions = {}): Promise<DashboardData> {
@@ -421,9 +663,10 @@ export async function loadClassOperationsOverview(
   academyId: string,
   startDate: string,
   endDate: string,
+  view: 'overview' | 'schedule' | 'attendance' | 'settings',
   options: LmsRequestOptions = {},
 ): Promise<ClassOperationsOverview> {
-  const params = new URLSearchParams({ academyId, startDate, endDate });
+  const params = new URLSearchParams({ academyId, startDate, endDate, view });
   return getLmsJson<ClassOperationsOverview>(`/api/lms/classes/overview?${params.toString()}`, { policy: 'operational', ...options });
 }
 
@@ -476,9 +719,19 @@ export async function issueStudentInvitation(
   return result.invitation;
 }
 
-export async function loadStudentOperationsOverview(academyId: string, options: LmsRequestOptions = {}): Promise<StudentOperationsOverview> {
+export function buildStudentRosterPath(academyId: string, options: StudentRosterRequestOptions = {}): string {
   const params = new URLSearchParams({ academyId });
-  return getLmsJson<StudentOperationsOverview>(`/api/lms/students?${params.toString()}`, { policy: 'operational', ...options });
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  const query = options.q?.trim().replace(/\s+/gu, ' ').toLocaleLowerCase('ko-KR');
+  if (query) params.set('q', query);
+  if (options.classId && options.classId !== 'all') params.set('classId', options.classId);
+  if (options.status && options.status !== 'operations') params.set('status', options.status);
+  return `/api/lms/students?${params.toString()}`;
+}
+
+export async function loadStudentOperationsOverview(academyId: string, options: StudentRosterRequestOptions = {}): Promise<StudentOperationsOverview> {
+  return getLmsJson<StudentOperationsOverview>(buildStudentRosterPath(academyId, options), { ...options, policy: 'live' });
 }
 
 export async function loadStudentLearningMetrics(academyId: string, studentIds: string[], options: LmsRequestOptions = {}): Promise<StudentLearningMetric[]> {
@@ -533,9 +786,19 @@ export async function listStaff(academyId: string, options: LmsRequestOptions = 
   return getLmsJson<StaffSummary[]>(`/api/lms/staff?${params.toString()}`, { policy: 'static', ...options });
 }
 
-export async function loadStaffOperationsOverview(academyId: string, options: LmsRequestOptions = {}): Promise<StaffOperationsOverview> {
+export function buildStaffRosterPath(academyId: string, options: StaffRosterRequestOptions = {}): string {
   const params = new URLSearchParams({ academyId });
-  return getLmsJson<StaffOperationsOverview>(`/api/lms/staff/overview?${params.toString()}`, { policy: 'operational', ...options });
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  const query = options.q?.trim().replace(/\s+/gu, ' ').toLocaleLowerCase('ko-KR');
+  if (query) params.set('q', query);
+  if (options.role && options.role !== 'all') params.set('role', options.role);
+  if (options.status && options.status !== 'operations') params.set('status', options.status);
+  return `/api/lms/staff/overview?${params.toString()}`;
+}
+
+export async function loadStaffOperationsOverview(academyId: string, options: StaffRosterRequestOptions = {}): Promise<StaffOperationsOverview> {
+  return getLmsJson<StaffOperationsOverview>(buildStaffRosterPath(academyId, options), { ...options, policy: 'live' });
 }
 
 export async function loadStaffDetail(

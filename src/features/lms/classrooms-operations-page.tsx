@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
-  Building2,
   CalendarDays,
   CalendarRange,
   CheckCircle2,
@@ -58,6 +57,7 @@ import type {
   AttendanceStatus,
   BookSummary,
   ClassBookSummary,
+  ClassOperationsTruncation,
   ClassStatus,
   ClassStudentSummary,
   ClassSummary,
@@ -296,7 +296,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const academyId = useAcademyId();
   const { profile } = useAuth();
   const canManageClassSetup = canManageScheduleRules(profile?.role);
-  const initialQuery = useMemo(readInitialQuery, []);
+  const initialQuery = useMemo(() => readInitialQuery(), []);
 
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
@@ -307,6 +307,15 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [classrooms, setClassrooms] = useState<ClassroomSummary[]>([]);
+  const [truncated, setTruncated] = useState<ClassOperationsTruncation>({
+    classes: false,
+    scheduleRules: false,
+    occurrences: false,
+    attendance: false,
+    books: false,
+    staff: false,
+    classrooms: false,
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -360,7 +369,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
     try {
       const rangeStart = view === 'attendance' ? selectedDate : today();
       const rangeEnd = view === 'attendance' ? selectedDate : addDaysString(rangeStart, 14);
-      const data = await loadClassOperationsOverview(academyId, rangeStart, rangeEnd, { force: options.force });
+      const data = await loadClassOperationsOverview(academyId, rangeStart, rangeEnd, view, { force: options.force });
 
       setClasses(data.classes);
       setSchedule(data.schedule);
@@ -369,6 +378,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
       setAttendance(data.attendance);
       setStaff(data.staff);
       setClassrooms(data.classrooms);
+      setTruncated(data.truncated);
       setSelectedClassId((current) => (
         current && data.classes.some((row) => row.id === current) ? current : data.classes[0]?.id || ''
       ));
@@ -450,8 +460,6 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const todayLessons = schedule.filter((item) => item.date === today()).length;
   const activeClassCount = classes.filter((row) => row.status === 'active' || row.active).length;
   const totalStudents = classes.reduce((sum, row) => sum + row.studentCount, 0);
-  const recordedAttendanceCount = visibleAttendance.length;
-
   useEffect(() => {
     if (view !== 'attendance') return;
     if (selectedScheduleId && daySchedule.some((item) => item.id === selectedScheduleId)) return;
@@ -805,8 +813,22 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
     </Button>
   );
 
+  const truncatedLabels = Object.entries({
+    classes: '반',
+    scheduleRules: '반복 시간표',
+    occurrences: '수업 일정',
+    attendance: '출결',
+    books: '교재',
+    staff: '강사/직원',
+    classrooms: '강의실',
+  }).filter(([key]) => truncated[key as keyof ClassOperationsTruncation]).map(([, label]) => label);
+
   const status = refreshing ? (
     <PageStatusBar tone="info">최신 반/시간표 데이터를 다시 불러오는 중입니다.</PageStatusBar>
+  ) : truncatedLabels.length > 0 ? (
+    <PageStatusBar tone="warning">
+      {truncatedLabels.join(', ')} 데이터가 안전 한도를 넘어 일부만 표시됩니다. 반 또는 날짜 범위를 좁혀 확인하세요.
+    </PageStatusBar>
   ) : undefined;
 
   const renderOverview = () => (

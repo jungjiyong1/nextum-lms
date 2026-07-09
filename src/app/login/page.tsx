@@ -1,3 +1,5 @@
+import { LoginPage } from '@/screens/LoginPage';
+
 export default function Page() {
-    return null;
+    return <LoginPage />;
 }

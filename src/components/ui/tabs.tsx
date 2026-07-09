@@ -1,6 +1,5 @@
 import * as React from "react"
 import * as TabsPrimitive from "@radix-ui/react-tabs"
-import { motion, AnimatePresence } from "framer-motion"
 
 import { cn } from "../../lib/utils"
 
@@ -9,27 +8,24 @@ import { cn } from "../../lib/utils"
  * 
  * Design Features:
  * - Clean, minimal segmented control design
- * - Smooth spring animations for active tab indicator
+ * - Lightweight CSS transitions for the active tab indicator
  * - Theme-aware colors from design system
  * - Intuitive hover/focus states
  */
 
 const TabsContext = React.createContext<{
     activeValue?: string;
-    setActiveValue?: (value: string) => void;
-    layoutId?: string;
     variant?: "default" | "pills" | "underline";
 }>({});
 
 interface TabsProps extends React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root> {
-    layoutId?: string;
     variant?: "default" | "pills" | "underline";
 }
 
 const Tabs = React.forwardRef<
     React.ElementRef<typeof TabsPrimitive.Root>,
     TabsProps
->(({ className, value, onValueChange, defaultValue, layoutId = "active-tab", variant = "default", ...props }, ref) => {
+>(({ className, value, onValueChange, defaultValue, variant = "default", ...props }, ref) => {
     const [activeValue, setActiveValue] = React.useState<string | undefined>(value || defaultValue);
 
     React.useEffect(() => {
@@ -44,7 +40,7 @@ const Tabs = React.forwardRef<
     };
 
     return (
-        <TabsContext.Provider value={{ activeValue, setActiveValue: handleValueChange, layoutId, variant }}>
+        <TabsContext.Provider value={{ activeValue, variant }}>
             <TabsPrimitive.Root
                 ref={ref}
                 className={className}
@@ -88,7 +84,7 @@ const TabsTrigger = React.forwardRef<
     React.ElementRef<typeof TabsPrimitive.Trigger>,
     React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
 >(({ className, value, children, ...props }, ref) => {
-    const { activeValue, layoutId, variant } = React.useContext(TabsContext);
+    const { activeValue, variant } = React.useContext(TabsContext);
     const isActive = activeValue === value;
 
     // Variant-specific styles
@@ -154,38 +150,20 @@ const TabsTrigger = React.forwardRef<
                 {children}
             </span>
 
-            {/* Active indicator with animation */}
-            <AnimatePresence mode="wait">
-                {isActive && variant !== "underline" && (
-                    <motion.div
-                        layoutId={layoutId}
-                        className={cn("absolute inset-0 z-10", styles.indicator)}
-                        initial={{ opacity: 0, scale: 0.96 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.96 }}
-                        transition={{
-                            type: "spring",
-                            stiffness: 350,
-                            damping: 28,
-                            mass: 0.8,
-                        }}
-                    />
+            <span
+                aria-hidden="true"
+                className={cn(
+                    "pointer-events-none z-10 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+                    variant === "underline"
+                        ? cn(styles.indicator, "origin-left")
+                        : cn("absolute inset-0 origin-center", styles.indicator),
+                    isActive
+                        ? "scale-100 opacity-100"
+                        : variant === "underline"
+                            ? "scale-x-0 opacity-0"
+                            : "scale-[0.96] opacity-0",
                 )}
-                {isActive && variant === "underline" && (
-                    <motion.div
-                        layoutId={layoutId}
-                        className={styles.indicator}
-                        initial={{ scaleX: 0 }}
-                        animate={{ scaleX: 1 }}
-                        exit={{ scaleX: 0 }}
-                        transition={{
-                            type: "spring",
-                            stiffness: 450,
-                            damping: 32,
-                        }}
-                    />
-                )}
-            </AnimatePresence>
+            />
 
             {/* Hover effect (subtle) - only for inactive tabs */}
             {!isActive && (

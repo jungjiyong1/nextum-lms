@@ -32,14 +32,15 @@ LMS는 강사가 학생별/반별 과제를 만들고 배포하는 원천이다.
 
 ## 기존 crop 데이터 가져오기
 
-grade-app에 있는 fixtures를 공용 Supabase의 `content`로 가져온다.
+grade-app에 있는 fixtures를 공용 Supabase의 `content`로 가져온다. LMS 저장소
+루트에서 실행한다.
 
 ```bash
-cd /Users/jiyong/nextum-lms
 npm run db:import-grade-fixtures
 ```
 
-기본 입력 위치는 `/Users/jiyong/grade-app/fixtures`다. 현재 자동으로 가져오는 자료:
+기본 입력 위치는 LMS 저장소와 같은 상위 폴더의 `grade-app/fixtures`다. 현재
+자동으로 가져오는 자료:
 
 - `fixtures/export.json`
 - `fixtures/gaeppul_power_math2_2/export.json`

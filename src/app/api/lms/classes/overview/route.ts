@@ -19,13 +19,25 @@ export async function GET(request: Request) {
         const academyId = params.get('academyId') || '';
         const startDate = params.get('startDate') || '';
         const endDate = params.get('endDate') || '';
+        const view = params.get('view') || 'overview';
 
-        if (!academyId || !DATE_PATTERN.test(startDate) || !DATE_PATTERN.test(endDate) || startDate > endDate) {
+        if (!academyId || !DATE_PATTERN.test(startDate) || !DATE_PATTERN.test(endDate) || startDate > endDate
+            || !['overview', 'schedule', 'attendance', 'settings'].includes(view)) {
             return noStoreJson({ success: false, error: 'Invalid class overview request.' }, { status: 400 });
         }
 
-        const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
-        const data = await loadClassOperationsOverview(actor, startDate, endDate);
+        const actor = await assertLmsRoleForAcademy(
+            academyId,
+            view === 'settings'
+                ? ['owner', 'admin', 'staff']
+                : ['owner', 'admin', 'staff', 'teacher', 'instructor'],
+        );
+        const data = await loadClassOperationsOverview(
+            actor,
+            startDate,
+            endDate,
+            view as 'overview' | 'schedule' | 'attendance' | 'settings',
+        );
 
         return noStoreJson({ success: true, data });
     } catch (error) {

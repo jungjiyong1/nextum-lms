@@ -3,6 +3,7 @@ import {
     addAssignmentRecipientsForAcademy,
     removeAssignmentRecipientForAcademy,
 } from '@/lib/lms/mutations';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 function stringArray(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
             removeStudentId?: string;
         };
         if (!body.academyId || !body.assignmentId) {
-            return Response.json({ success: false, error: 'Invalid assignment recipient request.' }, { status: 400 });
+            return mutationError('INVALID_ASSIGNMENT_RECIPIENT_REQUEST', 'Invalid assignment recipient request.', { request });
         }
 
         const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
@@ -28,15 +29,12 @@ export async function POST(request: Request) {
             await addAssignmentRecipientsForAcademy(actor, body.assignmentId, stringArray(body.studentIds));
         }
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Assignment Recipients] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Assignment recipient update failed.',
-        }, { status: 500 });
+        return mutationException(error, 'ASSIGNMENT_RECIPIENT_UPDATE_FAILED', 'Assignment recipient update failed.', { request });
     }
 }

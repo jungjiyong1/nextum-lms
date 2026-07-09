@@ -37,6 +37,7 @@ const checks = [
   ['content', 'problem_types', ['id', 'book_id', 'unit_id', 'concept_id', 'name']],
   ['content', 'problems', ['id', 'book_id', 'unit_id', 'problem_type_id', 'page_printed', 'number', 'public_payload']],
   ['content', 'student_problems', ['id', 'book_id', 'unit_id', 'problem_type_id', 'page_printed', 'number', 'public_payload']],
+  ['content', 'assets', ['id', 'book_id', 'problem_id', 'kind', 'storage_path']],
   ['content', 'problem_reports', ['id', 'academy_id', 'core_student_id', 'problem_id', 'reason', 'status']],
 
   ['lms', 'classrooms', ['id', 'academy_id', 'name', 'capacity', 'color', 'active']],
@@ -55,8 +56,10 @@ const checks = [
 
   ['learning', 'sessions', ['id', 'academy_id', 'core_student_id', 'book_id', 'scope', 'scope_label', 'context', 'started_at']],
   ['learning', 'attempts', ['id', 'academy_id', 'session_id', 'core_student_id', 'problem_id', 'correct', 'attempt_no', 'created_at']],
+  ['learning', 'book_assignments', ['id', 'academy_id', 'book_id', 'target_type', 'class_id', 'student_id', 'active']],
   ['learning', 'assignments', ['id', 'academy_id', 'book_id', 'title', 'description', 'context', 'due_at', 'source_type', 'status']],
   ['learning', 'assignment_targets', ['id', 'assignment_id', 'target_type', 'class_id', 'student_id', 'active']],
+  ['learning', 'assignment_recipients', ['id', 'assignment_id', 'academy_id', 'student_id', 'class_id', 'source_type', 'active']],
   ['learning', 'assignment_items', ['id', 'assignment_id', 'book_id', 'unit_id', 'problem_id', 'sort_order']],
   ['learning', 'assignment_files', ['id', 'assignment_id', 'storage_path', 'file_name', 'media_type', 'display_order']],
   ['learning', 'wrong_notes', ['academy_id', 'core_student_id', 'problem_id', 'status']],
@@ -65,6 +68,8 @@ const checks = [
   ['ai', 'conversations', ['id', 'academy_id', 'student_id', 'core_student_id', 'title', 'created_at']],
   ['ai', 'messages', ['id', 'conversation_id', 'role', 'content', 'created_at']],
   ['data', 'events', ['id', 'academy_id', 'student_id', 'class_id', 'event_type', 'occurred_at']],
+
+  ['audit', 'admin_actions', ['id', 'academy_id', 'actor_id', 'action', 'target', 'created_at']],
 
   ['reporting', 'v_student_type_weakness', ['academy_id', 'student_id', 'student_name', 'class_id', 'type_name', 'sample_count', 'correct_count', 'score', 'status', 'last_attempted_at']],
   ['reporting', 'v_class_learning_summary', ['academy_id', 'class_id', 'class_name', 'active_students', 'students_with_risk', 'weak_type_count', 'avg_type_score', 'last_learning_at']],

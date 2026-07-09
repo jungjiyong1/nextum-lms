@@ -28,3 +28,8 @@ export function isPublicAuthPath(pathname: string): boolean {
     return normalized === '/login'
         || normalized.startsWith('/login/');
 }
+
+export function isApiPath(pathname: string): boolean {
+    const normalized = normalizePathname(pathname);
+    return normalized === '/api' || normalized.startsWith('/api/');
+}

@@ -1,12 +1,14 @@
+'use client';
+
 import React, { useState } from 'react';
 import { BookOpen } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { useAuth } from '../contexts/AuthContext';
+import { createClient } from '../lib/supabase/client';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Skeleton } from '../components/ui/skeleton';
 
 function resolveLoginEmail(identifier: string): string {
   const value = identifier.trim();
@@ -18,7 +20,7 @@ function resolveLoginEmail(identifier: string): string {
 }
 
 export function LoginPage() {
-  const { signIn, loading } = useAuth();
+  const router = useRouter();
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,12 +35,18 @@ export function LoginPage() {
 
     setIsSubmitting(true);
     try {
-      const { error } = await signIn(resolveLoginEmail(loginId), password);
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email: resolveLoginEmail(loginId),
+        password,
+      });
       if (error) {
         console.error('Login error:', error);
         toast.error('로그인 실패: 아이디 또는 비밀번호를 확인하세요.');
       } else {
         toast.success('로그인되었습니다.');
+        router.replace('/');
+        router.refresh();
       }
     } catch (err) {
       console.error('Unexpected login error:', err);
@@ -47,33 +55,6 @@ export function LoginPage() {
       setIsSubmitting(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-        <Card className="w-full max-w-sm">
-          <CardContent className="p-8">
-            <div className="mb-8 flex flex-col items-center">
-              <Skeleton className="mb-4 h-16 w-16 rounded-xl" />
-              <Skeleton className="mb-3 h-5 w-32" />
-              <Skeleton className="h-4 w-40" />
-            </div>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Skeleton className="h-3 w-12" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-              <div className="space-y-2">
-                <Skeleton className="h-3 w-16" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-              <Skeleton className="h-10 w-full" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">

@@ -4,6 +4,7 @@ import { recordAdminAction } from '@/lib/lms/audit';
 import { assertAdminConfirmToken } from '@/lib/lms/admin-confirm';
 import { resetLmsData, type ResetTarget } from '@/lib/lms/admin-operations';
 import { assertCsrfToken } from '@/lib/lms/csrf-server';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 const resetTargets = new Set<ResetTarget>([
     'classrooms',
@@ -32,15 +33,15 @@ export async function POST(request: Request) {
         try {
             body = await request.json() as ResetRequestBody;
         } catch {
-            return Response.json({ success: false, error: 'Invalid reset request.' }, { status: 400 });
+            return mutationError('INVALID_RESET_REQUEST', 'Invalid reset request.', { request });
         }
         const { academyId, target, confirmToken } = body;
 
         if (!academyId || !target || !resetTargets.has(target)) {
-            return Response.json({ success: false, error: 'Invalid reset target.' }, { status: 400 });
+            return mutationError('INVALID_RESET_TARGET', 'Invalid reset target.', { request });
         }
         if (!confirmToken) {
-            return Response.json({ success: false, error: 'Reset confirmation is required.' }, { status: 403 });
+            return mutationError('RESET_CONFIRMATION_REQUIRED', 'Reset confirmation is required.', { request, status: 403 });
         }
 
         const admin = await assertLmsRoleForAcademy(academyId, ['owner', 'admin']);
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
                 target,
             });
         } catch {
-            return Response.json({ success: false, error: 'Reset confirmation is required.' }, { status: 403 });
+            return mutationError('RESET_CONFIRMATION_REQUIRED', 'Reset confirmation is required.', { request, status: 403 });
         }
 
         const summary = await resetLmsData(target, academyId);
@@ -65,12 +66,12 @@ export async function POST(request: Request) {
             payload: summary,
         });
 
-        return Response.json({ success: true, reset: summary });
+        return mutationSuccess(summary, { request, aliases: { reset: summary } });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Admin Reset] Failed:', error);
-        return Response.json({ success: false, error: 'Reset failed.' }, { status: 500 });
+        return mutationException(error, 'RESET_FAILED', 'Reset failed.', { request });
     }
 }

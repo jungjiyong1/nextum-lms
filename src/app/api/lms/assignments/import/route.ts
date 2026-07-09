@@ -1,5 +1,6 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { importWorksheetAssignmentForAcademy } from '@/lib/lms/assignment-import';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 function parseStringArray(value: FormDataEntryValue | null): string[] {
     if (typeof value !== 'string' || !value.trim()) return [];
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
         const file = form.get('file');
 
         if (!academyId || !title || !(file instanceof File)) {
-            return Response.json({ success: false, error: 'Invalid worksheet assignment request.' }, { status: 400 });
+            return mutationError('INVALID_WORKSHEET_ASSIGNMENT_REQUEST', 'Invalid worksheet assignment request.', { request });
         }
 
         const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
@@ -40,15 +41,19 @@ export async function POST(request: Request) {
             actor,
         );
 
-        return Response.json({ success: true, assignment });
+        return mutationSuccess(assignment, {
+            request,
+            aliases: { assignment },
+            invalidation: {
+                eventId: crypto.randomUUID(),
+                domains: ['assignments'],
+            },
+        });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Worksheet Assignment Import] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Worksheet assignment import failed.',
-        }, { status: 500 });
+        return mutationException(error, 'WORKSHEET_ASSIGNMENT_IMPORT_FAILED', 'Worksheet assignment import failed.', { request });
     }
 }

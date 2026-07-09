@@ -1,6 +1,7 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { createClassroomForAcademy, updateClassroomForAcademy } from '@/lib/lms/mutations';
 import type { CreateClassroomInput, UpdateClassroomInput } from '@/features/lms/types';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
             input?: CreateClassroomInput | UpdateClassroomInput;
         };
         if (!body.academyId || !body.input) {
-            return Response.json({ success: false, error: 'Invalid classroom request.' }, { status: 400 });
+            return mutationError('INVALID_CLASSROOM_REQUEST', 'Invalid classroom request.', { request });
         }
 
         await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
@@ -21,15 +22,12 @@ export async function POST(request: Request) {
             await createClassroomForAcademy(body.academyId, body.input as CreateClassroomInput);
         }
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Classrooms] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Classroom operation failed.',
-        }, { status: 500 });
+        return mutationException(error, 'CLASSROOM_OPERATION_FAILED', 'Classroom operation failed.', { request });
     }
 }

@@ -3,6 +3,7 @@ import { assertReauthCookie } from '@/lib/lms/reauth';
 import { recordAdminAction } from '@/lib/lms/audit';
 import { updateTaxSettingsForAcademy } from '@/lib/lms/admin-operations';
 import { assertCsrfToken } from '@/lib/lms/csrf-server';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
         assertCsrfToken(request);
         const body = await request.json() as { academyId?: string; settings?: Record<string, unknown> };
         if (!body.academyId || !body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
-            return Response.json({ success: false, error: 'Invalid settings payload.' }, { status: 400 });
+            return mutationError('INVALID_TAX_SETTINGS', 'Invalid settings payload.', { request });
         }
 
         const admin = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
@@ -26,12 +27,12 @@ export async function POST(request: Request) {
             },
         });
 
-        return Response.json({ success: true });
+        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Admin Tax Settings] Failed:', error);
-        return Response.json({ success: false, error: 'Failed to save tax settings.' }, { status: 500 });
+        return mutationException(error, 'TAX_SETTINGS_UPDATE_FAILED', 'Failed to save tax settings.', { request });
     }
 }

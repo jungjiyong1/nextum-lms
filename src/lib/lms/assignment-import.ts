@@ -6,13 +6,18 @@ import type { CreateLearningAssignmentInput } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { LmsRoleContext } from './auth';
 import { createLearningAssignmentForAcademy } from './mutations';
+import {
+    runWorksheetImportCompensation,
+    type WorksheetImportCompensationState,
+} from './worksheet-import-compensation';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
-type SchemaClient = ReturnType<LmsAdminClient['schema']>;
 
 const PROBLEM_IMAGES_BUCKET = 'problem-images';
 const ASSIGNMENT_FILES_BUCKET = process.env.NEXTUM_ASSIGNMENT_FILES_BUCKET || process.env.ASSIGNMENT_FILES_BUCKET || 'assignment-files';
+
+type WorksheetImportState = WorksheetImportCompensationState;
 
 interface ExportProblem {
     problem_id?: string;
@@ -132,6 +137,7 @@ async function createHiddenWorksheetBook(
     client: LmsAdminClient,
     academyId: string,
     file: File,
+    state: WorksheetImportState,
 ): Promise<{ bookId: string; problemIds: string[] }> {
     const { exportJson, readImage } = await loadBundle(file);
     if (exportJson.schema_version !== 1) throw new Error('Only crop-trainer export schema_version 1 is supported.');
@@ -162,6 +168,7 @@ async function createHiddenWorksheetBook(
     ensureNoError(bookError, 'Failed to create worksheet hidden book');
     if (!book?.id) throw new Error('Failed to create worksheet hidden book');
     const bookId = book.id as string;
+    state.bookId = bookId;
 
     const unitRows = (exportJson.parts || []).flatMap((part, partIndex) =>
         (part.units || []).map((unit, unitIndex) => ({
@@ -251,6 +258,7 @@ async function createHiddenWorksheetBook(
                 .from(PROBLEM_IMAGES_BUCKET)
                 .upload(storagePath, imageBytes, { contentType: 'image/png', upsert: true });
             ensureNoError(error, 'Failed to upload worksheet problem image');
+            state.uploadedObjects.push({ bucket: PROBLEM_IMAGES_BUCKET, path: storagePath });
             imagePath = storagePath;
             assetRows.push({
                 book_id: bookId,
@@ -300,7 +308,12 @@ async function createHiddenWorksheetBook(
     return { bookId, problemIds };
 }
 
-async function attachUploadedExportFile(client: LmsAdminClient, assignmentId: string, file: File) {
+async function attachUploadedExportFile(
+    client: LmsAdminClient,
+    assignmentId: string,
+    file: File,
+    state: WorksheetImportState,
+) {
     await ensureBucket(client, ASSIGNMENT_FILES_BUCKET);
     const storagePath = `${assignmentId}/${safePathSegment(file.name)}`;
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -308,6 +321,7 @@ async function attachUploadedExportFile(client: LmsAdminClient, assignmentId: st
         .from(ASSIGNMENT_FILES_BUCKET)
         .upload(storagePath, bytes, { contentType: file.type || 'application/octet-stream', upsert: true });
     ensureNoError(uploadError, 'Failed to upload assignment source file');
+    state.uploadedObjects.push({ bucket: ASSIGNMENT_FILES_BUCKET, path: storagePath });
 
     const { error } = await client
         .schema('learning')
@@ -323,6 +337,35 @@ async function attachUploadedExportFile(client: LmsAdminClient, assignmentId: st
     ensureNoError(error, 'Failed to attach assignment source file');
 }
 
+async function compensateWorksheetImport(client: LmsAdminClient, state: WorksheetImportState) {
+    const succeeded = await runWorksheetImportCompensation(state, {
+        deleteAssignment: async (assignmentId) => {
+            const { error } = await client
+                .schema('learning')
+                .from('assignments')
+                .delete()
+                .eq('id', assignmentId);
+            return !error;
+        },
+        deleteBook: async (bookId) => {
+            const { error } = await client
+                .schema('content')
+                .from('books')
+                .delete()
+                .eq('id', bookId);
+            return !error;
+        },
+        removeStorageObjects: async (bucket, paths) => {
+            const { error } = await client.storage.from(bucket).remove(paths);
+            return !error;
+        },
+    });
+
+    if (!succeeded) {
+        console.warn('[Worksheet import] One or more compensation steps failed.');
+    }
+}
+
 export async function importWorksheetAssignmentForAcademy(
     academyId: string,
     input: CreateLearningAssignmentInput,
@@ -330,13 +373,20 @@ export async function importWorksheetAssignmentForAcademy(
     context?: LmsRoleContext,
 ) {
     const client = createAdminClient();
-    const { bookId, problemIds } = await createHiddenWorksheetBook(client, academyId, file);
-    const assignment = await createLearningAssignmentForAcademy(academyId, {
-        ...input,
-        bookId,
-        problemIds,
-        sourceType: 'worksheet',
-    }, context);
-    await attachUploadedExportFile(client, assignment.id, file);
-    return assignment;
+    const state: WorksheetImportState = { bookId: null, assignmentId: null, uploadedObjects: [] };
+    try {
+        const { bookId, problemIds } = await createHiddenWorksheetBook(client, academyId, file, state);
+        const assignment = await createLearningAssignmentForAcademy(academyId, {
+            ...input,
+            bookId,
+            problemIds,
+            sourceType: 'worksheet',
+        }, context);
+        state.assignmentId = assignment.id;
+        await attachUploadedExportFile(client, assignment.id, file, state);
+        return assignment;
+    } catch (error) {
+        await compensateWorksheetImport(client, state);
+        throw error;
+    }
 }

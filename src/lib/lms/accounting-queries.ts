@@ -97,8 +97,8 @@ async function buildBillingDrafts(
         { data: rulesData, error: rulesError },
         { data: occurrencesData, error: occurrencesError },
     ] = await Promise.all([
-        lms.from('student_billing_contracts').select('*').eq('academy_id', academyId).eq('status', 'active').in('student_id', studentIds),
-        lms.from('billing_class_rules').select('*').eq('academy_id', academyId),
+        lms.from('student_billing_contracts').select('id,student_id,billing_mode,base_monthly_fee,hourly_rate,effective_from,effective_to').eq('academy_id', academyId).eq('status', 'active').in('student_id', studentIds),
+        lms.from('billing_class_rules').select('contract_id,class_id,rule_type,amount,effective_from,effective_to').eq('academy_id', academyId),
         lms
             .from('lesson_occurrences')
             .select('id,class_id,occurrence_date')
@@ -113,8 +113,9 @@ async function buildBillingDrafts(
     const contracts = ((contractsData || []) as Row[]).filter((row) => isEffective(row, range.start, range.end));
     const contractMap = new Map(contracts.map((row) => [row.student_id, row]));
     const contractIds = contracts.map((row) => row.id);
+    const contractIdSet = new Set(contractIds);
     const rules = ((rulesData || []) as Row[])
-        .filter((row) => contractIds.includes(row.contract_id))
+        .filter((row) => contractIdSet.has(row.contract_id))
         .filter((row) => isEffective(row, range.start, range.end));
     const classIds = uniqueStrings([
         ...rules.map((row) => row.class_id),

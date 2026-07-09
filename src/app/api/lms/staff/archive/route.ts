@@ -1,6 +1,7 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { assertCsrfToken } from '@/lib/lms/csrf-server';
 import { archiveStaffForAcademy } from '@/lib/lms/staff-admin';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
     try {
@@ -8,21 +9,18 @@ export async function POST(request: Request) {
         assertCsrfToken(request);
         const body = await request.json() as { academyId?: string; staffId?: string };
         if (!body.academyId || !body.staffId) {
-            return Response.json({ success: false, error: 'Invalid staff archive request.' }, { status: 400 });
+            return mutationError('INVALID_STAFF_ARCHIVE_REQUEST', 'Invalid staff archive request.', { request });
         }
 
         const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
         const result = await archiveStaffForAcademy(body.academyId, body.staffId, actor);
 
-        return Response.json({ success: true, data: result });
+        return mutationSuccess(result, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Staff Archive] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Staff archive failed.',
-        }, { status: 500 });
+        return mutationException(error, 'STAFF_ARCHIVE_FAILED', 'Staff archive failed.', { request });
     }
 }

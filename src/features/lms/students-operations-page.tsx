@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     BarChart3,
     BookOpen,
@@ -8,7 +8,6 @@ import {
     CheckCircle2,
     ChevronDown,
     ChevronUp,
-    Clock3,
     Copy,
     CreditCard,
     GraduationCap,
@@ -68,6 +67,8 @@ import {
     previewHardDeleteStudent,
     updateStudent,
 } from './service';
+import { LatestAbortController } from './latest-abort-controller';
+import { useDebouncedValue } from './use-debounced-value';
 import type {
     BillingMode,
     ClassSummary,
@@ -85,7 +86,7 @@ import type {
 type StudentFilterStatus = 'operations' | 'all' | StudentStatus;
 type StudentSortMode = 'risk' | 'recent' | 'name';
 type FormMode = 'create' | 'edit' | null;
-type StudentPageLoadOptions = { force?: boolean; background?: boolean };
+type StudentPageLoadOptions = { force?: boolean; background?: boolean; append?: boolean };
 type StudentDetailLoadOptions = StudentPageLoadOptions & { replace?: boolean; period?: StudentLearningPeriod; assignmentId?: string | null };
 
 const emptyPermissions: StudentOperationsPermissions = {
@@ -193,10 +194,6 @@ function billingModeLabel(mode: BillingMode | null): string {
 
 function StudentStatusBadge({ status }: { status: string }) {
     return <StatusBadge status={status} label={statusLabel(status)} />;
-}
-
-function LoadingBlock() {
-    return <SkeletonPanel className="min-h-[320px]" rows={6} />;
 }
 
 function StudentDetailSkeleton() {
@@ -1072,7 +1069,7 @@ function ManagementTab({
     );
 }
 
-export function StudentsOperationsPage() {
+export function StudentsOperationsPage({ initialStudentId = '' }: { initialStudentId?: string }) {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
     const [requestedStudentId, setRequestedStudentId] = useState('');
@@ -1081,6 +1078,9 @@ export function StudentsOperationsPage() {
     const [permissions, setPermissions] = useState<StudentOperationsPermissions>(emptyPermissions);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const nextCursorRef = useRef<string | null>(null);
     const [hasExternalUpdate, setHasExternalUpdate] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
     const [metricsLoading, setMetricsLoading] = useState(false);
@@ -1095,6 +1095,19 @@ export function StudentsOperationsPage() {
     const [classFilter, setClassFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState<StudentFilterStatus>('operations');
     const [sortMode, setSortMode] = useState<StudentSortMode>('risk');
+    const [filtersHydrated, setFiltersHydrated] = useState(false);
+    const requestedRosterFilters = useMemo(() => ({
+        q: searchQuery.trim().replace(/\s+/gu, ' ').toLocaleLowerCase('ko-KR'),
+        classId: classFilter,
+        status: statusFilter,
+    }), [classFilter, searchQuery, statusFilter]);
+    const rosterFilters = useDebouncedValue(requestedRosterFilters, 300);
+    const rosterFiltersReady = filtersHydrated
+        && rosterFilters.q === requestedRosterFilters.q
+        && rosterFilters.classId === requestedRosterFilters.classId
+        && rosterFilters.status === requestedRosterFilters.status;
+    const rosterRequestSequence = useRef(0);
+    const rosterAbortController = useMemo(() => new LatestAbortController(), []);
     const [formMode, setFormMode] = useState<FormMode>(null);
     const [submitting, setSubmitting] = useState(false);
     const [archiveOpen, setArchiveOpen] = useState(false);
@@ -1136,12 +1149,49 @@ export function StudentsOperationsPage() {
 
     useEffect(() => {
         const readRequestedStudent = () => {
-            setRequestedStudentId(new URLSearchParams(window.location.search).get('studentId') || '');
+            const params = new URLSearchParams(window.location.search);
+            const studentId = params.get('studentId') || initialStudentId;
+            setRequestedStudentId(studentId);
+            setSelectedStudentId(studentId);
+            setSearchQuery(params.get('q') || '');
+            setClassFilter(params.get('classId') || 'all');
+            setStatusFilter((params.get('status') as StudentFilterStatus | null) || 'operations');
+            setSortMode((params.get('sort') as StudentSortMode | null) || 'risk');
+            setFiltersHydrated(true);
         };
         readRequestedStudent();
         window.addEventListener('popstate', readRequestedStudent);
         return () => window.removeEventListener('popstate', readRequestedStudent);
-    }, []);
+    }, [initialStudentId]);
+
+    useEffect(() => {
+        if (!rosterFiltersReady) return;
+        const params = new URLSearchParams(window.location.search);
+        const setOrDelete = (key: string, value: string, defaultValue: string) => {
+            if (!value || value === defaultValue) params.delete(key);
+            else params.set(key, value);
+        };
+        setOrDelete('q', rosterFilters.q, '');
+        setOrDelete('classId', rosterFilters.classId, 'all');
+        setOrDelete('status', rosterFilters.status, 'operations');
+        setOrDelete('sort', sortMode, 'risk');
+        setOrDelete('studentId', selectedStudentId, '');
+        const search = params.toString();
+        window.history.replaceState(null, '', search ? `${window.location.pathname}?${search}` : window.location.pathname);
+    }, [rosterFilters, rosterFiltersReady, selectedStudentId, sortMode]);
+
+    useEffect(() => {
+        if (!filtersHydrated) return;
+        rosterAbortController.abort();
+        rosterRequestSequence.current += 1;
+        nextCursorRef.current = null;
+        setHasMore(false);
+    }, [classFilter, filtersHydrated, rosterAbortController, searchQuery, statusFilter]);
+
+    useEffect(() => () => {
+        rosterAbortController.abort();
+        rosterRequestSequence.current += 1;
+    }, [rosterAbortController]);
 
     const mergeLearningMetrics = useCallback((metrics: StudentLearningMetric[]) => {
         if (metrics.length === 0) return;
@@ -1173,30 +1223,54 @@ export function StudentsOperationsPage() {
     }, [academyId, mergeLearningMetrics]);
 
     const load = useCallback(async (options: StudentPageLoadOptions = {}) => {
-        if (!academyId) return;
-        if (options.background) setRefreshing(true);
+        if (!academyId || !rosterFiltersReady) return;
+        const controller = rosterAbortController.start();
+        const requestSequence = rosterRequestSequence.current + 1;
+        rosterRequestSequence.current = requestSequence;
+        if (!options.append) {
+            nextCursorRef.current = null;
+            setHasMore(false);
+        }
+        if (options.append) setLoadingMore(true);
+        else if (options.background) setRefreshing(true);
         else setLoading(true);
-        setError('');
+        if (!options.append) setError('');
         try {
-            const data = await loadStudentOperationsOverview(academyId, { force: options.force });
-            setStudents(data.students);
+            const data = await loadStudentOperationsOverview(academyId, {
+                force: options.force,
+                cursor: options.append ? nextCursorRef.current : null,
+                q: rosterFilters.q,
+                classId: rosterFilters.classId,
+                status: rosterFilters.status,
+                signal: controller.signal,
+            });
+            if (controller.signal.aborted || rosterRequestSequence.current !== requestSequence) return;
+            setStudents((current) => {
+                if (!options.append) return data.students;
+                const byId = new Map(current.map((student) => [student.id, student]));
+                for (const student of data.students) byId.set(student.id, student);
+                return [...byId.values()];
+            });
             setClasses(data.classes);
             setPermissions(data.permissions);
-            setSelectedStudentId((current) => {
-                if (current && data.students.some((student) => student.id === current)) return current;
-                return '';
-            });
+            nextCursorRef.current = data.nextCursor;
+            setHasMore(data.hasMore);
             setHasExternalUpdate(false);
             void loadMetrics(data.students.map((student) => student.id), options);
         } catch (err) {
+            if (controller.signal.aborted || rosterRequestSequence.current !== requestSequence) return;
             const message = err instanceof Error ? err.message : '학생 정보를 불러오지 못했습니다.';
             setError(message);
             toast.error(message);
         } finally {
-            if (options.background) setRefreshing(false);
-            else setLoading(false);
+            rosterAbortController.clear(controller);
+            if (rosterRequestSequence.current === requestSequence) {
+                if (options.append) setLoadingMore(false);
+                else if (options.background) setRefreshing(false);
+                else setLoading(false);
+            }
         }
-    }, [academyId, loadMetrics]);
+    }, [academyId, loadMetrics, rosterAbortController, rosterFilters, rosterFiltersReady]);
 
     const loadDetail = useCallback(async (
         studentId: string,
@@ -1232,16 +1306,15 @@ export function StudentsOperationsPage() {
     }, [academyId]);
 
     useEffect(() => {
-        void load();
-    }, [load]);
+        if (rosterFiltersReady) void load();
+    }, [load, rosterFiltersReady]);
 
     useEffect(() => {
         if (!requestedStudentId) return;
-        if (!students.some((student) => student.id === requestedStudentId)) return;
         setSelectedStudentId(requestedStudentId);
         setSearchQuery('');
         setStatusFilter('all');
-    }, [requestedStudentId, students]);
+    }, [requestedStudentId]);
 
     useEffect(() => {
         if (!academyId) return undefined;
@@ -1314,11 +1387,12 @@ export function StudentsOperationsPage() {
     }, [learningPeriod, loadDetail, selectedStudentId]);
 
     const filteredStudents = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
+        const query = requestedRosterFilters.q;
         const filtered = students.filter((student) => {
             const matchesQuery = !query
                 || student.name.toLowerCase().includes(query)
                 || (student.phone || '').includes(query)
+                || (student.parentName || '').toLocaleLowerCase('ko-KR').includes(query)
                 || (student.parentPhone || '').includes(query);
             const matchesClass = classFilter === 'all' || student.classIds.includes(classFilter);
             const matchesStatus = statusFilter === 'all'
@@ -1329,7 +1403,7 @@ export function StudentsOperationsPage() {
             return matchesQuery && matchesClass && matchesStatus;
         });
         return sortStudents(filtered, sortMode);
-    }, [classFilter, searchQuery, sortMode, statusFilter, students]);
+    }, [classFilter, requestedRosterFilters.q, sortMode, statusFilter, students]);
 
     const selectedStudent = useMemo(
         () => students.find((student) => student.id === selectedStudentId) || null,
@@ -1643,6 +1717,19 @@ export function StudentsOperationsPage() {
                                 metricsLoading={metricsLoading}
                                 onSelect={(student) => setSelectedStudentId(student.id)}
                             />
+                            {hasMore && (
+                                <div className="border-t p-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="w-full"
+                                        disabled={loadingMore}
+                                        onClick={() => void load({ append: true })}
+                                    >
+                                        {loadingMore ? '학생을 불러오는 중...' : '학생 더 보기'}
+                                    </Button>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
 

@@ -2,6 +2,7 @@ import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/
 import { createLearningAssignmentForAcademy } from '@/lib/lms/mutations';
 import { loadAssignmentManagementData } from '@/lib/lms/assignment-queries';
 import type { CreateLearningAssignmentInput } from '@/features/lms/types';
+import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 function noStoreJson(body: unknown, init?: ResponseInit) {
     return Response.json(body, {
@@ -43,20 +44,27 @@ export async function POST(request: Request) {
             academyId?: string;
         };
         if (!body.academyId) {
-            return Response.json({ success: false, error: 'Invalid assignment request.' }, { status: 400 });
+            return mutationError('INVALID_ASSIGNMENT_REQUEST', 'Invalid assignment request.', { request });
         }
 
         const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
         const assignment = await createLearningAssignmentForAcademy(body.academyId, body, actor);
-        return Response.json({ success: true, assignment });
+        const mutationId = 'mutationId' in assignment && typeof assignment.mutationId === 'string'
+            ? assignment.mutationId
+            : crypto.randomUUID();
+        return mutationSuccess(assignment, {
+            request,
+            aliases: { assignment },
+            invalidation: {
+                eventId: mutationId,
+                domains: ['assignments'],
+            },
+        });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;
 
         console.error('[LMS Assignments] Failed:', error);
-        return Response.json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Assignment creation failed.',
-        }, { status: 500 });
+        return mutationException(error, 'ASSIGNMENT_CREATION_FAILED', 'Assignment creation failed.', { request });
     }
 }
