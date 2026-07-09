@@ -347,7 +347,7 @@ export async function loadClassOptionsForContext(context: LmsRoleContext): Promi
     }));
 }
 
-async function loadSchedule(
+export async function loadSchedule(
     core: SchemaClient,
     lms: SchemaClient,
     academyId: string,

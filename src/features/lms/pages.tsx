@@ -1,12 +1,18 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Activity,
   AlertTriangle,
   BarChart3,
   BookOpen,
   CalendarDays,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  Clock,
   CreditCard,
   Download,
   GraduationCap,
@@ -39,8 +45,8 @@ import { Label } from '@/components/ui/label';
 import { PageShell } from '@/components/ui/page-shell';
 import { SelectField } from '@/components/ui/select-field';
 import { SelectableCard } from '@/components/ui/selectable-card';
-import { SkeletonPanel } from '@/components/ui/skeleton';
-import { ErrorState } from '@/components/ui/state';
+import { Skeleton, SkeletonPanel } from '@/components/ui/skeleton';
+import { EmptyState, ErrorState } from '@/components/ui/state';
 import { StatCard } from '@/components/ui/stat-card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { canManageScheduleRules } from '@/core/auth/roles';
@@ -76,7 +82,6 @@ import {
   createExpense,
   createInstructorPayment,
 } from './service';
-import { isPaidInvoiceStatus } from './status';
 import type {
   AdminExportType,
   AdminResetTarget,
@@ -241,13 +246,280 @@ function MetricCard({
   return <StatCard label={label} value={value} hint={hint} icon={Icon} />;
 }
 
+function monthFromDate(value: string): string {
+  return value.slice(0, 7);
+}
+
+function formatShortDate(value: string): string {
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatDueDate(value: string | null): string {
+  if (!value) return '마감 없음';
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function completionTone(value: number, hasAssignments: boolean): 'neutral' | 'success' | 'warning' | 'danger' | 'primary' {
+  if (!hasAssignments) return 'neutral';
+  if (value >= 80) return 'success';
+  if (value >= 50) return 'warning';
+  return 'danger';
+}
+
+function ProgressBar({ value, tone = 'primary' }: { value: number; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'primary' }) {
+  const toneClass = {
+    neutral: 'bg-muted-foreground/35',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    danger: 'bg-destructive',
+    primary: 'bg-primary',
+  }[tone];
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-muted">
+      <div className={`h-full rounded-full ${toneClass}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-4">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="mt-4 h-8 w-20" />
+            <Skeleton className="mt-3 h-3 w-32" />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-44" />
+                <Skeleton className="h-3 w-72 max-w-full" />
+              </div>
+              <Skeleton className="h-8 w-24" />
+            </div>
+            <Skeleton className="mt-5 h-2 w-full" />
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <Skeleton className="h-16 w-full rounded-lg" />
+              <Skeleton className="h-16 w-full rounded-lg" />
+              <Skeleton className="h-16 w-full rounded-lg" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ClassMetric({ label, value, tone }: { label: string; value: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'primary' }) {
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
+      {tone && <div className={`mt-2 h-1 rounded-full ${tone === 'danger' ? 'bg-destructive' : tone === 'warning' ? 'bg-warning' : tone === 'success' ? 'bg-success' : 'bg-primary'}`} />}
+    </div>
+  );
+}
+
+function lessonTimeText(classRow: DashboardData['classes'][number]): string {
+  if (classRow.lessons.length === 0) return '수업 시간 없음';
+  return classRow.lessons
+    .map((lesson) => `${lesson.startTime}-${lesson.endTime}`)
+    .join(', ');
+}
+
+function ActionStudentRow({ student }: { student: DashboardData['classes'][number]['actionStudents'][number] }) {
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-medium text-foreground">{student.studentName}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {student.missingAssignmentCount > 0 && <StatusBadge tone="warning" label={`과제 ${student.missingAssignmentCount}`} />}
+          {student.weakTypeCount > 0 && <StatusBadge tone="danger" label={`취약 ${student.weakTypeCount}`} />}
+          {student.attendanceIssueCount > 0 && <StatusBadge tone="info" label={`출결 ${student.attendanceIssueCount}`} />}
+        </div>
+      </div>
+      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+        {student.assignmentTitles.length > 0 && <p>미완료 과제: {student.assignmentTitles.join(', ')}</p>}
+        {student.weakTypes.length > 0 && <p>취약 유형: {student.weakTypes.map((row) => `${row.typeName}${row.score === null ? '' : ` ${row.score}%`}`).join(', ')}</p>}
+        {student.attendanceStatuses.length > 0 && <p>출결 확인: {student.attendanceStatuses.join(', ')}</p>}
+      </div>
+    </div>
+  );
+}
+
+function HomeClassCard({ classRow }: { classRow: DashboardData['classes'][number] }) {
+  const [expanded, setExpanded] = useState(false);
+  const progress = classRow.assignmentProgress;
+  const hasAssignments = progress.assignmentCount > 0;
+  const tone = completionTone(progress.completionRate, hasAssignments);
+  const attendanceIssueCount = classRow.attendance.missing + classRow.attendance.absent + classRow.attendance.late + classRow.attendance.makeup;
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b pb-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: classRow.color || DEFAULT_CLASS_COLOR }} />
+              <CardTitle className="truncate text-lg">{classRow.className}</CardTitle>
+              {classRow.grade && <StatusBadge tone="neutral" label={classRow.grade} />}
+              <StatusBadge tone={tone} label={hasAssignments ? `과제 ${progress.completionRate}%` : '과제 없음'} />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{lessonTimeText(classRow)}</span>
+              {classRow.instructorName && <span>강사 {classRow.instructorName}</span>}
+              {classRow.classroomName && <span>강의실 {classRow.classroomName}</span>}
+              <span>{classRow.studentCount}명</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/assignments">과제 현황</Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/classrooms">
+                반 운영
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-4">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="font-medium text-foreground">과제 완료율</span>
+            <span className="tabular-nums text-muted-foreground">
+              {progress.completedCount}/{progress.targetStudentCount}명 과제
+            </span>
+          </div>
+          <ProgressBar value={progress.completionRate} tone={tone} />
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span>진행 과제 {progress.assignmentCount}개</span>
+            <span>미시작 {progress.notStartedCount}명</span>
+            <span>진행중 {progress.inProgressCount}명</span>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <ClassMetric label="조치 필요" value={`${classRow.actionStudents.length}명`} tone={classRow.actionStudents.length > 0 ? 'warning' : 'success'} />
+          <ClassMetric label="취약 학생" value={`${classRow.weakStudentCount}명 / ${classRow.weakTypeCount}개`} tone={classRow.weakStudentCount > 0 ? 'danger' : 'success'} />
+          <ClassMetric label="출결 확인" value={`${attendanceIssueCount}건`} tone={attendanceIssueCount > 0 ? 'warning' : 'success'} />
+        </div>
+
+        {classRow.assignments.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground">확인할 과제</p>
+            <div className="grid gap-2 lg:grid-cols-2">
+              {classRow.assignments.map((assignment) => (
+                <div key={assignment.id} className="rounded-lg border bg-background p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{assignment.title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{assignment.bookTitle || '교재 미지정'} · {formatDueDate(assignment.dueAt)}</p>
+                    </div>
+                    <StatusBadge tone={assignment.overdue ? 'danger' : assignment.dueSoon ? 'warning' : 'primary'} label={`${assignment.completionRate}%`} />
+                  </div>
+                  <ProgressBar value={assignment.completionRate} tone={assignment.overdue ? 'danger' : assignment.dueSoon ? 'warning' : 'primary'} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-t pt-3">
+          <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded((value) => !value)}>
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            조치 학생 {classRow.actionStudents.length}명
+          </Button>
+          <Button asChild variant="link" size="sm">
+            <Link href="/students">학생 상세 보기</Link>
+          </Button>
+        </div>
+
+        {expanded && (
+          <div className="space-y-2">
+            {classRow.actionStudents.length === 0 ? (
+              <div className="rounded-lg border bg-success-soft p-3 text-sm text-success-foreground">
+                오늘 바로 확인할 과제/취약/출결 이슈가 없습니다.
+              </div>
+            ) : (
+              classRow.actionStudents.map((student) => (
+                <ActionStudentRow key={student.studentId} student={student} />
+              ))
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdminAlertsPanel({ alerts }: { alerts: NonNullable<DashboardData['adminAlerts']> }) {
+  if (alerts.unpaidBillingCount === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">관리자 알림</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CheckCircle2 className="h-4 w-4 text-success" />
+          이번 달 미납/미발행 알림이 없습니다.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-base">관리자 알림</CardTitle>
+          <StatusBadge tone="warning" label={`${alerts.unpaidBillingCount}건`} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="rounded-lg bg-warning-soft p-3 text-sm text-warning-foreground">
+          미납/미발행 합계 {currency(alerts.unpaidBillingAmount)}
+        </div>
+        <div className="space-y-2">
+          {alerts.unpaidBillingStudents.map((student) => (
+            <div key={student.studentId} className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+              <span className="truncate font-medium">{student.studentName}</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">{currency(student.amount)}</span>
+            </div>
+          ))}
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/accounting">회계에서 확인</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function LearningHomePage() {
   const academyId = useAcademyId();
-  const [month, setMonth] = useState(currentMonth());
+  const [selectedDate, setSelectedDate] = useState(today());
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const serviceMonth = monthFromDate(selectedDate);
 
   const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
@@ -255,15 +527,15 @@ export function LearningHomePage() {
     else setLoading(true);
     setError(null);
     try {
-      setData(await getDashboardData(academyId, month, { force: options.force }));
+      setData(await getDashboardData(academyId, selectedDate, serviceMonth, { force: options.force }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : '대시보드를 불러오지 못했습니다.';
+      const message = err instanceof Error ? err.message : '홈 대시보드를 불러오지 못했습니다.';
       setError(message);
     } finally {
       if (options.background) setRefreshing(false);
       else setLoading(false);
     }
-  }, [academyId, month]);
+  }, [academyId, selectedDate, serviceMonth]);
 
   useEffect(() => {
     void load();
@@ -281,17 +553,17 @@ export function LearningHomePage() {
 
   if (!academyId) return <MissingAcademy />;
 
-  const weakCount = data?.weakTypes.filter((row) => row.status === 'weak').length || 0;
-  const unpaid = data?.billing.filter((row) => !isPaidInvoiceStatus(row.status) && row.invoicedAmount > 0).length || 0;
-
   return (
     <PageShell
-      title="운영 대시보드"
-      description="반, 학생, 학습 취약점, 청구 상태를 한 화면에서 확인합니다."
+      title="오늘 수업 대시보드"
+      description="오늘 수업이 있는 반의 과제, 출결, 취약 학생을 우선순위로 확인합니다."
       icon={BarChart3}
       action={
         <div className="flex items-center gap-2">
-          <Input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="w-40" />
+          <Input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value || today())} className="w-40" />
+          <Button variant="outline" onClick={() => setSelectedDate(today())}>
+            오늘
+          </Button>
           <Button variant="outline" onClick={() => void load({ force: true })}>
             <RefreshCw className="mr-2 h-4 w-4" />
             새로고침
@@ -305,79 +577,56 @@ export function LearningHomePage() {
           최신 데이터 동기화 중
         </div>
       )}
-      {loading && <LoadingBlock />}
+      {loading && <DashboardSkeleton />}
       {error && !loading && <ErrorBlock message={error} onRetry={() => void load({ force: true })} />}
       {data && !loading && !error && (
-        <>
+        <div className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="운영 반" value={`${data.classes.length}개`} hint="활성 class 기준" icon={BookOpen} />
-            <MetricCard label="등록 학생" value={`${data.students.length}명`} hint="학생 원장 기준" icon={GraduationCap} />
-            <MetricCard label="취약 유형" value={`${weakCount}개`} hint="채점 데이터 기반" icon={AlertTriangle} />
-            <MetricCard label="AI 대화" value={`${data.aiConversationCount}건`} hint="최근 30일" icon={Activity} />
+            <MetricCard label="오늘 수업" value={`${data.summary.todayLessonCount}회`} hint={`${formatShortDate(data.date)} · ${data.summary.todayClassCount}개 반`} icon={CalendarDays} />
+            <MetricCard label="대상 학생" value={`${data.summary.activeStudentCount}명`} hint="오늘 수업 반 재원생" icon={GraduationCap} />
+            <MetricCard label="조치 필요" value={`${data.summary.actionStudentCount}명`} hint="과제/취약/출결 확인" icon={AlertTriangle} />
+            <MetricCard label="관리 알림" value={`${data.summary.unpaidBillingCount}건`} hint="관리자 전용 회계 알림" icon={ClipboardList} />
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle>우선 확인할 취약 유형</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <DataTable>
-                    <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="px-4 py-3 font-medium">학생</TableHead>
-                        <TableHead className="px-4 py-3 font-medium">유형</TableHead>
-                        <TableHead className="px-4 py-3 font-medium">점수</TableHead>
-                        <TableHead className="px-4 py-3 font-medium">상태</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {data.weakTypes.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
-                            표시할 취약 유형 데이터가 없습니다.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        data.weakTypes.map((row) => (
-                          <TableRow key={`${row.studentId}-${row.typeName}`} className="hover:bg-muted/60">
-                            <TableCell className="px-4 py-3 font-medium">{row.studentName}</TableCell>
-                            <TableCell className="px-4 py-3 text-muted-foreground">{row.typeName}</TableCell>
-                            <TableCell className="px-4 py-3 tabular-nums">{row.score === null ? '-' : `${row.score}%`}</TableCell>
-                            <TableCell className="px-4 py-3">
-                              <StatusBadge status={row.status} />
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                  </DataTable>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>이번 달 운영 알림</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
-                  <span className="text-muted-foreground">미납 또는 미발행</span>
-                  <strong>{unpaid}명</strong>
-                </div>
-                <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
-                  <span className="text-muted-foreground">학습 위험 학생</span>
-                  <strong>{new Set(data.weakTypes.map((row) => row.studentId)).size}명</strong>
-                </div>
-                <div className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
-                  <span className="text-muted-foreground">반별 취약 유형 합계</span>
-                  <strong>{data.classes.reduce((sum, row) => sum + row.weakTypeCount, 0)}개</strong>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </>
+          {data.classes.length === 0 ? (
+            <EmptyState
+              icon={CalendarDays}
+              title="오늘 예정된 수업이 없습니다"
+              description="날짜를 바꾸거나 반/시간표에서 반복 수업과 실제 수업 일정을 확인하세요."
+              action={<Button asChild variant="outline"><Link href="/classrooms">반/시간표 확인</Link></Button>}
+            />
+          ) : (
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="space-y-4">
+                {data.classes.map((classRow) => (
+                  <HomeClassCard key={classRow.classId} classRow={classRow} />
+                ))}
+              </div>
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">오늘 운영 흐름</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="flex items-center gap-2 rounded-lg bg-primary-soft p-3 text-primary-strong">
+                      <Clock className="h-4 w-4" />
+                      {data.classes[0]?.lessons[0]?.startTime || '-'} 첫 수업 시작
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border bg-background p-3">
+                      <span className="text-muted-foreground">과제 확인 반</span>
+                      <strong>{data.classes.filter((row) => row.assignmentProgress.assignmentCount > 0).length}개</strong>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border bg-background p-3">
+                      <span className="text-muted-foreground">출결 확인 필요</span>
+                      <strong>{data.classes.reduce((sum, row) => sum + row.attendance.missing + row.attendance.absent + row.attendance.late + row.attendance.makeup, 0)}건</strong>
+                    </div>
+                  </CardContent>
+                </Card>
+                {data.adminAlerts && <AdminAlertsPanel alerts={data.adminAlerts} />}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </PageShell>
   );

@@ -689,13 +689,122 @@ export interface ClassOperationsDetail {
   books: ClassBookSummary[];
 }
 
-export interface DashboardData {
-  classes: ClassSummary[];
-  students: StudentSummary[];
-  weakTypes: WeakTypeRow[];
-  billing: BillingRow[];
-  aiConversationCount: number;
+export interface HomeDashboardSummary {
+  date: string;
+  todayLessonCount: number;
+  todayClassCount: number;
+  activeStudentCount: number;
+  actionStudentCount: number;
+  unpaidBillingCount: number;
 }
+
+export interface HomeDashboardLesson {
+  id: string;
+  actualId: string | null;
+  virtual: boolean;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: LessonOccurrenceStatus;
+  instructorName: string | null;
+  classroomName: string | null;
+}
+
+export interface HomeDashboardAssignment {
+  id: string;
+  title: string;
+  dueAt: string | null;
+  status: string;
+  active: boolean;
+  bookTitle: string | null;
+  problemCount: number;
+  targetStudentCount: number;
+  notStartedCount: number;
+  inProgressCount: number;
+  completedCount: number;
+  completionRate: number;
+  correctRate: number | null;
+  overdue: boolean;
+  dueSoon: boolean;
+}
+
+export interface HomeDashboardAttendanceSummary {
+  totalExpected: number;
+  recorded: number;
+  missing: number;
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  makeup: number;
+}
+
+export interface HomeDashboardWeakType {
+  studentId: string;
+  studentName: string;
+  typeName: string;
+  score: number | null;
+  status: string;
+  lastAttemptedAt: string | null;
+}
+
+export interface HomeDashboardActionStudent {
+  studentId: string;
+  studentName: string;
+  classId: string;
+  missingAssignmentCount: number;
+  weakTypeCount: number;
+  attendanceIssueCount: number;
+  assignmentTitles: string[];
+  weakTypes: HomeDashboardWeakType[];
+  attendanceStatuses: string[];
+  priorityScore: number;
+}
+
+export interface HomeDashboardClassRow {
+  classId: string;
+  className: string;
+  grade: string | null;
+  color: string | null;
+  instructorName: string | null;
+  classroomName: string | null;
+  studentCount: number;
+  lessons: HomeDashboardLesson[];
+  assignmentProgress: {
+    assignmentCount: number;
+    targetStudentCount: number;
+    notStartedCount: number;
+    inProgressCount: number;
+    completedCount: number;
+    completionRate: number;
+  };
+  assignments: HomeDashboardAssignment[];
+  attendance: HomeDashboardAttendanceSummary;
+  weakTypeCount: number;
+  weakStudentCount: number;
+  actionStudents: HomeDashboardActionStudent[];
+}
+
+export interface HomeDashboardAdminAlerts {
+  unpaidBillingCount: number;
+  unpaidBillingAmount: number;
+  unpaidBillingStudents: Array<{
+    studentId: string;
+    studentName: string;
+    status: string;
+    amount: number;
+  }>;
+}
+
+export interface HomeDashboardData {
+  date: string;
+  serviceMonth: string;
+  summary: HomeDashboardSummary;
+  classes: HomeDashboardClassRow[];
+  adminAlerts: HomeDashboardAdminAlerts | null;
+}
+
+export type DashboardData = HomeDashboardData;
 
 export interface CreateClassInput {
   name: string;

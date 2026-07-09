@@ -486,14 +486,14 @@ async function loadAssignments(
     core: SchemaClient,
     context: LmsRoleContext,
     allowedClassIds: Set<string> | null,
-    options: { assignmentId?: string } = {},
+    options: { assignmentId?: string; limit?: number } = {},
 ): Promise<LearningAssignmentSummary[]> {
     let query = learning
         .from('assignments')
         .select('id,title,description,due_at,source_type,status,active,book_id,created_at')
         .eq('academy_id', context.academyId);
     if (options.assignmentId) query = query.eq('id', options.assignmentId);
-    else query = query.order('created_at', { ascending: false }).limit(150);
+    else query = query.order('created_at', { ascending: false }).limit(options.limit ?? 150);
 
     const { data, error } = await query;
     ensureNoError(error, 'Failed to load assignments');
@@ -597,6 +597,18 @@ async function loadAssignments(
             createdAt: assignment.created_at,
         };
     });
+}
+
+export async function loadLearningAssignmentsForContext(
+    context: LmsRoleContext,
+    options: { assignmentId?: string; limit?: number } = {},
+): Promise<LearningAssignmentSummary[]> {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const content = client.schema('content');
+    const learning = client.schema('learning');
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    return loadAssignments(learning, content, core, context, assignedClassIds, options);
 }
 
 async function loadProblemProgress(

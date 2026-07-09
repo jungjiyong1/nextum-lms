@@ -51,23 +51,23 @@ describe('LMS service cache policy', () => {
   }
 
   it('dedupes operational GET requests inside the five minute window', async () => {
-    await getDashboardData('academy-1', '2026-07');
-    await getDashboardData('academy-1', '2026-07');
+    await getDashboardData('academy-1', '2026-07-07', '2026-07');
+    await getDashboardData('academy-1', '2026-07-07', '2026-07');
 
     expect(getFetchCount()).toBe(1);
   });
 
   it('bypasses cache when force is requested', async () => {
-    await getDashboardData('academy-1', '2026-07');
-    await getDashboardData('academy-1', '2026-07', { force: true });
+    await getDashboardData('academy-1', '2026-07-07', '2026-07');
+    await getDashboardData('academy-1', '2026-07-07', '2026-07', { force: true });
 
     expect(getFetchCount()).toBe(2);
   });
 
   it('clears cached academy data after a mutation', async () => {
-    await getDashboardData('academy-1', '2026-07');
+    await getDashboardData('academy-1', '2026-07-07', '2026-07');
     await createClass('academy-1', { name: 'A' });
-    await getDashboardData('academy-1', '2026-07');
+    await getDashboardData('academy-1', '2026-07-07', '2026-07');
 
     expect(getFetchCount()).toBe(2);
   });

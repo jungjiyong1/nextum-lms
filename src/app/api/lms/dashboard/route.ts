@@ -2,6 +2,7 @@ import { authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
 import { loadDashboardDataForContext } from '@/lib/lms/dashboard-queries';
 
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function noStoreJson(body: unknown, init?: ResponseInit) {
     return Response.json(body, {
@@ -18,13 +19,14 @@ export async function GET(request: Request) {
         const params = new URL(request.url).searchParams;
         const academyId = params.get('academyId') || '';
         const serviceMonth = params.get('serviceMonth') || '';
+        const date = params.get('date') || '';
 
-        if (!academyId || !MONTH_PATTERN.test(serviceMonth)) {
+        if (!academyId || !MONTH_PATTERN.test(serviceMonth) || !DATE_PATTERN.test(date)) {
             return noStoreJson({ success: false, error: 'Invalid dashboard request.' }, { status: 400 });
         }
 
         const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
-        const data = await loadDashboardDataForContext(actor, serviceMonth);
+        const data = await loadDashboardDataForContext(actor, serviceMonth, date);
 
         return noStoreJson({ success: true, data });
     } catch (error) {

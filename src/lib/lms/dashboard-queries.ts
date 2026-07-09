@@ -2,16 +2,25 @@ import 'server-only';
 
 import { requiresAssignedClassScope } from '@/core/auth/roles';
 import { calculateInvoiceDraft } from '@/features/lms/billing';
-import { COMPLETED_PAYMENT_STATUS } from '@/features/lms/status';
+import { COMPLETED_PAYMENT_STATUS, isPaidInvoiceStatus } from '@/features/lms/status';
 import type {
     BillingClassRuleType,
     BillingRow,
     DashboardData,
+    HomeDashboardActionStudent,
+    HomeDashboardAdminAlerts,
+    HomeDashboardAssignment,
+    HomeDashboardAttendanceSummary,
+    HomeDashboardClassRow,
+    HomeDashboardLesson,
+    HomeDashboardWeakType,
+    LearningAssignmentSummary,
     StudentSummary,
     WeakTypeRow,
 } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { loadAssignedClassIdsForContext, loadClassSummariesForContext } from './class-queries';
+import { loadLearningAssignmentsForContext } from './assignment-queries';
+import { loadAssignedClassIdsForContext, loadClassSummariesForContext, loadSchedule } from './class-queries';
 import type { LmsRoleContext } from './auth';
 
 type Row = Record<string, any>;
@@ -31,6 +40,25 @@ function toNumber(value: unknown, fallback = 0): number {
 
 function dateString(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function addDaysString(value: string, days: number): string {
+    const date = new Date(`${value}T00:00:00`);
+    date.setDate(date.getDate() + days);
+    return dateString(date);
+}
+
+function startOfDayMs(value: string): number {
+    return new Date(`${value}T00:00:00`).getTime();
+}
+
+function endOfDayMs(value: string): number {
+    return new Date(`${value}T23:59:59.999`).getTime();
+}
+
+function percent(part: number, total: number): number {
+    if (total <= 0) return 0;
+    return Math.round((part / total) * 100);
 }
 
 function monthRange(serviceMonth: string): { start: string; end: string } {
@@ -381,57 +409,364 @@ async function loadBilling(
     });
 }
 
-async function countAiConversations(
-    ai: SchemaClient,
+async function loadAttendanceRowsForOccurrences(
+    lms: SchemaClient,
     academyId: string,
-    studentIds: string[] | null,
-): Promise<number> {
-    if (studentIds && studentIds.length === 0) return 0;
+    occurrenceIds: string[],
+    studentIds: string[],
+): Promise<Row[]> {
+    if (occurrenceIds.length === 0 || studentIds.length === 0) return [];
 
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
-
-    let query = ai
-        .from('conversations')
-        .select('id', { count: 'exact', head: true })
+    const { data, error } = await lms
+        .from('attendance_records')
+        .select('id,occurrence_id,student_id,status')
         .eq('academy_id', academyId)
-        .gte('created_at', since.toISOString());
+        .in('occurrence_id', occurrenceIds)
+        .in('student_id', studentIds);
+    ensureNoError(error, 'Failed to load dashboard attendance records');
 
-    if (studentIds) {
-        query = query.in('student_id', studentIds);
+    return (data || []) as Row[];
+}
+
+function toHomeLesson(item: {
+    id: string;
+    actualId: string | null;
+    virtual: boolean;
+    date: string;
+    startTime: string;
+    endTime: string;
+    status: HomeDashboardLesson['status'];
+    instructorName: string | null;
+    classroomName: string | null;
+}): HomeDashboardLesson {
+    return {
+        id: item.id,
+        actualId: item.actualId,
+        virtual: item.virtual,
+        date: item.date,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        status: item.status,
+        instructorName: item.instructorName,
+        classroomName: item.classroomName,
+    };
+}
+
+function isRelevantHomeAssignment(assignment: LearningAssignmentSummary, date: string): boolean {
+    if (!assignment.active || assignment.status === 'archived') return false;
+    const incomplete = assignment.progress.targetStudentCount > 0
+        && assignment.progress.completedCount < assignment.progress.targetStudentCount;
+    if (incomplete) return true;
+
+    const todayEnd = endOfDayMs(date);
+    if (assignment.dueAt && new Date(assignment.dueAt).getTime() <= todayEnd) return true;
+
+    const recentCutoff = startOfDayMs(addDaysString(date, -14));
+    const createdAt = new Date(assignment.createdAt).getTime();
+    return Number.isFinite(createdAt) && createdAt >= recentCutoff && createdAt <= todayEnd;
+}
+
+function isDueSoon(dueAt: string | null, date: string): boolean {
+    if (!dueAt) return false;
+    const due = new Date(dueAt).getTime();
+    return due >= startOfDayMs(date) && due <= endOfDayMs(addDaysString(date, 3));
+}
+
+function toHomeAssignment(
+    assignment: LearningAssignmentSummary,
+    classId: string,
+    date: string,
+): HomeDashboardAssignment | null {
+    const progress = assignment.classProgress.find((row) => row.classId === classId);
+    if (!progress) return null;
+
+    return {
+        id: assignment.id,
+        title: assignment.title,
+        dueAt: assignment.dueAt,
+        status: assignment.status,
+        active: assignment.active,
+        bookTitle: assignment.bookTitle,
+        problemCount: assignment.problemCount,
+        targetStudentCount: progress.targetStudentCount,
+        notStartedCount: progress.notStartedCount,
+        inProgressCount: progress.inProgressCount,
+        completedCount: progress.completedCount,
+        completionRate: progress.completionRate,
+        correctRate: progress.correctRate,
+        overdue: Boolean(assignment.dueAt && new Date(assignment.dueAt).getTime() < startOfDayMs(date)),
+        dueSoon: isDueSoon(assignment.dueAt, date),
+    };
+}
+
+function attendanceLabel(status: string): string {
+    const labels: Record<string, string> = {
+        missing: '미기록',
+        late: '지각',
+        absent: '결석',
+        excused: '인정 결석',
+        makeup: '보강',
+    };
+    return labels[status] || status;
+}
+
+function buildAttendanceSummary(
+    lessons: HomeDashboardLesson[],
+    students: StudentSummary[],
+    attendanceRows: Row[],
+): HomeDashboardAttendanceSummary {
+    const actualLessonIds = lessons.map((lesson) => lesson.actualId).filter((id): id is string => Boolean(id));
+    const expected = actualLessonIds.length * students.length;
+    const scopedRecords = attendanceRows.filter((row) => (
+        actualLessonIds.includes(row.occurrence_id) && students.some((student) => student.id === row.student_id)
+    ));
+
+    return {
+        totalExpected: expected,
+        recorded: scopedRecords.length,
+        missing: Math.max(0, expected - scopedRecords.length),
+        present: scopedRecords.filter((row) => row.status === 'present').length,
+        late: scopedRecords.filter((row) => row.status === 'late').length,
+        absent: scopedRecords.filter((row) => row.status === 'absent').length,
+        excused: scopedRecords.filter((row) => row.status === 'excused').length,
+        makeup: scopedRecords.filter((row) => row.status === 'makeup').length,
+    };
+}
+
+function weakTypeForHome(row: WeakTypeRow): HomeDashboardWeakType {
+    return {
+        studentId: row.studentId,
+        studentName: row.studentName,
+        typeName: row.typeName,
+        score: row.score,
+        status: row.status,
+        lastAttemptedAt: row.lastAttemptedAt,
+    };
+}
+
+function buildActionStudents(input: {
+    classId: string;
+    students: StudentSummary[];
+    lessons: HomeDashboardLesson[];
+    assignments: LearningAssignmentSummary[];
+    weakTypes: WeakTypeRow[];
+    attendanceRows: Row[];
+}): HomeDashboardActionStudent[] {
+    const studentsById = new Map(input.students.map((student) => [student.id, student]));
+    const buckets = new Map<string, {
+        assignmentTitles: Set<string>;
+        weakTypes: HomeDashboardWeakType[];
+        attendanceStatuses: Set<string>;
+    }>();
+
+    const ensure = (studentId: string) => {
+        if (!studentsById.has(studentId)) return null;
+        const bucket = buckets.get(studentId) || {
+            assignmentTitles: new Set<string>(),
+            weakTypes: [],
+            attendanceStatuses: new Set<string>(),
+        };
+        buckets.set(studentId, bucket);
+        return bucket;
+    };
+
+    for (const assignment of input.assignments) {
+        for (const recipient of assignment.studentProgress) {
+            if (recipient.classId !== input.classId || recipient.status === 'completed') continue;
+            ensure(recipient.studentId)?.assignmentTitles.add(assignment.title);
+        }
     }
 
-    const { count, error } = await query;
-    if (error) return 0;
-    return count || 0;
+    for (const weakType of input.weakTypes) {
+        if (weakType.classId !== input.classId) continue;
+        const bucket = ensure(weakType.studentId);
+        if (bucket) bucket.weakTypes.push(weakTypeForHome(weakType));
+    }
+
+    const actualLessonIds = input.lessons.map((lesson) => lesson.actualId).filter((id): id is string => Boolean(id));
+    for (const student of input.students) {
+        for (const occurrenceId of actualLessonIds) {
+            const record = input.attendanceRows.find((row) => row.occurrence_id === occurrenceId && row.student_id === student.id);
+            if (!record) {
+                ensure(student.id)?.attendanceStatuses.add('missing');
+                continue;
+            }
+            if (record.status !== 'present') {
+                ensure(student.id)?.attendanceStatuses.add(String(record.status));
+            }
+        }
+    }
+
+    return [...buckets.entries()]
+        .map(([studentId, bucket]) => {
+            const student = studentsById.get(studentId);
+            const assignmentTitles = [...bucket.assignmentTitles];
+            const attendanceStatuses = [...bucket.attendanceStatuses].map(attendanceLabel);
+            const priorityScore = assignmentTitles.length * 4 + bucket.weakTypes.length * 3 + attendanceStatuses.length * 2;
+            return {
+                studentId,
+                studentName: student?.name || 'Unknown student',
+                classId: input.classId,
+                missingAssignmentCount: assignmentTitles.length,
+                weakTypeCount: bucket.weakTypes.length,
+                attendanceIssueCount: attendanceStatuses.length,
+                assignmentTitles: assignmentTitles.slice(0, 3),
+                weakTypes: bucket.weakTypes
+                    .sort((a, b) => (a.score ?? 101) - (b.score ?? 101))
+                    .slice(0, 3),
+                attendanceStatuses,
+                priorityScore,
+            };
+        })
+        .filter((row) => row.priorityScore > 0)
+        .sort((a, b) => b.priorityScore - a.priorityScore || a.studentName.localeCompare(b.studentName, 'ko'))
+        .slice(0, 8);
+}
+
+function buildAdminAlerts(billing: BillingRow[]): HomeDashboardAdminAlerts {
+    const unpaid = billing
+        .filter((row) => row.expectedAmount > 0 && !isPaidInvoiceStatus(row.status))
+        .map((row) => {
+            const amount = Math.max(0, (row.invoicedAmount || row.expectedAmount) - row.paidAmount);
+            return {
+                studentId: row.studentId,
+                studentName: row.studentName,
+                status: row.status,
+                amount,
+            };
+        })
+        .sort((a, b) => b.amount - a.amount || a.studentName.localeCompare(b.studentName, 'ko'));
+
+    return {
+        unpaidBillingCount: unpaid.length,
+        unpaidBillingAmount: unpaid.reduce((sum, row) => sum + row.amount, 0),
+        unpaidBillingStudents: unpaid.slice(0, 5),
+    };
 }
 
 export async function loadDashboardDataForContext(
     context: LmsRoleContext,
     serviceMonth: string,
+    date: string,
 ): Promise<DashboardData> {
     const client = createAdminClient();
     const core = client.schema('core');
     const lms = client.schema('lms');
     const reporting = client.schema('reporting');
-    const ai = client.schema('ai');
     const assignedClassIds = await loadAssignedClassIdsForContext(context);
     const assignedStudentIds = await loadAssignedStudentIds(core, assignedClassIds);
     const includeFinance = !requiresAssignedClassScope(context.role);
 
-    const [classes, students, weakTypes, billing, aiConversationCount] = await Promise.all([
+    const [classes, students, weakTypes, billing, schedule, assignments] = await Promise.all([
         loadClassSummariesForContext(context),
         loadStudents(core, lms, context.academyId, assignedStudentIds, assignedClassIds, includeFinance),
-        loadWeakTypes(reporting, context.academyId, assignedClassIds, 12),
+        loadWeakTypes(reporting, context.academyId, assignedClassIds, 80),
         includeFinance ? loadBilling(core, lms, context.academyId, serviceMonth) : Promise.resolve([]),
-        countAiConversations(ai, context.academyId, assignedStudentIds),
+        loadSchedule(core, lms, context.academyId, date, date),
+        loadLearningAssignmentsForContext(context, { limit: 80 }),
     ]);
 
+    const scopedSchedule = assignedClassIds
+        ? schedule.filter((item) => assignedClassIds.has(item.classId))
+        : schedule;
+    const todaySchedule = scopedSchedule.filter((item) => item.date === date && item.status !== 'cancelled');
+    const todayClassIds = [...new Set(todaySchedule.map((item) => item.classId))];
+    const classMap = new Map(classes.map((row) => [row.id, row]));
+    const activeStudents = students.filter((student) => student.status === 'active');
+    const studentsByClass = new Map<string, StudentSummary[]>();
+    for (const student of activeStudents) {
+        for (const classId of student.classIds) {
+            if (!todayClassIds.includes(classId)) continue;
+            studentsByClass.set(classId, [...(studentsByClass.get(classId) || []), student]);
+        }
+    }
+
+    const occurrenceIds = todaySchedule.map((item) => item.actualId).filter((id): id is string => Boolean(id));
+    const attendanceRows = await loadAttendanceRowsForOccurrences(
+        lms,
+        context.academyId,
+        occurrenceIds,
+        activeStudents.map((student) => student.id),
+    );
+    const relevantAssignments = assignments.filter((assignment) => isRelevantHomeAssignment(assignment, date));
+
+    const dashboardClasses: HomeDashboardClassRow[] = todayClassIds
+        .map((classId) => {
+            const classSummary = classMap.get(classId);
+            const classScheduleItems = todaySchedule.filter((item) => item.classId === classId);
+            const lessons = classScheduleItems
+                .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                .map(toHomeLesson);
+            const classStudents = studentsByClass.get(classId) || [];
+            const classAssignments = relevantAssignments
+                .map((assignment) => toHomeAssignment(assignment, classId, date))
+                .filter((assignment): assignment is HomeDashboardAssignment => Boolean(assignment))
+                .sort((a, b) => {
+                    if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+                    if (a.dueSoon !== b.dueSoon) return a.dueSoon ? -1 : 1;
+                    return a.title.localeCompare(b.title, 'ko');
+                });
+            const classAssignmentSource = relevantAssignments.filter((assignment) => (
+                assignment.classProgress.some((row) => row.classId === classId)
+            ));
+            const assignmentTargetCount = classAssignments.reduce((sum, row) => sum + row.targetStudentCount, 0);
+            const completedCount = classAssignments.reduce((sum, row) => sum + row.completedCount, 0);
+            const classWeakTypes = weakTypes.filter((row) => row.classId === classId);
+            const actionStudents = buildActionStudents({
+                classId,
+                students: classStudents,
+                lessons,
+                assignments: classAssignmentSource,
+                weakTypes: classWeakTypes,
+                attendanceRows,
+            });
+
+            return {
+                classId,
+                className: classSummary?.name || classScheduleItems[0]?.className || 'Unknown class',
+                grade: classSummary?.grade ?? null,
+                color: classSummary?.color ?? null,
+                instructorName: lessons[0]?.instructorName || classSummary?.instructorName || null,
+                classroomName: lessons[0]?.classroomName || classSummary?.classroomName || null,
+                studentCount: classStudents.length,
+                lessons,
+                assignmentProgress: {
+                    assignmentCount: classAssignments.length,
+                    targetStudentCount: assignmentTargetCount,
+                    notStartedCount: classAssignments.reduce((sum, row) => sum + row.notStartedCount, 0),
+                    inProgressCount: classAssignments.reduce((sum, row) => sum + row.inProgressCount, 0),
+                    completedCount,
+                    completionRate: percent(completedCount, assignmentTargetCount),
+                },
+                assignments: classAssignments.slice(0, 4),
+                attendance: buildAttendanceSummary(lessons, classStudents, attendanceRows),
+                weakTypeCount: classWeakTypes.length,
+                weakStudentCount: new Set(classWeakTypes.map((row) => row.studentId)).size,
+                actionStudents,
+            };
+        })
+        .sort((a, b) => (
+            (a.lessons[0]?.startTime || '99:99').localeCompare(b.lessons[0]?.startTime || '99:99')
+            || a.className.localeCompare(b.className, 'ko')
+        ));
+
+    const adminAlerts = includeFinance ? buildAdminAlerts(billing) : null;
+    const actionStudentIds = new Set(dashboardClasses.flatMap((row) => row.actionStudents.map((student) => student.studentId)));
+
     return {
-        classes,
-        students,
-        weakTypes,
-        billing,
-        aiConversationCount,
+        date,
+        serviceMonth,
+        summary: {
+            date,
+            todayLessonCount: todaySchedule.length,
+            todayClassCount: dashboardClasses.length,
+            activeStudentCount: new Set(dashboardClasses.flatMap((row) => (
+                (studentsByClass.get(row.classId) || []).map((student) => student.id)
+            ))).size,
+            actionStudentCount: actionStudentIds.size,
+            unpaidBillingCount: adminAlerts?.unpaidBillingCount ?? 0,
+        },
+        classes: dashboardClasses,
+        adminAlerts,
     };
 }

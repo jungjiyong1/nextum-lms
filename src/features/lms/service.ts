@@ -404,8 +404,8 @@ export async function getAcademyName(academyId: string, options: LmsRequestOptio
   return getLmsJson<string | null>(`/api/lms/academy?${params.toString()}`, { policy: 'static', ...options });
 }
 
-export async function getDashboardData(academyId: string, serviceMonth: string, options: LmsRequestOptions = {}): Promise<DashboardData> {
-  const params = new URLSearchParams({ academyId, serviceMonth });
+export async function getDashboardData(academyId: string, date: string, serviceMonth: string, options: LmsRequestOptions = {}): Promise<DashboardData> {
+  const params = new URLSearchParams({ academyId, date, serviceMonth });
   return getLmsJson<DashboardData>(`/api/lms/dashboard?${params.toString()}`, { policy: 'operational', ...options });
 }
 
