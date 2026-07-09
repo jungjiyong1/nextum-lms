@@ -20,7 +20,17 @@ const minimums = {
   classStudents: readIntEnv('LMS_SMOKE_MIN_CLASS_STUDENTS', 1),
 };
 
-const pages = ['/', '/classrooms', '/students', '/instructors', '/accounting', '/settings'];
+const pages = [
+  '/',
+  '/classrooms',
+  '/classrooms/schedule',
+  '/classrooms/attendance',
+  '/classrooms/settings',
+  '/students',
+  '/instructors',
+  '/accounting',
+  '/settings',
+];
 const fatalPagePatterns = [
   /Application error/i,
   /Unhandled Runtime Error/i,

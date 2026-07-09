@@ -15,7 +15,7 @@ import {
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { Profile } from '../../contexts/AuthContext';
-import { appPageHref, canAccessAppPage, getRoleLabel, type AppPage } from '../../core/auth/roles';
+import { appPageHref, canAccessAppPage, getRoleLabel, type AppPage, type AppRole } from '../../core/auth/roles';
 
 interface SidebarProps {
     activePage: string;
@@ -30,6 +30,7 @@ type NavChild = {
     label: string;
     href: string;
     exact?: boolean;
+    roles?: readonly AppRole[];
 };
 
 type NavItem = {
@@ -57,7 +58,12 @@ const navItems: NavItem[] = [
         label: '반/시간표',
         href: appPageHref.classrooms,
         icon: LayoutGrid,
-        children: [{ id: 'classrooms-overview', label: '반 운영', href: appPageHref.classrooms }],
+        children: [
+            { id: 'classrooms-overview', label: '반 운영', href: appPageHref.classrooms, exact: true },
+            { id: 'classrooms-schedule', label: '시간표', href: '/classrooms/schedule', exact: true },
+            { id: 'classrooms-attendance', label: '출결', href: '/classrooms/attendance', exact: true },
+            { id: 'classrooms-settings', label: '운영 설정', href: '/classrooms/settings', exact: true, roles: ['owner', 'admin', 'staff'] },
+        ],
     },
     {
         id: 'instructors',
@@ -94,7 +100,13 @@ export function Sidebar({ activePage, onNavigate, onSignOut, userProfile, academ
     const [collapsed, setCollapsed] = React.useState(false);
     const [compactViewport, setCompactViewport] = React.useState(false);
     const [expandedSections, setExpandedSections] = React.useState<Set<string>>(new Set([activePage]));
-    const visibleNavItems = navItems.filter((item) => canAccessAppPage(userProfile?.role, item.id));
+    const role = userProfile?.role as AppRole | null | undefined;
+    const visibleNavItems = navItems
+        .filter((item) => canAccessAppPage(role, item.id))
+        .map((item) => ({
+            ...item,
+            children: item.children?.filter((child) => !child.roles || (role && child.roles.includes(role))),
+        }));
     const visuallyCollapsed = collapsed || compactViewport;
 
     React.useEffect(() => {

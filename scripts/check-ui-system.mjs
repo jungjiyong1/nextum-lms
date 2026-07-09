@@ -14,6 +14,7 @@ const governedFiles = [
   'src/components/ErrorBoundary.tsx',
   'src/features/lms/pages.tsx',
   'src/features/lms/assignments-operations-page.tsx',
+  'src/features/lms/classrooms-operations-page.tsx',
   'src/features/lms/students-operations-page.tsx',
   'src/screens/LoginPage.tsx',
 ];
@@ -50,6 +51,7 @@ const duplicateHelperAllowed = new Set([
 
 const hexColorAllowed = new Set([
   'src/features/lms/pages.tsx',
+  'src/features/lms/classrooms-operations-page.tsx',
 ]);
 
 function normalize(filePath) {

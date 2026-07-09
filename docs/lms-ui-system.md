@@ -80,7 +80,7 @@ Allowed exceptions must be documented here before merging. Current built-in exce
 - `src/components/ui/button.tsx` implements the raw button primitive.
 - `src/components/ui/selectable-card.tsx` implements a selectable button-card primitive.
 - `src/components/ui/data-table.tsx` implements the raw table primitive.
-- `src/features/lms/pages.tsx` may contain hex strings only for user-editable class/classroom color data and swatch fallbacks, not decorative UI styling.
+- `src/features/lms/pages.tsx` and `src/features/lms/classrooms-operations-page.tsx` may contain hex strings only for user-editable class/classroom color data and swatch fallbacks, not decorative UI styling.
 
 ## New Screen Checklist
 
