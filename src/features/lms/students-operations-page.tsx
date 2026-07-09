@@ -1075,6 +1075,7 @@ function ManagementTab({
 export function StudentsOperationsPage() {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
+    const [requestedStudentId, setRequestedStudentId] = useState('');
     const [students, setStudents] = useState<StudentSummary[]>([]);
     const [classes, setClasses] = useState<ClassSummary[]>([]);
     const [permissions, setPermissions] = useState<StudentOperationsPermissions>(emptyPermissions);
@@ -1131,6 +1132,15 @@ export function StudentsOperationsPage() {
         setExtraClassFee('0');
         setSelectedClassIds(new Set());
         setFormMode(null);
+    }, []);
+
+    useEffect(() => {
+        const readRequestedStudent = () => {
+            setRequestedStudentId(new URLSearchParams(window.location.search).get('studentId') || '');
+        };
+        readRequestedStudent();
+        window.addEventListener('popstate', readRequestedStudent);
+        return () => window.removeEventListener('popstate', readRequestedStudent);
     }, []);
 
     const mergeLearningMetrics = useCallback((metrics: StudentLearningMetric[]) => {
@@ -1224,6 +1234,14 @@ export function StudentsOperationsPage() {
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        if (!requestedStudentId) return;
+        if (!students.some((student) => student.id === requestedStudentId)) return;
+        setSelectedStudentId(requestedStudentId);
+        setSearchQuery('');
+        setStatusFilter('all');
+    }, [requestedStudentId, students]);
 
     useEffect(() => {
         if (!academyId) return undefined;
