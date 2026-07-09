@@ -8,6 +8,8 @@ import {
     ArchiveX,
     BarChart3,
     CheckCircle2,
+    ChevronDown,
+    ChevronRight,
     ClipboardList,
     Clock3,
     FileText,
@@ -16,7 +18,6 @@ import {
     Search,
     SlidersHorizontal,
     Trash2,
-    Upload,
     UserMinus,
     UserPlus,
     Users,
@@ -52,7 +53,6 @@ import { SkeletonPanel } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/state';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 import { sortByProblemOrder } from '@/lib/lms/problem-order';
 import { cn } from '@/lib/utils';
 import {
@@ -71,14 +71,15 @@ import type {
     AssignmentClassProgressSummary,
     AssignmentManagementData,
     AssignmentProblemSummary,
+    AssignmentProblemTypeSummary,
     AssignmentRecipientProgress,
+    AssignmentUnitSummary,
     CreateLearningAssignmentInput,
     LearningAssignmentDetail,
     LearningAssignmentSummary,
     StudentSummary,
 } from './types';
 
-type SourceType = 'content_scope' | 'worksheet';
 type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
 type AssignmentViewMode = 'all' | 'by_class';
 type AssignmentStatusFilter = 'all' | 'open' | 'due_soon' | 'overdue' | 'completed' | 'recalled';
@@ -180,6 +181,16 @@ function problemChipLabel(problem: AssignmentProblemSummary): string {
     return [problem.number, problem.typeName || problem.conceptName]
         .filter(Boolean)
         .join(' · ');
+}
+
+function normalizedProblemLabel(value: string | null): string {
+    return (value || '').replace(/\s+/g, '');
+}
+
+function isConceptPracticeProblem(problem: AssignmentProblemSummary): boolean {
+    return [problem.typeName, problem.conceptName]
+        .map(normalizedProblemLabel)
+        .some((label) => label.includes('쏙쏙개념익히기'));
 }
 
 function toggleSetValue(setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
@@ -492,6 +503,15 @@ function groupProblemsByPage(problems: AssignmentProblemSummary[]): Array<{ page
     }));
 }
 
+type AssignmentUnitProblemRow = {
+    unit: AssignmentUnitSummary;
+    problems: AssignmentProblemSummary[];
+    types: AssignmentProblemTypeSummary[];
+    pageGroups: Array<{ pagePrinted: number; problems: AssignmentProblemSummary[] }>;
+    selectedCount: number;
+    conceptPracticeCount: number;
+};
+
 function AssignmentComposer({
     data,
     submitting,
@@ -503,20 +523,21 @@ function AssignmentComposer({
     onCancel: () => void;
     onSubmit: (input: CreateLearningAssignmentInput, file: File | null) => Promise<void>;
 }) {
-    const [sourceType, setSourceType] = useState<SourceType>('content_scope');
     const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
     const [dueAt, setDueAt] = useState('');
     const [bookId, setBookId] = useState(data.books[0]?.id || '');
     const [wholeBook, setWholeBook] = useState(false);
     const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
     const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
     const [excludedProblemIds, setExcludedProblemIds] = useState<Set<string>>(new Set());
+    const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(() => {
+        const firstUnitId = data.books[0]?.units[0]?.id;
+        return firstUnitId ? new Set([firstUnitId]) : new Set();
+    });
     const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
     const [excludedStudentIds, setExcludedStudentIds] = useState<Set<string>>(new Set());
     const [studentSearch, setStudentSearch] = useState('');
-    const [worksheetFile, setWorksheetFile] = useState<File | null>(null);
 
     const selectedBook = data.books.find((book) => book.id === bookId) || null;
     const orderedBookProblems = useMemo(
@@ -528,11 +549,21 @@ function AssignmentComposer({
         [excludedProblemIds, orderedBookProblems, selectedTypeIds, selectedUnitIds, wholeBook],
     );
     const previewProblemIdSet = useMemo(() => new Set(previewProblemIds), [previewProblemIds]);
-    const visibleProblems = useMemo(
-        () => orderedBookProblems.filter((problem) => selectedUnitIds.has(problem.unitId)),
-        [orderedBookProblems, selectedUnitIds],
-    );
-    const visibleProblemGroups = useMemo(() => groupProblemsByPage(visibleProblems), [visibleProblems]);
+    const unitProblemRows = useMemo<AssignmentUnitProblemRow[]>(() => {
+        if (!selectedBook) return [];
+        return selectedBook.units.map((unit) => {
+            const problems = orderedBookProblems.filter((problem) => problem.unitId === unit.id);
+            const types = selectedBook.problemTypes.filter((type) => type.unitId === unit.id);
+            return {
+                unit,
+                problems,
+                types,
+                pageGroups: groupProblemsByPage(problems),
+                selectedCount: problems.filter((problem) => previewProblemIdSet.has(problem.id)).length,
+                conceptPracticeCount: problems.filter(isConceptPracticeProblem).length,
+            };
+        });
+    }, [orderedBookProblems, previewProblemIdSet, selectedBook]);
     const selectedClassStudents = useMemo(() => {
         const classIds = selectedClassIds;
         return data.students.filter((student) => student.status === 'active' && student.classIds.some((classId) => classIds.has(classId)));
@@ -560,42 +591,69 @@ function AssignmentComposer({
             .map((row) => row.name),
         [data.classes, selectedClassIds],
     );
-    const sourceLabel = sourceType === 'content_scope' ? '채점 가능 교재' : '새 학습지 export';
-    const materialLabel = sourceType === 'content_scope'
-        ? selectedBook?.title || '교재 미선택'
-        : worksheetFile?.name || '파일 미선택';
-    const problemSummary = sourceType === 'worksheet'
-        ? (worksheetFile ? '업로드 파일 기준' : '파일 선택 필요')
-        : (wholeBook ? '전체 교재' : `${previewProblemIds.length}문항`);
+    const materialLabel = selectedBook?.title || '문제집 미선택';
+    const problemSummary = wholeBook ? '전체 문제집' : `${previewProblemIds.length}문항`;
     const dueSummary = dueAt ? formatDate(toDueIso(dueAt)) : '기한 없음';
-
-    const toggleUnit = (unitId: string) => {
-        if (!selectedBook) return;
-        setWholeBook(false);
-        setSelectedUnitIds((prev) => {
-            const next = new Set(prev);
-            const typeIds = selectedBook.problemTypes.filter((type) => type.unitId === unitId).map((type) => type.id);
-            if (next.has(unitId)) {
-                next.delete(unitId);
-                setSelectedTypeIds((current) => {
-                    const updated = new Set(current);
-                    typeIds.forEach((id) => updated.delete(id));
-                    return updated;
-                });
-            } else {
-                next.add(unitId);
-                setSelectedTypeIds((current) => new Set([...current, ...typeIds]));
-            }
-            setExcludedProblemIds(new Set());
-            return next;
-        });
-    };
 
     const resetScope = () => {
         setWholeBook(false);
         setSelectedUnitIds(new Set());
         setSelectedTypeIds(new Set());
         setExcludedProblemIds(new Set());
+    };
+
+    const setExpandedUnit = (unitId: string, expanded: boolean) => {
+        setExpandedUnitIds((current) => {
+            const next = new Set(current);
+            if (expanded) next.add(unitId);
+            else next.delete(unitId);
+            return next;
+        });
+    };
+
+    const selectUnitProblems = (
+        unitId: string,
+        problems: AssignmentProblemSummary[],
+        types: AssignmentProblemTypeSummary[],
+    ) => {
+        if (problems.length === 0) return;
+        setWholeBook(false);
+        setExpandedUnit(unitId, true);
+        setSelectedUnitIds((current) => new Set([...current, unitId]));
+        setSelectedTypeIds((current) => new Set([...current, ...types.map((type) => type.id)]));
+        setExcludedProblemIds((current) => {
+            const next = new Set(current);
+            problems.forEach((problem) => next.delete(problem.id));
+            return next;
+        });
+    };
+
+    const clearUnitProblems = (
+        unitId: string,
+        problems: AssignmentProblemSummary[],
+        types: AssignmentProblemTypeSummary[],
+    ) => {
+        setWholeBook(false);
+        setSelectedUnitIds((current) => {
+            const next = new Set(current);
+            next.delete(unitId);
+            return next;
+        });
+        setSelectedTypeIds((current) => {
+            const next = new Set(current);
+            types.forEach((type) => next.delete(type.id));
+            return next;
+        });
+        setExcludedProblemIds((current) => {
+            const next = new Set(current);
+            problems.forEach((problem) => next.delete(problem.id));
+            return next;
+        });
+    };
+
+    const toggleUnitSelection = (row: AssignmentUnitProblemRow) => {
+        if (row.selectedCount > 0) clearUnitProblems(row.unit.id, row.problems, row.types);
+        else selectUnitProblems(row.unit.id, row.problems, row.types);
     };
 
     const includeProblems = (problems: AssignmentProblemSummary[]) => {
@@ -631,6 +689,35 @@ function AssignmentComposer({
         else includeProblems([problem]);
     };
 
+    const selectConceptPracticeProblemsOnly = (row: AssignmentUnitProblemRow) => {
+        const conceptProblems = row.problems.filter(isConceptPracticeProblem);
+        if (conceptProblems.length === 0) {
+            toast.error(`${row.unit.name}에는 쏙쏙개념익히기 문제가 없습니다.`);
+            return;
+        }
+
+        const conceptProblemIds = new Set(conceptProblems.map((problem) => problem.id));
+        setWholeBook(false);
+        setExpandedUnit(row.unit.id, true);
+        setSelectedUnitIds((current) => new Set([...current, row.unit.id]));
+        setSelectedTypeIds((current) => {
+            const next = new Set(current);
+            row.types.forEach((type) => next.delete(type.id));
+            conceptProblems.forEach((problem) => {
+                if (problem.problemTypeId) next.add(problem.problemTypeId);
+            });
+            return next;
+        });
+        setExcludedProblemIds((current) => {
+            const next = new Set(current);
+            row.problems.forEach((problem) => next.delete(problem.id));
+            row.problems
+                .filter((problem) => !conceptProblemIds.has(problem.id))
+                .forEach((problem) => next.add(problem.id));
+            return next;
+        });
+    };
+
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
         if (!title.trim()) {
@@ -641,33 +728,29 @@ function AssignmentComposer({
             toast.error('대상 반 또는 학생을 선택하세요.');
             return;
         }
-        if (sourceType === 'content_scope' && !bookId) {
-            toast.error('교재를 선택하세요.');
+        if (!bookId) {
+            toast.error('문제집을 선택하세요.');
             return;
         }
-        if (sourceType === 'content_scope' && previewProblemIds.length === 0) {
+        if (previewProblemIds.length === 0) {
             toast.error('배정할 문제 범위를 선택하세요.');
-            return;
-        }
-        if (sourceType === 'worksheet' && !worksheetFile) {
-            toast.error('학습지 export 파일을 선택하세요.');
             return;
         }
 
         await onSubmit({
             title: title.trim(),
-            description: description.trim() || null,
+            description: null,
             dueAt: toDueIso(dueAt),
             context: 'homework',
-            sourceType,
-            bookId: sourceType === 'content_scope' ? bookId : null,
-            unitIds: sourceType === 'content_scope' && !wholeBook ? [...selectedUnitIds] : [],
-            problemTypeIds: sourceType === 'content_scope' && !wholeBook ? [...selectedTypeIds] : [],
-            problemIds: sourceType === 'content_scope' && !wholeBook ? previewProblemIds : [],
+            sourceType: 'content_scope',
+            bookId,
+            unitIds: !wholeBook ? [...selectedUnitIds] : [],
+            problemTypeIds: !wholeBook ? [...selectedTypeIds] : [],
+            problemIds: !wholeBook ? previewProblemIds : [],
             classIds: [...selectedClassIds],
             studentIds: [...selectedStudentIds],
             excludedStudentIds: [...excludedStudentIds],
-        }, worksheetFile);
+        }, null);
     };
 
     return (
@@ -682,43 +765,26 @@ function AssignmentComposer({
                                 <Input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
                             </FormField>
                         </div>
-                        <FormField label="설명">
-                            <Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="학생에게 보일 간단한 안내" rows={3} />
-                        </FormField>
                     </FormSection>
 
-                    <FormSection title="과제 자료">
-                        <div className="grid gap-3 md:grid-cols-2">
-                            <SelectableCard selected={sourceType === 'content_scope'} onClick={() => setSourceType('content_scope')}>
-                                <FileText className="mb-2 h-4 w-4 text-primary" />
-                                <div className="font-semibold">채점 가능 교재</div>
-                                <div className="mt-1 text-xs text-muted-foreground">crop/정답 매칭이 끝난 문제집에서 범위를 선택합니다.</div>
-                            </SelectableCard>
-                            <SelectableCard selected={sourceType === 'worksheet'} onClick={() => setSourceType('worksheet')}>
-                                <Upload className="mb-2 h-4 w-4 text-primary" />
-                                <div className="font-semibold">새 학습지 export</div>
-                                <div className="mt-1 text-xs text-muted-foreground">학생별 PDF를 crop/정답 매칭한 zip/json으로 등록합니다.</div>
-                            </SelectableCard>
-                        </div>
-                    </FormSection>
-
-                    {sourceType === 'content_scope' ? (
-                        <FormSection title="문제 범위" description={`${previewProblemIds.length}문항이 배정됩니다.`}>
+                    <FormSection title="문제 범위" description={`${previewProblemIds.length}문항이 배정됩니다.`}>
                             {data.books.length === 0 ? (
                                 <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-sm text-muted-foreground">
-                                    채점 가능한 교재가 아직 없습니다. 기존 crop 자료를 가져오거나 새 학습지 export를 업로드하세요.
+                                    등록된 문제집이 아직 없습니다. 문제집을 먼저 등록한 뒤 과제를 배포하세요.
                                 </div>
                             ) : (
-                                <FormField label="교재">
+                                <FormField label="문제집">
                                     <Select
                                         value={bookId}
                                         onValueChange={(value) => {
                                             setBookId(value);
+                                            const nextBook = data.books.find((book) => book.id === value);
+                                            setExpandedUnitIds(new Set(nextBook?.units[0]?.id ? [nextBook.units[0].id] : []));
                                             resetScope();
                                         }}
                                     >
                                         <SelectTrigger>
-                                            <SelectValue placeholder="교재 선택" />
+                                            <SelectValue placeholder="문제집 선택" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             {data.books.map((book) => <SelectItem key={book.id} value={book.id}>{book.title}</SelectItem>)}
@@ -741,119 +807,155 @@ function AssignmentComposer({
                                                 setExcludedProblemIds(new Set());
                                             }}
                                         >
-                                            전체 교재
+                                                전체 문제집
                                         </Button>
                                         <Button type="button" variant="ghost" size="sm" onClick={resetScope}>범위 초기화</Button>
                                     </div>
                                     {!wholeBook && (
-                                        <div className="grid gap-4 lg:grid-cols-[0.8fr_0.8fr_1.2fr]">
-                                            <div>
-                                                <div className="mb-2 text-sm font-semibold">단원</div>
-                                                <div className="max-h-72 space-y-1 overflow-auto rounded-lg border bg-card p-2">
-                                                    {selectedBook.units.map((unit) => (
-                                                        <label key={unit.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-muted">
-                                                            <Checkbox checked={selectedUnitIds.has(unit.id)} onCheckedChange={() => toggleUnit(unit.id)} />
-                                                            <span>{unit.name} <span className="text-xs text-muted-foreground">({unit.problemCount})</span></span>
-                                                        </label>
-                                                    ))}
+                                        <div className="space-y-2">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div>
+                                                    <div className="text-sm font-semibold text-foreground">단원별 문제 선택</div>
+                                                    <div className="text-xs text-muted-foreground">단원을 펼친 뒤 페이지별 문제를 바로 선택합니다.</div>
                                                 </div>
+                                                <StatusBadge tone="primary" label={`${previewProblemIds.length}문항 선택`} />
                                             </div>
-                                            <div>
-                                                <div className="mb-2 text-sm font-semibold">세부유형</div>
-                                                <div className="max-h-72 space-y-1 overflow-auto rounded-lg border bg-card p-2">
-                                                    {selectedBook.problemTypes
-                                                        .filter((type) => !type.unitId || selectedUnitIds.has(type.unitId))
-                                                        .map((type) => (
-                                                            <label key={type.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-muted">
-                                                                <Checkbox checked={selectedTypeIds.has(type.id)} onCheckedChange={() => toggleSetValue(setSelectedTypeIds, type.id)} />
-                                                                <span>{type.name} <span className="text-xs text-muted-foreground">({type.problemCount})</span></span>
-                                                            </label>
-                                                        ))}
-                                                    {selectedUnitIds.size === 0 && <p className="p-2 text-xs text-muted-foreground">단원을 먼저 선택하세요.</p>}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="mb-2 flex items-center justify-between gap-2">
-                                                    <div>
-                                                        <div className="text-sm font-semibold">포함 문제</div>
-                                                        <div className="text-xs text-muted-foreground">페이지별로 눌러서 포함 여부를 바꿉니다.</div>
-                                                    </div>
-                                                    <StatusBadge tone="primary" label={`${previewProblemIds.length}문항`} />
-                                                </div>
-                                                <div className="max-h-80 space-y-3 overflow-auto rounded-lg border bg-card p-2">
-                                                    {selectedUnitIds.size === 0 && (
-                                                        <p className="p-2 text-xs text-muted-foreground">선택한 단원의 문제가 여기에 표시됩니다.</p>
-                                                    )}
-                                                    {selectedUnitIds.size > 0 && visibleProblemGroups.length === 0 && (
-                                                        <p className="p-2 text-xs text-muted-foreground">선택한 조건에 맞는 문제가 없습니다.</p>
-                                                    )}
-                                                    {visibleProblemGroups.map((group) => {
-                                                        const selectedInPage = group.problems.filter((problem) => previewProblemIdSet.has(problem.id)).length;
-                                                        return (
-                                                            <div key={group.pagePrinted} className="rounded-lg border border-border bg-background p-2">
-                                                                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="text-sm font-semibold text-foreground">p.{group.pagePrinted}</span>
-                                                                        <span className="text-xs text-muted-foreground">{selectedInPage}/{group.problems.length}</span>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-1.5">
-                                                                        <Button type="button" variant="outline" size="xs" onClick={() => includeProblems(group.problems)}>
-                                                                            전체 선택
-                                                                        </Button>
-                                                                        <Button type="button" variant="ghost" size="xs" onClick={() => excludeProblems(group.problems)}>
-                                                                            전체 제외
-                                                                        </Button>
-                                                                    </div>
+                                            <div className="max-h-[38rem] space-y-2 overflow-auto rounded-lg border bg-card p-2">
+                                                {unitProblemRows.map((row) => {
+                                                    const expanded = expandedUnitIds.has(row.unit.id);
+                                                    const selected = row.selectedCount > 0;
+                                                    const hasProblems = row.problems.length > 0;
+
+                                                    return (
+                                                        <section key={row.unit.id} className="rounded-lg border border-border bg-background">
+                                                            <div className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
+                                                                <div className="flex min-w-0 items-start gap-2">
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        size="icon-sm"
+                                                                        className="mt-0.5 shrink-0"
+                                                                        aria-label={expanded ? `${row.unit.name} 접기` : `${row.unit.name} 펼치기`}
+                                                                        aria-expanded={expanded}
+                                                                        onClick={() => setExpandedUnit(row.unit.id, !expanded)}
+                                                                    >
+                                                                        {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                                                    </Button>
+                                                                    <Checkbox
+                                                                        className="mt-1"
+                                                                        checked={selected}
+                                                                        disabled={!hasProblems}
+                                                                        onCheckedChange={() => toggleUnitSelection(row)}
+                                                                    />
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        className="h-auto min-w-0 flex-1 flex-col items-start gap-0 whitespace-normal p-0 text-left hover:bg-transparent"
+                                                                        onClick={() => setExpandedUnit(row.unit.id, !expanded)}
+                                                                    >
+                                                                        <span className="block truncate text-sm font-semibold text-foreground">{row.unit.name}</span>
+                                                                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                                            {row.selectedCount}/{row.problems.length}문항 선택
+                                                                        </span>
+                                                                    </Button>
                                                                 </div>
-                                                                <div className="grid grid-cols-[repeat(auto-fill,minmax(118px,1fr))] gap-1.5">
-                                                                    {group.problems.map((problem) => {
-                                                                        const included = previewProblemIdSet.has(problem.id);
-                                                                        return (
-                                                                            <Button
-                                                                                key={problem.id}
-                                                                                type="button"
-                                                                                variant={included ? 'secondary' : 'outline'}
-                                                                                size="xs"
-                                                                                title={problemLabel(problem)}
-                                                                                aria-pressed={included}
-                                                                                onClick={() => toggleProblem(problem)}
-                                                                                className={cn(
-                                                                                    'h-auto min-h-12 justify-start whitespace-normal px-2 py-2 text-left',
-                                                                                    included && 'border-primary/35 bg-primary-soft text-primary-strong hover:bg-primary-soft',
-                                                                                    !included && 'text-muted-foreground',
-                                                                                )}
-                                                                            >
-                                                                                <span className="min-w-0">
-                                                                                    <span className="line-clamp-2 block text-xs font-semibold leading-snug">{problemChipLabel(problem)}</span>
-                                                                                </span>
-                                                                            </Button>
-                                                                        );
-                                                                    })}
+                                                                <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="xs"
+                                                                        disabled={!hasProblems}
+                                                                        onClick={() => selectUnitProblems(row.unit.id, row.problems, row.types)}
+                                                                    >
+                                                                        전체
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="xs"
+                                                                        disabled={row.conceptPracticeCount === 0}
+                                                                        onClick={() => selectConceptPracticeProblemsOnly(row)}
+                                                                    >
+                                                                        쏙쏙개념익히기
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        size="xs"
+                                                                        disabled={row.selectedCount === 0}
+                                                                        onClick={() => clearUnitProblems(row.unit.id, row.problems, row.types)}
+                                                                    >
+                                                                        해제
+                                                                    </Button>
+                                                                    <StatusBadge tone={row.selectedCount > 0 ? 'primary' : 'neutral'} label={`${row.selectedCount}문항`} />
                                                                 </div>
                                                             </div>
-                                                        );
-                                                    })}
-                                                </div>
+
+                                                            {expanded && (
+                                                                <div className="border-t border-border p-3">
+                                                                    {row.problems.length === 0 ? (
+                                                                        <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">이 단원에 선택 가능한 문제가 없습니다.</p>
+                                                                    ) : (
+                                                                        <div className="space-y-3">
+                                                                                {row.pageGroups.map((group) => {
+                                                                                    const selectedInPage = group.problems.filter((problem) => previewProblemIdSet.has(problem.id)).length;
+                                                                                    return (
+                                                                                        <div key={`${row.unit.id}-${group.pagePrinted}`} className="rounded-lg border border-border bg-card p-2">
+                                                                                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <span className="text-sm font-semibold text-foreground">p.{group.pagePrinted}</span>
+                                                                                                    <span className="text-xs text-muted-foreground">{selectedInPage}/{group.problems.length}</span>
+                                                                                                </div>
+                                                                                                <div className="flex items-center gap-1.5">
+                                                                                                    <Button type="button" variant="outline" size="xs" onClick={() => includeProblems(group.problems)}>
+                                                                                                        전체 선택
+                                                                                                    </Button>
+                                                                                                    <Button type="button" variant="ghost" size="xs" onClick={() => excludeProblems(group.problems)}>
+                                                                                                        전체 제외
+                                                                                                    </Button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-1.5">
+                                                                                                {group.problems.map((problem) => {
+                                                                                                    const included = previewProblemIdSet.has(problem.id);
+                                                                                                    return (
+                                                                                                        <Button
+                                                                                                            key={problem.id}
+                                                                                                            type="button"
+                                                                                                            variant={included ? 'secondary' : 'outline'}
+                                                                                                            size="xs"
+                                                                                                            title={problemLabel(problem)}
+                                                                                                            aria-pressed={included}
+                                                                                                            onClick={() => toggleProblem(problem)}
+                                                                                                            className={cn(
+                                                                                                                'h-auto min-h-12 justify-start whitespace-normal px-2 py-2 text-left',
+                                                                                                                included && 'border-primary/35 bg-primary-soft text-primary-strong hover:bg-primary-soft',
+                                                                                                                !included && 'text-muted-foreground',
+                                                                                                            )}
+                                                                                                        >
+                                                                                                            <span className="min-w-0">
+                                                                                                                <span className="line-clamp-2 block text-xs font-semibold leading-snug">{problemChipLabel(problem)}</span>
+                                                                                                            </span>
+                                                                                                        </Button>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </section>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     )}
                                 </>
                             )}
-                        </FormSection>
-                    ) : (
-                        <FormSection title="학습지 파일">
-                            <FormField label="crop/정답 매칭 export zip/json">
-                                <Input
-                                    type="file"
-                                    accept=".zip,.json,application/zip,application/json"
-                                    onChange={(event) => setWorksheetFile(event.target.files?.[0] || null)}
-                                />
-                            </FormField>
-                            <p className="text-xs text-muted-foreground">
-                                업로드한 export는 숨김 교재로 저장되고, 선택한 학생의 grade-app 과제함에 바로 배포됩니다.
-                            </p>
-                        </FormSection>
-                    )}
+                    </FormSection>
 
                     <FormSection title="대상" description={`${[...selectedClassIds].length}개 반, ${effectiveStudents.length}명 대상`}>
                         <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
@@ -917,9 +1019,8 @@ function AssignmentComposer({
                 </div>
                 <div className="mt-4 space-y-3 text-sm">
                     <div className="rounded-lg bg-muted/60 p-3">
-                        <p className="text-xs font-medium text-muted-foreground">자료</p>
-                        <p className="mt-1 truncate font-semibold text-foreground">{sourceLabel}</p>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">{materialLabel}</p>
+                        <p className="text-xs font-medium text-muted-foreground">문제집</p>
+                        <p className="mt-1 truncate font-semibold text-foreground">{materialLabel}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                         <div className="rounded-lg border border-border p-3">
@@ -2107,7 +2208,7 @@ function AssignmentCreateLegacyPage() {
     return (
         <PageShell
             title="과제 등록"
-            description="채점 가능한 교재 범위나 새 학습지 export를 선택해 학생에게 배포합니다."
+            description="등록된 문제집에서 범위를 선택해 학생에게 배포합니다."
             icon={Plus}
             actions={(
                 <Button asChild variant="outline">

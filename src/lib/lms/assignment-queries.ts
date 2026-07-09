@@ -198,6 +198,29 @@ async function loadStudents(
     });
 }
 
+async function fetchAssignmentProblemRows(content: SchemaClient, bookIds: string[]): Promise<Row[]> {
+    const rows: Row[] = [];
+    const pageSize = 1000;
+
+    for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await content
+            .from('problems')
+            .select('id,book_id,unit_id,concept_id,problem_type_id,type_id,page_printed,number,is_example')
+            .in('book_id', bookIds)
+            .eq('is_example', false)
+            .order('book_id')
+            .order('page_printed')
+            .range(offset, offset + pageSize - 1);
+        ensureNoError(error, 'Failed to load problems');
+
+        const pageRows = (data || []) as Row[];
+        rows.push(...pageRows);
+        if (pageRows.length < pageSize) break;
+    }
+
+    return rows;
+}
+
 async function loadAssignmentBooks(content: SchemaClient, academyId: string): Promise<AssignmentBookSummary[]> {
     const { data: books, error: bookError } = await content
         .from('books')
@@ -210,23 +233,17 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
     const bookIds = bookRows.map((row) => row.id);
     if (bookIds.length === 0) return [];
 
-    const [unitResult, typeResult, problemResult] = await Promise.all([
+    const [unitResult, typeResult, problemRows] = await Promise.all([
         content.from('units').select('id,book_id,name,part_name,sort_order').in('book_id', bookIds).order('sort_order'),
         content.from('problem_types').select('id,book_id,unit_id,concept_id,name,sort_order').in('book_id', bookIds).order('sort_order'),
-        content
-            .from('problems')
-            .select('id,book_id,unit_id,concept_id,problem_type_id,type_id,page_printed,number,is_example')
-            .in('book_id', bookIds)
-            .eq('is_example', false)
-            .order('page_printed'),
+        fetchAssignmentProblemRows(content, bookIds),
     ]);
     ensureNoError(unitResult.error, 'Failed to load units');
     ensureNoError(typeResult.error, 'Failed to load problem types');
-    ensureNoError(problemResult.error, 'Failed to load problems');
 
     const units = (unitResult.data || []) as Row[];
     const types = (typeResult.data || []) as Row[];
-    const problems = (problemResult.data || []) as Row[];
+    const problems = problemRows;
     const typeName = new Map(types.map((row) => [row.id, row.name]));
     const typeConceptId = new Map(types.map((row) => [row.id, row.concept_id ?? null]));
     const conceptIds = uniqueStrings([
@@ -243,11 +260,15 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
         const bookProblems = sortByProblemOrder(problems.filter((row) => row.book_id === book.id));
         const problemCountsByUnit = new Map<string, number>();
         const problemCountsByType = new Map<string, number>();
-        for (const problem of bookProblems) {
+        const firstProblemIndexByType = new Map<string, number>();
+        bookProblems.forEach((problem, index) => {
             problemCountsByUnit.set(problem.unit_id, (problemCountsByUnit.get(problem.unit_id) || 0) + 1);
             const typeId = problem.problem_type_id || problem.type_id || null;
-            if (typeId) problemCountsByType.set(typeId, (problemCountsByType.get(typeId) || 0) + 1);
-        }
+            if (typeId) {
+                problemCountsByType.set(typeId, (problemCountsByType.get(typeId) || 0) + 1);
+                if (!firstProblemIndexByType.has(typeId)) firstProblemIndexByType.set(typeId, index);
+            }
+        });
 
         const unitSummaries: AssignmentUnitSummary[] = units
             .filter((row) => row.book_id === book.id)
@@ -259,6 +280,17 @@ async function loadAssignmentBooks(content: SchemaClient, academyId: string): Pr
             }));
         const typeSummaries: AssignmentProblemTypeSummary[] = types
             .filter((row) => row.book_id === book.id && (problemCountsByType.get(row.id) || 0) > 0)
+            .sort((a, b) => {
+                const firstA = firstProblemIndexByType.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+                const firstB = firstProblemIndexByType.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+                if (firstA !== firstB) return firstA - firstB;
+
+                const sortA = typeof a.sort_order === 'number' ? a.sort_order : Number.MAX_SAFE_INTEGER;
+                const sortB = typeof b.sort_order === 'number' ? b.sort_order : Number.MAX_SAFE_INTEGER;
+                if (sortA !== sortB) return sortA - sortB;
+
+                return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ko', { numeric: true });
+            })
             .map((row) => ({
                 id: row.id,
                 unitId: row.unit_id ?? null,
