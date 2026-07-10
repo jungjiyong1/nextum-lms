@@ -845,10 +845,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const actions = (
     <div className="flex flex-wrap gap-2">
       {view === 'overview' && canManageClassSetup && (
-        <>
-          <Button type="button" onClick={startClassCreate}><Plus className="mr-2 h-4 w-4" />반 추가</Button>
-          <Button type="button" variant="outline" asChild><Link href="/classrooms/settings"><SlidersHorizontal className="mr-2 h-4 w-4" />기준 정보</Link></Button>
-        </>
+        <Button type="button" variant="outline" asChild><Link href="/classrooms/settings"><SlidersHorizontal className="mr-2 h-4 w-4" />기준 정보</Link></Button>
       )}
       {view === 'schedule' && canManageClassSetup && (
         <Button type="button" onClick={() => openScheduleEditor(null)}><Plus className="mr-2 h-4 w-4" />시간표 추가</Button>
@@ -954,7 +951,17 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
                   </div>
                 </TabsContent>
                 <TabsContent value="books" className="space-y-3">
-                  <p className="text-sm font-medium">배정 교재</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">배정 교재</p>
+                      <p className="mt-1 text-xs text-muted-foreground">기존 교재를 배정하거나 새 교재를 등록하세요.</p>
+                    </div>
+                    {canManageClassSetup && (
+                      <Button type="button" variant="outline" size="sm" onClick={startBookCreate}>
+                        <Plus className="mr-1 h-4 w-4" />교재 추가
+                      </Button>
+                    )}
+                  </div>
                   {canManageClassSetup && (
                     <form onSubmit={submitClassBook} className="flex gap-2">
                       <SelectField value={selectedBookId} onChange={(event) => setSelectedBookId(event.target.value)}>
