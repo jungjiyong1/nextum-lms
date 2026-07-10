@@ -76,11 +76,11 @@ npm run db:check
 ```
 
 Use the URL and publishable/secret values printed by `supabase start` in
-`.env.local`. Do not commit `.env.local`. A fresh reset currently stops in the
-historical `20260706102000_learning_canonical_assignments.sql` migration before the
-v2 migration is reached; do not edit that applied file. Follow the forward-only
-history reconciliation blocker and commands in the v2 runbook before treating a
-fresh local reset as a passing gate.
+`.env.local`. Do not commit `.env.local`. Remote-only historical versions are
+represented by explicit no-op history markers, while the clean `0001` baseline
+contains the compatibility columns needed by later migrations. A fresh reset must
+apply all 30 migrations and reach the v2 migration; follow the history-repair and
+deployment gates in the v2 runbook before changing the production database.
 
 ## Development admin
 

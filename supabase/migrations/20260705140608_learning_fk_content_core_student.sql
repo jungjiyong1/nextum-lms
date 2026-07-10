@@ -1,0 +1,3 @@
+-- Remote history marker: learning_fk_content_core_student.
+-- The resulting end-state schema is consolidated into the clean 0001 baseline.
+-- Intentionally no-op so a fresh local reset applies only the canonical schema.

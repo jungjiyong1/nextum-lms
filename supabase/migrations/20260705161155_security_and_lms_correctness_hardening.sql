@@ -1,0 +1,3 @@
+-- Remote history marker: security_and_lms_correctness_hardening.
+-- The resulting end-state functions, policies, grants, and constraints are in the clean baseline.
+-- Intentionally no-op so a fresh local reset does not recreate superseded compatibility objects.

@@ -1,0 +1,3 @@
+-- Remote history marker: backfill_learning_core_student_ids.
+-- Production data was already backfilled; clean local databases have no legacy rows to migrate.
+-- Intentionally no-op because historical production DML must not be replayed on the baseline.

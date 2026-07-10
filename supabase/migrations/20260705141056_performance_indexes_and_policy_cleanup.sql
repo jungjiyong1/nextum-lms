@@ -1,0 +1,3 @@
+-- Remote history marker: performance_indexes_and_policy_cleanup.
+-- The resulting end-state indexes and policies are consolidated into the clean 0001 baseline.
+-- Intentionally no-op so a fresh local reset does not recreate superseded objects.

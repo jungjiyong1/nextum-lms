@@ -585,6 +585,19 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Set-based RLS policies
 
+-- Reconcile policies that exist only in the clean local baseline. Production
+-- already has the self-only user_accounts policy and the canonical
+-- staff_members_access policy, so these drops are no-ops there apart from
+-- recreating user_accounts_self with the same predicate.
+drop policy if exists user_accounts_self_select on core.user_accounts;
+drop policy if exists user_accounts_staff_select on core.user_accounts;
+drop policy if exists user_accounts_self on core.user_accounts;
+create policy user_accounts_self on core.user_accounts
+  for select to authenticated
+  using (auth_user_id = (select auth.uid()));
+
+drop policy if exists staff_access on core.staff_members;
+
 drop policy if exists content_authenticated_read_books on content.books;
 drop policy if exists content_authenticated_read_units on content.units;
 drop policy if exists content_authenticated_read_concepts on content.concepts;

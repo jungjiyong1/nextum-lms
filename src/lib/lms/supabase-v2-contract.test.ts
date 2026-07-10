@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -6,6 +6,11 @@ const migration = readFileSync(resolve(
     process.cwd(),
     'supabase/migrations/20260709194443_supabase_growth_optimization_v2.sql',
 ), 'utf8');
+const baseline = readFileSync(resolve(
+    process.cwd(),
+    'supabase/migrations/0001_nextum_lms_baseline.sql',
+), 'utf8');
+const migrationFiles = new Set(readdirSync(resolve(process.cwd(), 'supabase/migrations')));
 
 function functionBody(signatureStart: string): string {
     const start = migration.indexOf(signatureStart);
@@ -16,6 +21,30 @@ function functionBody(signatureStart: string): string {
 }
 
 describe('Supabase growth v2 migration contract', () => {
+    it('keeps the clean baseline compatible with the remote Grade content schema', () => {
+        expect(baseline).toMatch(/problem_type_id\s+uuid[\s\S]*?type_id\s+uuid/);
+        for (const marker of [
+            '20260705121256_create_lms_schema.sql',
+            '20260705140030_core_content_learning_bridge.sql',
+            '20260705140157_lms_core_sync_and_compat_views.sql',
+            '20260705140608_learning_fk_content_core_student.sql',
+            '20260705140806_lms_profile_core_sync.sql',
+            '20260705140956_security_advisor_cleanup.sql',
+            '20260705141056_performance_indexes_and_policy_cleanup.sql',
+            '20260705141251_backfill_learning_core_student_ids.sql',
+            '20260705161155_security_and_lms_correctness_hardening.sql',
+        ]) {
+            expect(migrationFiles.has(marker), marker).toBe(true);
+        }
+    });
+
+    it('removes local-only permissive policies while preserving canonical access', () => {
+        expect(migration).toContain('drop policy if exists user_accounts_self_select');
+        expect(migration).toContain('drop policy if exists user_accounts_staff_select');
+        expect(migration).toContain('create policy user_accounts_self');
+        expect(migration).toContain('drop policy if exists staff_access');
+    });
+
     it('keeps item snapshots narrower than the legacy assignment fallback', () => {
         const body = functionBody('create or replace function private.accessible_problem_ids()');
 

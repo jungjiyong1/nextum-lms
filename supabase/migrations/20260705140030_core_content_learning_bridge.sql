@@ -1,0 +1,3 @@
+-- Remote history marker: core_content_learning_bridge.
+-- The resulting end-state schema is consolidated into the clean 0001 baseline.
+-- Intentionally no-op so a fresh local reset does not replay the legacy cutover.

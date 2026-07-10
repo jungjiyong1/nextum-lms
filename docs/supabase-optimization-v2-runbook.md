@@ -365,9 +365,26 @@ npx supabase db push --linked --dry-run
 npm run db:check
 ```
 
-현재 checkout에서 첫 명령은 `LegacyProjectNotLinkedError: Cannot find project ref. Have you run supabase link?`로 중단된다. 운영 project ref를 임의로 다시 연결하지 말고, 배포 담당자가 올바른 조직/프로젝트를 확인해 link한 뒤 dry-run을 수행한다.
+2026-07-10 MCP read-only audit에서 운영 대상은 active/healthy 상태의 `nextum-data` PostgreSQL 17 프로젝트로 확인했다. 정리 전 history는 local/remote timestamp 일치 9개, 같은 SQL이지만 timestamp가 다른 10개, remote-only 초기 migration 9개, local-only clean baseline과 v2 2개였다.
 
-주의: 2026-07-10 catalog 기준 remote에는 저장소에 없는 초기 migration version 9개가 있고, 이후 여러 동일 이름 migration도 local/remote timestamp가 다르다. history reconciliation 전에는 `npx supabase db push --include-all`을 사용하지 않는다. dry-run 결과가 신규 v2 migration 하나가 아니라면 배포를 중단한다.
+로컬 history는 다음 원칙으로 정렬했다.
+
+- 같은 SQL인 10개 파일은 remote version timestamp로 rename
+- remote-only 초기 9개 version은 clean baseline 뒤에서 legacy cutover SQL을 다시 실행하지 않는 no-op history marker로 추가
+- remote에만 있던 `content.problems.type_id`를 local-only clean baseline에 반영
+- 기존 remote migration SQL은 수정하지 않고, 당시 pending 상태였던 v2만 local/remote policy drift를 흡수
+
+2026-07-10 운영 배포에서는 노출됐던 PAT를 폐기·재발급하고, 확인된 `nextum-data` project ref에만 CLI를 link했다. 첫 history write 전에 기존 28개 migration version/name/statement count를 `output/supabase-history-backup-pre-v2-20260710.json`에 보존하고 다음 순서를 실행했다.
+
+```powershell
+npx supabase link --project-ref <NEXTUM_DATA_PROJECT_REF>
+npx supabase migration list --linked
+npx supabase migration repair 0001 --status applied --linked
+npx supabase migration list --linked
+npx supabase db push --linked --dry-run
+```
+
+`repair 0001`은 SQL을 실행하지 않고 clean baseline이 이미 운영 schema에 반영돼 있다는 history record만 추가했다. dry-run에는 `20260709194443_supabase_growth_optimization_v2.sql` 하나만 표시됐고 `--include-all`은 사용하지 않았다. 다른 항목이 표시되는 경우 `repair 0001 --status reverted --linked`로 history record를 되돌리고 배포를 중단하는 원칙은 이후 환경 복구에도 동일하게 적용한다.
 
 인덱스 preflight:
 
@@ -463,32 +480,52 @@ recipient contract test는 direct student exclusion, non-excluded direct student
 - keyset page latency가 page depth와 무관
 - logical v2 mutation당 client window/domain background reload 최대 1회
 
-## 로컬 검증 상태와 선행 blocker
+## 로컬 검증 상태와 원격 적용 결과
 
-`pglast` PostgreSQL parser로 v2 migration 270개 statement 전체의 문법 파싱을 통과했다.
+`pglast` PostgreSQL parser로 v2 migration 275개 statement 전체의 문법 파싱을 통과했다.
 
-`class_operations_read_v2`의 read-only SELECT 본문을 remote schema에서 샘플 academy로 실행해 `schemaVersion`, classes/books/staff bounds, 7개 `truncated` key assertion이 모두 true임을 확인했다. DDL과 데이터 write는 수행하지 않았다.
+배포 전 `class_operations_read_v2`의 read-only SELECT 본문을 remote schema에서 샘플 academy로 실행해 `schemaVersion`, classes/books/staff bounds, 7개 `truncated` key assertion이 모두 true임을 확인했다. DDL과 데이터 write는 수행하지 않았다.
 
-정식 checkout의 로컬 `supabase start`/fresh reset은 v2 migration에 도달하기 전에 기존 migration에서 중단된다.
+2026-07-10 history reconciliation 뒤, Grade App 기본 포트와 분리된 격리 Supabase에서 추가 shim 없이 추적 migration 30개를 그대로 검증했다.
 
-```text
-20260706102000_learning_canonical_assignments.sql:511
-content.problem_types policy가 fresh baseline에 없는 content.problems.type_id를 참조
-SQLSTATE 42703
-```
-
-기존 migration 수정 금지 원칙 때문에 이번 변경에서 이 파일을 고치지 않았다. 이 blocker와 v2 자체의 적용 가능성을 분리하기 위해, Git에서 무시되는 `output/supabase-validation-v2`에 migration 사본을 만들고 사본의 `0001_nextum_lms_baseline.sql`에만 remote 호환 `content.problems.type_id uuid`를 추가했다. 추적되는 migration과 Grade App 저장소는 수정하지 않았다.
-
-2026-07-10 격리 검증 결과는 다음과 같다.
-
-- Grade App 기본 포트와 분리된 project/port에서 전체 fresh reset 성공
+- 전체 fresh reset 성공, local migration history 30/30 일치
 - `20260709194443_supabase_growth_optimization_v2.sql` 실제 적용 성공
 - PostgREST schema cache에 49 relations, 31 RPC 로드
 - `core`, `content`, `learning`, `lms`, `ai`, `data`, `reporting`, `audit` DB lint 오류 0건
 - v2 migration 이력, 12-인자 staff roster RPC, class read RPC, assignment mutation RPC, 핵심 RLS가 모두 생성됨
 - durable class helper 정의에 `lesson_occurrences`가 포함되지 않음을 실제 catalog에서 확인
+- exact duplicate index group 0개, multiple permissive policy group 0개
+- `core.user_accounts`는 self-only policy 1개, `core.staff_members`는 canonical select policy 1개
 
-따라서 v2 SQL은 remote 호환 baseline에서 fresh apply가 검증됐다. 다만 이 임시 shim은 배포물이 아니며, 정식 checkout의 재현 가능한 reset blocker는 여전히 별도 forward-only history/baseline reconciliation 작업으로 해결해야 한다. 해결 후 다음 명령을 원본 저장소에서 다시 실행한다.
+원격 read-only 기준선도 함께 저장했다.
+
+- DB 약 24.8MB, waiting lock 0, 30초 초과 transaction 0
+- Advisor: performance WARN 30개, security WARN 1개
+- `content.problems` book/example count query 평균 약 583ms
+- active/auth-linked 학생 3명은 모두 active student membership 보유
+- membership이 없는 active 학생 2명은 auth account 없이 유효 초대 대기 중
+- answer/answer_key authenticated 접근 거부, service role 접근 허용
+
+2026-07-10 production `nextum-data`에도 v2 적용과 postflight를 완료했다.
+
+- local/remote migration history 30/30 일치
+- waiting lock 0, 30초 초과 transaction 0
+- active student 5, assignment 3, recipient 3으로 배포 전후 업무 row count 동일
+- v2 RPC 7개 생성 및 `anon` 실행 거부, `authenticated`/`service_role` 실행 허용
+- answer/answer_key의 authenticated 접근 거부와 service role 접근 유지
+- 핵심 RLS 활성화, exact duplicate index group 0개, multiple permissive policy group 0개
+- `core.user_accounts`는 `user_accounts_self`, `core.staff_members`는 `staff_members_access`만 유지
+- class operations payload의 7개 collection과 7개 `truncated` key 검증 통과
+- problem catalog 10-row bounded read와 assignment overview aggregate smoke test 통과
+- smoke query 평균: problem catalog 1.06ms, assignment overview 4.12ms, class operations 26.53ms
+- performance Advisor WARN 30개에서 0개로 감소; 남은 INFO는 unindexed FK 46개, unused index 54개
+- PostgreSQL 최근 로그 100건은 모두 `LOG`, 오류/경고 없음
+- `npm run db:check` 48개 객체 통과
+- 원격 DB를 사용하는 LMS runtime smoke에서 관리자 로그인, 주요 9개 화면, class/student API 계약 통과
+
+Security Advisor의 `auth_leaked_password_protection` WARN 1개는 schema migration 대상이 아니다. Supabase Auth Dashboard에서 별도 활성화하고 로그인/비밀번호 재설정 흐름을 확인한다.
+
+다음 명령은 로컬 재현성 확인용이며 모두 통과했다.
 
 ```powershell
 npx supabase db reset --local --no-seed

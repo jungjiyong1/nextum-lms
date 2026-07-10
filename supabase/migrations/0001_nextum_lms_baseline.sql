@@ -245,6 +245,7 @@ create table content.problems (
   unit_id            uuid not null references content.units (id) on delete cascade,
   concept_id         uuid references content.concepts (id) on delete set null,
   problem_type_id    uuid references content.problem_types (id) on delete set null,
+  type_id            uuid references content.problem_types (id) on delete set null,
   page_printed       integer not null,
   number             text not null,
   image_path         text,

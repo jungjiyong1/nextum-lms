@@ -1,0 +1,3 @@
+-- Remote history marker: security_advisor_cleanup.
+-- The resulting function and policy definitions are consolidated into the clean 0001 baseline.
+-- Intentionally no-op so a fresh local reset does not replay superseded policies.

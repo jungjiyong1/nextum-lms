@@ -1,0 +1,3 @@
+-- Remote history marker: lms_core_sync_and_compat_views.
+-- The resulting end-state schema is consolidated into the clean 0001 baseline.
+-- Intentionally no-op so a fresh local reset does not recreate retired legacy sync objects.
