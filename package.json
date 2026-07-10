@@ -21,6 +21,7 @@
     "db:import-grade-fixtures": "node scripts/import-grade-app-fixtures.mjs",
     "db:backup-content": "node scripts/backup-grade-content.mjs",
     "db:backup-preservation": "node scripts/backup-nextum-data-preservation.mjs",
+    "db:bootstrap-learning-analysis": "node scripts/bootstrap-learning-analysis.mjs",
     "seed:dev-admin": "node scripts/seed-lms-dev-admin.mjs",
     "smoke:lms": "node scripts/smoke-lms-runtime.mjs"
   },

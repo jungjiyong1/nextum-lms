@@ -3,6 +3,7 @@ const PROTECTED_APP_PATH_PREFIXES = [
     '/assignments',
     '/classrooms',
     '/instructors',
+    '/learning',
     '/settings',
     '/students',
 ];

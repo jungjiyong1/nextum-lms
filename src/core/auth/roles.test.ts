@@ -33,6 +33,8 @@ describe('LMS app roles', () => {
         expect(canAccessAppPage('instructor', 'classrooms')).toBe(true);
         expect(canAccessAppPage('instructor', 'students')).toBe(true);
         expect(canAccessAppPage('instructor', 'instructors')).toBe(true);
+        expect(canAccessAppPage('instructor', 'learning')).toBe(true);
+        expect(canAccessAppPage('student', 'learning')).toBe(false);
         expect(canAccessAppPage('student', 'home')).toBe(false);
         expect(canAccessAppPage('guardian', 'home')).toBe(false);
     });
@@ -55,6 +57,7 @@ describe('LMS app roles', () => {
     it('maps paths to app pages', () => {
         expect(appPageFromPath('/')).toBe('home');
         expect(appPageFromPath('/students/123')).toBe('students');
+        expect(appPageFromPath('/learning/exams')).toBe('learning');
         expect(appPageFromPath('/settings')).toBe('settings');
     });
 

@@ -664,6 +664,11 @@ export interface CreateLearningAssignmentInput {
   dueAt?: string | null;
   context?: string | null;
   sourceType?: 'content_scope' | 'worksheet';
+  learningAnalysisActions?: Array<{
+    actionId: string;
+    studentId: string;
+    skillId: string;
+  }>;
 }
 
 export interface CreateBookInput {

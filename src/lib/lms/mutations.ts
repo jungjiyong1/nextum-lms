@@ -54,6 +54,7 @@ import { sortByProblemOrder } from './problem-order';
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
 type SchemaClient = ReturnType<LmsAdminClient['schema']>;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function ensureNoError(error: { message?: string } | null, context: string) {
     if (error) {
@@ -97,6 +98,41 @@ function uniqueClassIds(classIds: string[] | undefined) {
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
     return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function normalizeLearningAnalysisActions(
+    actions: CreateLearningAssignmentInput['learningAnalysisActions'],
+): NonNullable<CreateLearningAssignmentInput['learningAnalysisActions']> {
+    if (!actions) return [];
+    if (!Array.isArray(actions) || actions.length > 200) {
+        throw new Error('Learning analysis actions are invalid.');
+    }
+    const normalized = actions.map((action) => ({
+        actionId: typeof action?.actionId === 'string' ? action.actionId.trim() : '',
+        studentId: typeof action?.studentId === 'string' ? action.studentId.trim() : '',
+        skillId: typeof action?.skillId === 'string' ? action.skillId.trim() : '',
+    }));
+    if (normalized.some((action) =>
+        !UUID_PATTERN.test(action.studentId)
+        || !UUID_PATTERN.test(action.skillId)
+        || action.actionId !== `${action.studentId}::${action.skillId}`
+    )) {
+        throw new Error('Learning analysis action identity is invalid.');
+    }
+    if (new Set(normalized.map((action) => action.actionId)).size !== normalized.length) {
+        throw new Error('Learning analysis actions contain duplicates.');
+    }
+    const skillsByStudent = new Map<string, Set<string>>();
+    for (const action of normalized) {
+        const skillIds = skillsByStudent.get(action.studentId) ?? new Set<string>();
+        skillIds.add(action.skillId);
+        skillsByStudent.set(action.studentId, skillIds);
+    }
+    const signatures = [...skillsByStudent.values()].map((skillIds) => [...skillIds].sort().join('|'));
+    if (new Set(signatures).size > 1) {
+        throw new Error('Learning analysis assignments require the same skill set for every student.');
+    }
+    return normalized;
 }
 
 function chunkValues<T>(values: readonly T[], size = 200): T[][] {
@@ -1463,9 +1499,21 @@ export async function createLearningAssignmentForAcademy(
     const classIds = uniqueClassIds(input.classIds);
     const studentIds = uniqueStrings(input.studentIds || []);
     const excludedStudentIds = uniqueStrings(input.excludedStudentIds || []);
+    const learningAnalysisActions = normalizeLearningAnalysisActions(input.learningAnalysisActions);
     const excludedStudentIdSet = new Set(excludedStudentIds);
     if (classIds.length === 0 && studentIds.length === 0) {
         throw new Error('Assignment target is required.');
+    }
+    if (learningAnalysisActions.length > 0) {
+        const actionStudentIds = new Set(learningAnalysisActions.map((action) => action.studentId));
+        if (
+            classIds.length > 0
+            || excludedStudentIds.length > 0
+            || actionStudentIds.size !== studentIds.length
+            || studentIds.some((studentId) => !actionStudentIds.has(studentId))
+        ) {
+            throw new Error('Learning analysis assignments must keep their reviewed student targets.');
+        }
     }
 
     const client = createAdminClient();
@@ -1479,11 +1527,34 @@ export async function createLearningAssignmentForAcademy(
     ]);
     await assertAssignmentInputScope(core, context, classIds, uniqueStrings([...studentIds, ...excludedStudentIds]));
     if (input.bookId) await assertBookAssignableToAcademy(content, academyId, input.bookId);
+    if (learningAnalysisActions.length > 0) {
+        const skillIds = uniqueStrings(learningAnalysisActions.map((action) => action.skillId));
+        const { data: skills, error: skillError } = await content
+            .from('analysis_skills')
+            .select('id')
+            .eq('active', true)
+            .in('id', skillIds);
+        ensureNoError(skillError, 'Failed to verify learning analysis actions');
+        if ((skills || []).length !== skillIds.length) {
+            throw new Error('Learning analysis actions contain unavailable skills.');
+        }
+    }
 
     const problemIds = await resolveAssignmentProblemIds(content, input);
     if (input.bookId && input.sourceType !== 'worksheet' && problemIds.length === 0) {
         throw new Error('The selected assignment scope contains no problems.');
     }
+
+    const assignmentMetadata = {
+        unitIds: input.unitIds || [],
+        problemTypeIds: input.problemTypeIds || [],
+        ...(learningAnalysisActions.length > 0 ? {
+            learningAnalysis: {
+                source: 'action_queue',
+                actions: learningAnalysisActions,
+            },
+        } : {}),
+    };
 
     if (input.bookId && input.sourceType !== 'worksheet' && process.env.LMS_USE_V2_MUTATIONS !== 'false') {
         const { data: rpcData, error: rpcError } = await learning.rpc('create_assignment_v2', {
@@ -1497,10 +1568,7 @@ export async function createLearningAssignmentForAcademy(
             p_context: input.context || 'homework',
             p_due_at: input.dueAt || null,
             p_available_from: null,
-            p_metadata: {
-                unitIds: input.unitIds || [],
-                problemTypeIds: input.problemTypeIds || [],
-            },
+            p_metadata: assignmentMetadata,
             p_excluded_student_ids: excludedStudentIds,
             p_created_by: context?.personId || null,
             p_source_type: input.sourceType || 'content_scope',
@@ -1554,6 +1622,7 @@ export async function createLearningAssignmentForAcademy(
             source_type: input.sourceType || 'content_scope',
             status: 'published',
             published_at: new Date().toISOString(),
+            metadata: assignmentMetadata,
         })
         .select('id')
         .single();

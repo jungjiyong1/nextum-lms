@@ -8,6 +8,8 @@ describe('LMS route guards', () => {
         expect(isProtectedAppPath('/students')).toBe(true);
         expect(isProtectedAppPath('/students/abc')).toBe(true);
         expect(isProtectedAppPath('/accounting/')).toBe(true);
+        expect(isProtectedAppPath('/learning')).toBe(true);
+        expect(isProtectedAppPath('/learning/exams?planId=plan-1')).toBe(true);
     });
 
     it('leaves public and API paths unprotected by page redirect logic', () => {

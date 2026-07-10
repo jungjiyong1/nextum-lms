@@ -52,6 +52,11 @@ import { EmptyState, ErrorState } from '@/components/ui/state';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { sortByProblemOrder } from '@/lib/lms/problem-order';
+import {
+    clearLearningAnalysisAssignmentDraft,
+    readLearningAnalysisAssignmentDraft,
+    type LearningAnalysisAssignmentDraft,
+} from '@/lib/lms/learning-analysis-draft';
 import { cn } from '@/lib/utils';
 import {
     addAssignmentRecipients,
@@ -355,17 +360,19 @@ function unitCatalogKey(bookId: string, unitId: string): string {
 function AssignmentComposer({
     data,
     submitting,
+    initialDraft,
     onCancel,
     onSubmit,
 }: {
     data: AssignmentManagementData;
     submitting: boolean;
+    initialDraft?: LearningAnalysisAssignmentDraft | null;
     onCancel: () => void;
     onSubmit: (input: CreateLearningAssignmentInput, file: File | null) => Promise<void>;
 }) {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
-    const [title, setTitle] = useState('');
+    const [title, setTitle] = useState(initialDraft?.title ?? '');
     const [dueAt, setDueAt] = useState('');
     const [bookId, setBookId] = useState(data.books[0]?.id || '');
     const [wholeBook, setWholeBook] = useState(false);
@@ -377,12 +384,27 @@ function AssignmentComposer({
         return firstUnitId ? new Set([firstUnitId]) : new Set();
     });
     const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
-    const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+    const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(
+        () => new Set(initialDraft?.studentIds ?? []),
+    );
     const [excludedStudentIds, setExcludedStudentIds] = useState<Set<string>>(new Set());
     const [studentSearch, setStudentSearch] = useState('');
     const [unitCatalogs, setUnitCatalogs] = useState<Map<string, UnitProblemCatalogState>>(() => new Map());
     const catalogRequestSequence = useRef(new Map<string, number>());
     const catalogControllers = useRef(new Map<string, AbortController>());
+
+    useEffect(() => {
+        if (!initialDraft) return;
+        const activeStudentIds = new Set(
+            data.students
+                .filter((student) => student.status === 'active')
+                .map((student) => student.id),
+        );
+        setTitle(initialDraft.title);
+        setSelectedStudentIds(new Set(
+            initialDraft.studentIds.filter((studentId) => activeStudentIds.has(studentId)),
+        ));
+    }, [data.students, initialDraft]);
 
     const selectedBook = data.books.find((book) => book.id === bookId) || null;
     const loadUnitProblems = useCallback(async (unitId: string, cursor: string | null = null) => {
@@ -682,6 +704,17 @@ function AssignmentComposer({
             toast.error('대상 반 또는 학생을 선택하세요.');
             return;
         }
+        if (initialDraft) {
+            const expectedStudentIds = new Set(initialDraft.studentIds);
+            const selectedStudentIds = new Set(effectiveStudents.map((student) => student.id));
+            if (
+                selectedStudentIds.size !== expectedStudentIds.size
+                || [...expectedStudentIds].some((studentId) => !selectedStudentIds.has(studentId))
+            ) {
+                toast.error('학습 분석 초안은 조치 항목의 학생 구성을 유지해야 합니다. 대상 변경은 새 초안에서 해 주세요.');
+                return;
+            }
+        }
         if (!bookId) {
             toast.error('문제집을 선택하세요.');
             return;
@@ -693,24 +726,43 @@ function AssignmentComposer({
 
         await onSubmit({
             title: title.trim(),
-            description: null,
+            description: initialDraft
+                ? `학습 분석 확인: ${initialDraft.skillNames.join(', ')}`
+                : null,
             dueAt: toDueIso(dueAt),
-            context: 'homework',
+            context: initialDraft ? 'diagnostic' : 'homework',
             sourceType: 'content_scope',
             bookId,
             unitIds: !wholeBook ? [...selectedUnitIds] : [],
             problemTypeIds: !wholeBook ? [...selectedTypeIds] : [],
             problemIds: [],
             excludedProblemIds: [...excludedProblemIds],
-            classIds: [...selectedClassIds],
-            studentIds: [...selectedStudentIds],
-            excludedStudentIds: [...excludedStudentIds],
+            classIds: initialDraft ? [] : [...selectedClassIds],
+            studentIds: initialDraft ? initialDraft.studentIds : [...selectedStudentIds],
+            excludedStudentIds: initialDraft ? [] : [...excludedStudentIds],
+            learningAnalysisActions: initialDraft?.actions.map((action) => ({
+                actionId: action.id,
+                studentId: action.studentId,
+                skillId: action.skillId,
+            })),
         }, null);
     };
 
     return (
         <form onSubmit={submit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-4">
+                    {initialDraft && (
+                        <div className="rounded-lg border border-primary/25 bg-primary-soft p-4 text-sm" role="status">
+                            <p className="font-medium text-foreground">학습 분석에서 과제 초안을 불러왔습니다.</p>
+                            <p className="mt-1 text-muted-foreground">
+                                {initialDraft.studentIds.length}명 · {initialDraft.skillNames.join(' · ')}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                학생만 미리 선택했습니다. 문제집과 문제 범위는 근거를 확인한 뒤 직접 선택해야 하며,
+                                아래 배포 버튼을 누르기 전에는 학생에게 전송되지 않습니다.
+                            </p>
+                        </div>
+                    )}
                     <FormSection title="기본 정보">
                         <div className="grid gap-3 md:grid-cols-2">
                             <FormField label="과제명">
@@ -2056,6 +2108,19 @@ export function AssignmentCreatePage() {
     const [deleteAssignmentId, setDeleteAssignmentId] = useState('');
     const [recallingAssignmentId, setRecallingAssignmentId] = useState('');
     const [deletingAssignmentId, setDeletingAssignmentId] = useState('');
+    const [analysisDraft, setAnalysisDraft] = useState<LearningAnalysisAssignmentDraft | null>(null);
+
+    useEffect(() => {
+        const source = new URLSearchParams(window.location.search).get('source');
+        if (source !== 'learning-analysis') return;
+        const draft = readLearningAnalysisAssignmentDraft(window.sessionStorage);
+        if (!draft) {
+            toast.error('과제 초안이 만료되었거나 올바르지 않습니다. 학습 분석에서 다시 선택해 주세요.');
+            return;
+        }
+        setAnalysisDraft(draft);
+        setTab('deploy');
+    }, []);
 
     const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
         if (!academyId) return;
@@ -2100,6 +2165,8 @@ export function AssignmentCreatePage() {
             } else {
                 await createLearningAssignment(academyId, input);
             }
+            clearLearningAnalysisAssignmentDraft(window.sessionStorage);
+            setAnalysisDraft(null);
             toast.success('과제를 배포했습니다.');
             await load({ force: true, background: true });
             setTab('manage');
@@ -2206,7 +2273,12 @@ export function AssignmentCreatePage() {
                                 <AssignmentComposer
                                     data={data}
                                     submitting={submitting}
-                                    onCancel={() => setTab('manage')}
+                                    initialDraft={analysisDraft}
+                                    onCancel={() => {
+                                        clearLearningAnalysisAssignmentDraft(window.sessionStorage);
+                                        setAnalysisDraft(null);
+                                        setTab('manage');
+                                    }}
                                     onSubmit={submitAssignment}
                                 />
                             ) : (
