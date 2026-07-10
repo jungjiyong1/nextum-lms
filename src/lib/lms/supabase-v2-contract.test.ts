@@ -33,7 +33,7 @@ describe('Supabase growth v2 migration contract', () => {
         expect(body).toContain('enrollment.student_id <> all(v_excluded_student_ids)');
         expect(body).toContain('left join lateral');
         expect(body).toContain('order by enrollment.primary_class desc, enrollment.joined_at desc, enrollment.class_id');
-        expect(body).toContain('unit_id,\n    problem_id,');
+        expect(body).toMatch(/unit_id,\r?\n\s+problem_id,/);
     });
 
     it('reports every bounded class read collection instead of silently truncating it', () => {
