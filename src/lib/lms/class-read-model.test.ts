@@ -13,8 +13,8 @@ describe('class operations v2 read model adapter', () => {
                 class_id: 'class-1',
                 class_name: 'A반',
                 day_of_week: 0,
-                start_time: '10:00:00',
-                end_time: '11:00:00',
+                start_time: '10:30:00',
+                end_time: '11:30:00',
                 start_date: '2026-07-06',
                 end_date: null,
                 active: true,
@@ -45,6 +45,7 @@ describe('class operations v2 read model adapter', () => {
         }, '2026-07-06', '2026-07-13');
 
         expect(overview.schedule).toHaveLength(2);
+        expect(overview.schedule.filter((row) => row.date === '2026-07-06')).toHaveLength(1);
         expect(overview.schedule[0]).toMatchObject({
             actualId: 'occurrence-1',
             virtual: false,
@@ -81,7 +82,7 @@ describe('class operations v2 read model adapter', () => {
             id: 'attendance-1', occurrenceId: 'occurrence-1', studentId: 'student-1',
             studentName: '박학생', classId: 'class-1', className: 'A반', date: '2026-07-10',
             startTime: '10:00', endTime: '11:00', status: 'present', attendedMinutes: 60,
-            billableMinutes: 55, notes: null,
+            billableMinutes: 55, notes: null, updatedAt: null,
         });
         expect(Object.values(overview.truncated)).not.toContain(true);
     });

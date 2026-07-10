@@ -10,6 +10,7 @@ import {
     normalizePayrollStatus,
 } from '@/features/lms/status';
 import type {
+    BatchAttendanceInput,
     BillingClassRuleType,
     BillingMode,
     CreateExpenseInput,
@@ -28,6 +29,9 @@ import type {
     StaffRole,
     StaffStatus,
     ClassStatus,
+    ClassMembershipChangeInput,
+    ScheduleConflict,
+    ScheduleMutationInput,
     UpdateBookInput,
     UpdateClassroomInput,
     UpdateStaffInput,
@@ -451,6 +455,7 @@ export async function createClassForAcademy(academyId: string, input: CreateClas
             default_instructor_staff_id: input.defaultInstructorId || null,
             default_classroom_id: input.defaultClassroomId || null,
             status: 'active',
+            notes: input.notes || null,
         });
         ensureNoError(profileError, 'Failed to create class profile');
     } catch (error) {
@@ -831,6 +836,7 @@ export async function updateClassForAcademy(academyId: string, classId: string, 
             default_instructor_staff_id: input.defaultInstructorId || null,
             default_classroom_id: input.defaultClassroomId || null,
             status,
+            notes: input.notes || null,
         }, { onConflict: 'class_id' })
         .select('class_id')
         .single();
@@ -1155,6 +1161,7 @@ export async function createScheduleRuleForAcademy(academyId: string, input: Cre
         end_time: input.endTime,
         start_date: input.startDate,
         end_date: input.endDate || null,
+        interval_weeks: Math.max(1, input.intervalWeeks || 1),
         classroom_id: input.classroomId || profile?.default_classroom_id || null,
         instructor_staff_id: input.instructorId || profile?.default_instructor_staff_id || null,
     });
@@ -1192,6 +1199,7 @@ export async function updateScheduleRuleForAcademy(academyId: string, ruleId: st
             end_time: input.endTime,
             start_date: input.startDate,
             end_date: input.endDate || null,
+            interval_weeks: Math.max(1, input.intervalWeeks || 1),
             classroom_id: input.classroomId || profile?.default_classroom_id || null,
             instructor_staff_id: input.instructorId || profile?.default_instructor_staff_id || null,
             active: input.active,
@@ -1201,6 +1209,114 @@ export async function updateScheduleRuleForAcademy(academyId: string, ruleId: st
         .select('id')
         .single();
     ensureNoError(error, 'Failed to update schedule rule');
+}
+
+function scheduleRpcParams(academyId: string, input: ScheduleMutationInput) {
+    return {
+        p_academy_id: academyId,
+        p_kind: input.kind,
+        p_class_id: input.classId,
+        p_rule_id: input.ruleId || null,
+        p_occurrence_id: input.occurrenceId || null,
+        p_date: input.date || null,
+        p_day_of_week: input.dayOfWeek ?? null,
+        p_start_date: input.startDate || null,
+        p_end_date: input.endDate || null,
+        p_interval_weeks: Math.max(1, input.intervalWeeks || 1),
+        p_start_time: input.startTime,
+        p_end_time: input.endTime,
+        p_instructor_id: input.instructorId || null,
+        p_classroom_id: input.classroomId || null,
+    };
+}
+
+export async function findScheduleConflictsForAcademy(
+    academyId: string,
+    input: ScheduleMutationInput,
+): Promise<ScheduleConflict[]> {
+    if (input.kind === 'single' && input.status === 'cancelled') return [];
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const params = scheduleRpcParams(academyId, input);
+    const { data, error } = await lms.rpc('schedule_conflicts_v1', params);
+    ensureNoError(error, 'Failed to check schedule conflicts');
+    return Array.isArray(data) ? data as ScheduleConflict[] : [];
+}
+
+export async function mutateScheduleForAcademy(
+    academyId: string,
+    input: ScheduleMutationInput,
+    actor: LmsRoleContext,
+): Promise<{ kind: string; id: string; conflicts: ScheduleConflict[] }> {
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const params = scheduleRpcParams(academyId, input);
+    const overrideAllowed = actor.role === 'owner' || actor.role === 'admin';
+    const { data, error } = await lms.rpc('mutate_schedule_v1', {
+        ...params,
+        p_scope: input.scope,
+        p_substitute_instructor_id: input.substituteInstructorId || null,
+        p_status: input.status || 'scheduled',
+        p_cancel_reason: input.cancelReason || null,
+        p_notes: input.notes || null,
+        p_conflict_override_reason: input.conflictOverrideReason || null,
+        p_conflict_override_allowed: overrideAllowed,
+        p_actor_person_id: actor.personId,
+    });
+    ensureNoError(error, 'Failed to mutate schedule');
+    const result = data && typeof data === 'object' ? data as Row : {};
+    return {
+        kind: String(result.kind || input.kind),
+        id: String(result.id || ''),
+        conflicts: Array.isArray(result.conflicts) ? result.conflicts as ScheduleConflict[] : [],
+    };
+}
+
+export async function changeClassMembersForAcademy(
+    academyId: string,
+    input: ClassMembershipChangeInput,
+): Promise<{ added: number; removed: number }> {
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const { data, error } = await lms.rpc('change_class_members_v1', {
+        p_academy_id: academyId,
+        p_class_id: input.classId,
+        p_effective_date: input.effectiveDate,
+        p_changes: input.changes,
+    });
+    ensureNoError(error, 'Failed to change class members');
+    const result = data && typeof data === 'object' ? data as Row : {};
+    return { added: toNumber(result.added), removed: toNumber(result.removed) };
+}
+
+export async function recordAttendanceBatchForAcademy(
+    academyId: string,
+    input: BatchAttendanceInput,
+    actor: LmsRoleContext,
+): Promise<{ occurrenceId: string; recorded: number }> {
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const records = input.records.map((record) => ({
+        student_id: record.studentId,
+        status: record.status,
+        attended_minutes: record.attendedMinutes ?? null,
+        billable_minutes: record.billableMinutes ?? null,
+        notes: record.notes || null,
+    }));
+    const { data, error } = await lms.rpc('record_attendance_batch_v1', {
+        p_academy_id: academyId,
+        p_occurrence_id: input.occurrenceId || null,
+        p_class_id: input.classId,
+        p_rule_id: input.ruleId || null,
+        p_date: input.date,
+        p_start_time: input.startTime,
+        p_end_time: input.endTime,
+        p_records: records,
+        p_recorded_by: actor.personId,
+    });
+    ensureNoError(error, 'Failed to record attendance batch');
+    const result = data && typeof data === 'object' ? data as Row : {};
+    return { occurrenceId: String(result.occurrenceId || ''), recorded: toNumber(result.recorded) };
 }
 
 export async function setClassBookForAcademy(academyId: string, classId: string, bookId: string, active: boolean) {
@@ -1731,13 +1847,17 @@ export async function updateLessonOccurrenceForAcademy(academyId: string, input:
 
     const occurrenceId = await ensureLessonOccurrence(lms, academyId, input);
     const status = normalizeLessonOccurrenceStatus(input.status);
+    if (status === 'cancelled' && !input.cancelReason?.trim()) {
+        throw new Error('취소 사유를 입력하세요.');
+    }
+    const updates: Row = {
+        status,
+        cancel_reason: status === 'cancelled' ? input.cancelReason?.trim() : null,
+    };
+    if (input.notes !== undefined) updates.notes = input.notes || null;
     const { error } = await lms
         .from('lesson_occurrences')
-        .update({
-            status,
-            cancel_reason: status === 'cancelled' ? input.cancelReason || null : null,
-            notes: input.notes || null,
-        })
+        .update(updates)
         .eq('academy_id', academyId)
         .eq('id', occurrenceId)
         .select('id')
@@ -1772,6 +1892,14 @@ export async function recordAttendanceForAcademy(academyId: string, input: Recor
     if (!enrollment) throw new Error('학생이 해당 반에 배정되어 있지 않습니다.');
 
     const occurrenceId = await ensureOccurrenceForAttendance(lms, academyId, input);
+    const { data: occurrence, error: occurrenceError } = await lms
+        .from('lesson_occurrences')
+        .select('status')
+        .eq('academy_id', academyId)
+        .eq('id', occurrenceId)
+        .single();
+    ensureNoError(occurrenceError, 'Failed to verify attendance occurrence');
+    if ((occurrence as Row).status === 'cancelled') throw new Error('취소된 수업에는 출결을 기록할 수 없습니다.');
     const defaultMinutes = ['absent', 'excused'].includes(input.status)
         ? 0
         : minutesBetween(input.startTime, input.endTime);

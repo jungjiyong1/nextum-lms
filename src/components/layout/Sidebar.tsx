@@ -62,7 +62,6 @@ const navItems: NavItem[] = [
             { id: 'classrooms-overview', label: '반 운영', href: appPageHref.classrooms, exact: true },
             { id: 'classrooms-schedule', label: '시간표', href: '/classrooms/schedule', exact: true },
             { id: 'classrooms-attendance', label: '출결', href: '/classrooms/attendance', exact: true },
-            { id: 'classrooms-settings', label: '운영 설정', href: '/classrooms/settings', exact: true, roles: ['owner', 'admin', 'staff'] },
         ],
     },
     {

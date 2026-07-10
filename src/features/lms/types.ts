@@ -1,6 +1,9 @@
 export type BillingMode = 'monthly_plus_classes' | 'usage_based' | 'manual';
 export type BillingClassRuleType = 'included' | 'extra_flat' | 'discount' | 'usage_based';
 export type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'makeup';
+export type ScheduleEditScope = 'single' | 'future' | 'all';
+export type ScheduleConflictKind = 'class' | 'instructor' | 'classroom';
+export type ScheduleEntryKind = 'recurring' | 'single';
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'cancelled' | 'refunded';
 export type PayrollStatus = 'pending' | 'paid' | 'cancelled';
 export type WithholdingType = 'none' | 'freelance_3.3' | 'custom';
@@ -56,6 +59,7 @@ export interface ClassSummary {
   weakTypeCount: number;
   avgTypeScore: number | null;
   lastLearningAt: string | null;
+  notes?: string | null;
 }
 
 export interface StudentSummary {
@@ -398,10 +402,18 @@ export interface ScheduleItem {
   startTime: string;
   endTime: string;
   status: LessonOccurrenceStatus;
+  classroomId?: string | null;
+  classroomOverrideId?: string | null;
   classroomName: string | null;
   instructorId: string | null;
+  instructorOverrideId?: string | null;
   instructorName: string | null;
+  substituteInstructorId?: string | null;
+  substituteInstructorName?: string | null;
   cancelReason: string | null;
+  notes?: string | null;
+  overrideScope?: ScheduleEditScope | null;
+  updatedAt?: string | null;
 }
 
 export interface ScheduleRuleSummary {
@@ -413,10 +425,27 @@ export interface ScheduleRuleSummary {
   endTime: string;
   startDate: string;
   endDate: string | null;
+  intervalWeeks?: number;
   active: boolean;
+  classroomId?: string | null;
   classroomName: string | null;
   instructorId: string | null;
   instructorName: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ScheduleConflict {
+  kind: ScheduleConflictKind;
+  source: 'rule' | 'occurrence';
+  id: string;
+  classId: string;
+  className: string;
+  date: string | null;
+  dayOfWeek: number | null;
+  startTime: string;
+  endTime: string;
+  instructorName: string | null;
+  classroomName: string | null;
 }
 
 export interface WeakTypeRow {
@@ -660,6 +689,21 @@ export interface ClassStudentSummary {
   personId: string;
   name: string;
   status: string;
+  joinedAt?: string | null;
+  primaryClass?: boolean;
+}
+
+export interface ClassMemberCandidate {
+  studentId: string;
+  personId: string;
+  name: string;
+  grade: string | null;
+  status: StudentStatus;
+  classNames: string[];
+  billingMode: BillingMode | null;
+  hourlyRate: number | null;
+  currentRuleType: BillingClassRuleType | null;
+  currentRuleAmount: number | null;
 }
 
 export interface AttendanceRow {
@@ -676,6 +720,7 @@ export interface AttendanceRow {
   attendedMinutes: number | null;
   billableMinutes: number | null;
   notes: string | null;
+  updatedAt?: string | null;
 }
 
 export interface ClassOperationsOverview {
@@ -828,6 +873,7 @@ export interface CreateClassInput {
   color?: string | null;
   defaultInstructorId?: string | null;
   defaultClassroomId?: string | null;
+  notes?: string | null;
 }
 
 export interface CreateClassroomInput {
@@ -898,6 +944,7 @@ export interface CreateScheduleRuleInput {
   endTime: string;
   startDate: string;
   endDate?: string | null;
+  intervalWeeks?: number;
   classroomId?: string | null;
   instructorId?: string | null;
 }
@@ -961,6 +1008,57 @@ export interface RecordAttendanceInput {
   notes?: string | null;
 }
 
+export interface BatchAttendanceInput {
+  occurrenceId?: string | null;
+  classId: string;
+  ruleId?: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  records: Array<{
+    studentId: string;
+    status: AttendanceStatus;
+    attendedMinutes?: number | null;
+    billableMinutes?: number | null;
+    notes?: string | null;
+  }>;
+}
+
+export interface ClassMembershipChangeInput {
+  classId: string;
+  effectiveDate: string;
+  changes: Array<{
+    studentId: string;
+    action: 'add' | 'remove';
+    billingRule?: {
+      ruleType: BillingClassRuleType;
+      amount: number;
+    } | null;
+  }>;
+}
+
+export interface ScheduleMutationInput {
+  kind: ScheduleEntryKind;
+  scope: ScheduleEditScope;
+  classId: string;
+  ruleId?: string | null;
+  occurrenceId?: string | null;
+  date?: string | null;
+  dayOfWeek?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  intervalWeeks?: number;
+  startTime: string;
+  endTime: string;
+  instructorId?: string | null;
+  classroomId?: string | null;
+  substituteInstructorId?: string | null;
+  status?: LessonOccurrenceStatus;
+  cancelReason?: string | null;
+  notes?: string | null;
+  conflictOverrideReason?: string | null;
+}
+
 export interface UpdateLessonOccurrenceInput {
   occurrenceId?: string | null;
   classId: string;
@@ -969,6 +1067,10 @@ export interface UpdateLessonOccurrenceInput {
   startTime: string;
   endTime: string;
   status: LessonOccurrenceStatus;
+  instructorId?: string | null;
+  classroomId?: string | null;
+  substituteInstructorId?: string | null;
+  overrideScope?: ScheduleEditScope | null;
   cancelReason?: string | null;
   notes?: string | null;
 }

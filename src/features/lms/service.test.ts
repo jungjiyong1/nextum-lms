@@ -5,12 +5,17 @@ import {
   applyLmsInvalidation,
   buildStaffRosterPath,
   buildStudentRosterPath,
+  changeClassMembers,
+  checkScheduleConflicts,
   createClass,
   getDashboardData,
+  loadClassMemberCandidates,
   loadStaffOperationsOverview,
   loadStudentLearningMetrics,
   loadStudentOperationsOverview,
+  mutateSchedule,
   normalizeInvalidationPayload,
+  recordAttendanceBatch,
 } from './service';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -77,6 +82,61 @@ describe('LMS service cache policy', () => {
     await getDashboardData('academy-1', '2026-07-07', '2026-07');
 
     expect(getFetchCount()).toBe(2);
+  });
+
+  it('uses contextual class-operation endpoints and payload envelopes', async () => {
+    await loadClassMemberCandidates('academy-1', 'class-1', '  홍 길동  ');
+    const recurring = {
+      kind: 'recurring' as const,
+      scope: 'all' as const,
+      classId: 'class-1',
+      startDate: '2026-07-06',
+      dayOfWeek: 0,
+      startTime: '10:00',
+      endTime: '11:00',
+    };
+    const single = {
+      kind: 'single' as const,
+      scope: 'single' as const,
+      classId: 'class-1',
+      date: '2026-07-06',
+      startTime: '10:00',
+      endTime: '11:00',
+      status: 'scheduled' as const,
+    };
+    await checkScheduleConflicts('academy-1', recurring);
+    await mutateSchedule('academy-1', recurring);
+    await mutateSchedule('academy-1', single);
+    await changeClassMembers('academy-1', {
+      classId: 'class-1',
+      effectiveDate: '2026-07-07',
+      changes: [{ studentId: 'student-1', action: 'remove' }],
+    });
+    await recordAttendanceBatch('academy-1', {
+      classId: 'class-1',
+      date: '2026-07-06',
+      startTime: '10:00',
+      endTime: '11:00',
+      records: [{ studentId: 'student-1', status: 'present', attendedMinutes: 60, billableMinutes: 60 }],
+    });
+
+    const calls = fetchMock.mock.calls.map(([input, init]) => ({
+      url: String(input),
+      method: (init as RequestInit | undefined)?.method || 'GET',
+      body: (init as RequestInit | undefined)?.body ? JSON.parse(String((init as RequestInit).body)) : null,
+    }));
+    expect(calls[0]?.url).toBe('/api/lms/classes/members?academyId=academy-1&classId=class-1&q=%ED%99%8D+%EA%B8%B8%EB%8F%99');
+    expect(calls.slice(1).map((call) => call.url)).toEqual([
+      '/api/lms/schedule-conflicts',
+      '/api/lms/schedule-rules',
+      '/api/lms/lesson-occurrences',
+      '/api/lms/classes/members',
+      '/api/lms/attendance',
+    ]);
+    expect(calls[1]?.body).toEqual({ academyId: 'academy-1', input: recurring });
+    expect(calls[2]?.body).toEqual({ academyId: 'academy-1', mutation: recurring });
+    expect(calls[3]?.body).toEqual({ academyId: 'academy-1', mutation: single });
+    expect(calls[5]?.body).toMatchObject({ academyId: 'academy-1', batch: { records: [{ status: 'present' }] } });
   });
 
   it('expires volatile learning data after thirty seconds', async () => {

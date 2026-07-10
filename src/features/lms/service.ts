@@ -3,6 +3,7 @@ import { supabase } from '@/core/supabaseClient';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type {
   AccountingOperationsOverview,
+  BatchAttendanceInput,
   AssignmentManagementData,
   AdminCsvExport,
   AdminExportOptions,
@@ -10,6 +11,8 @@ import type {
   AdminResetTarget,
   ClassOperationsDetail,
   ClassOperationsOverview,
+  ClassMemberCandidate,
+  ClassMembershipChangeInput,
   CreateBookInput,
   CreateClassInput,
   CreateClassroomInput,
@@ -31,6 +34,8 @@ import type {
   StaffRole,
   StaffStatus,
   StaffSummary,
+  ScheduleConflict,
+  ScheduleMutationInput,
   StudentAiConversationRow,
   StudentDetail,
   StudentDetailSection,
@@ -679,12 +684,41 @@ export async function loadClassOperationsDetail(
   return getLmsJson<ClassOperationsDetail>(`/api/lms/classes/detail?${params.toString()}`, { policy: 'operational', ...options });
 }
 
+export async function loadClassMemberCandidates(
+  academyId: string,
+  classId: string,
+  query = '',
+  options: LmsRequestOptions = {},
+): Promise<ClassMemberCandidate[]> {
+  const params = new URLSearchParams({ academyId, classId });
+  if (query.trim()) params.set('q', query.trim());
+  return getLmsJson<ClassMemberCandidate[]>(`/api/lms/classes/members?${params.toString()}`, { policy: 'live', ...options });
+}
+
+export async function changeClassMembers(academyId: string, input: ClassMembershipChangeInput): Promise<void> {
+  await postLmsMutation('/api/lms/classes/members', { academyId, input });
+}
+
 export async function createScheduleRule(academyId: string, input: CreateScheduleRuleInput): Promise<void> {
   await postLmsMutation('/api/lms/schedule-rules', { academyId, input });
 }
 
 export async function updateScheduleRule(academyId: string, ruleId: string, input: UpdateScheduleRuleInput): Promise<void> {
   await postLmsMutation('/api/lms/schedule-rules', { academyId, ruleId, input });
+}
+
+export async function checkScheduleConflicts(academyId: string, input: ScheduleMutationInput): Promise<ScheduleConflict[]> {
+  const result = await postLmsMutation<{ data?: ScheduleConflict[] }>(
+    '/api/lms/schedule-conflicts',
+    { academyId, input },
+    { mutates: false },
+  );
+  return result.data || [];
+}
+
+export async function mutateSchedule(academyId: string, input: ScheduleMutationInput): Promise<void> {
+  const path = input.kind === 'recurring' ? '/api/lms/schedule-rules' : '/api/lms/lesson-occurrences';
+  await postLmsMutation(path, { academyId, mutation: input });
 }
 
 export async function updateLessonOccurrence(academyId: string, input: UpdateLessonOccurrenceInput): Promise<void> {
@@ -931,6 +965,10 @@ export async function updateClassroom(academyId: string, classroomId: string, in
 
 export async function recordAttendance(academyId: string, input: RecordAttendanceInput): Promise<void> {
   await postLmsMutation('/api/lms/attendance', { academyId, input });
+}
+
+export async function recordAttendanceBatch(academyId: string, batch: BatchAttendanceInput): Promise<void> {
+  await postLmsMutation('/api/lms/attendance', { academyId, batch });
 }
 
 export async function generateMonthlyInvoices(academyId: string, serviceMonth: string): Promise<void> {

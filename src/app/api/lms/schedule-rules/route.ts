@@ -1,6 +1,6 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
-import { createScheduleRuleForAcademy, updateScheduleRuleForAcademy } from '@/lib/lms/mutations';
-import type { CreateScheduleRuleInput, UpdateScheduleRuleInput } from '@/features/lms/types';
+import { createScheduleRuleForAcademy, mutateScheduleForAcademy, updateScheduleRuleForAcademy } from '@/lib/lms/mutations';
+import type { CreateScheduleRuleInput, ScheduleMutationInput, UpdateScheduleRuleInput } from '@/features/lms/types';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
 export async function POST(request: Request) {
@@ -10,12 +10,17 @@ export async function POST(request: Request) {
             academyId?: string;
             ruleId?: string;
             input?: CreateScheduleRuleInput | UpdateScheduleRuleInput;
+            mutation?: ScheduleMutationInput;
         };
-        if (!body.academyId || !body.input) {
+        if (!body.academyId || (!body.input && !body.mutation)) {
             return mutationError('INVALID_SCHEDULE_RULE_REQUEST', 'Invalid schedule rule request.', { request });
         }
 
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
+        if (body.mutation) {
+            const data = await mutateScheduleForAcademy(body.academyId, body.mutation, actor);
+            return mutationSuccess(data, { request });
+        }
         if (body.ruleId) {
             await updateScheduleRuleForAcademy(body.academyId, body.ruleId, body.input as UpdateScheduleRuleInput);
         } else {

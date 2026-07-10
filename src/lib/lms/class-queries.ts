@@ -6,6 +6,7 @@ import type {
     AttendanceRow,
     BookSummary,
     ClassBookSummary,
+    ClassMemberCandidate,
     ClassOperationsDetail,
     ClassOperationsOverview,
     ClassOperationsTruncation,
@@ -19,6 +20,7 @@ import type {
 import { createAdminClient } from '@/lib/supabase/admin';
 import { assertAssignedClassAccess } from './class-access';
 import { LmsAuthError, type LmsRoleContext } from './auth';
+import { buildPeopleSearchOrFilter, normalizeRosterQuery } from './roster-filters';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -95,7 +97,7 @@ function scheduleFromReadModel(
 
     for (const row of occurrenceRows) {
         const start = normalizeTime(row.start_time);
-        actualKeys.add(`${row.class_id}:${row.rule_id || 'none'}:${row.occurrence_date}:${start}`);
+        if (row.rule_id) actualKeys.add(`${row.class_id}:${row.rule_id}:${row.occurrence_date}`);
         items.push({
             id: String(row.id),
             actualId: String(row.id),
@@ -107,10 +109,18 @@ function scheduleFromReadModel(
             startTime: start,
             endTime: normalizeTime(row.end_time),
             status: row.status as ScheduleItem['status'],
+            classroomId: row.classroom_id ? String(row.classroom_id) : null,
+            classroomOverrideId: row.classroom_override_id ? String(row.classroom_override_id) : null,
             classroomName: row.classroom_name ? String(row.classroom_name) : null,
             instructorId: row.instructor_id ? String(row.instructor_id) : null,
+            instructorOverrideId: row.instructor_override_id ? String(row.instructor_override_id) : null,
             instructorName: row.instructor_name ? String(row.instructor_name) : null,
+            substituteInstructorId: row.substitute_instructor_id ? String(row.substitute_instructor_id) : null,
+            substituteInstructorName: row.substitute_instructor_name ? String(row.substitute_instructor_name) : null,
             cancelReason: row.cancel_reason ? String(row.cancel_reason) : null,
+            notes: row.notes ? String(row.notes) : null,
+            overrideScope: row.override_scope ? row.override_scope as ScheduleItem['overrideScope'] : null,
+            updatedAt: row.updated_at ? String(row.updated_at) : null,
         });
     }
 
@@ -128,7 +138,7 @@ function scheduleFromReadModel(
             const date = dateString(current);
             const start = normalizeTime(row.start_time);
             const intervalWeeks = Math.max(1, toNumber(row.interval_weeks, 1));
-            const key = `${row.class_id}:${row.id}:${date}:${start}`;
+            const key = `${row.class_id}:${row.id}:${date}`;
             if (day === toNumber(row.day_of_week) && weekOffset >= 0
                 && weekOffset % intervalWeeks === 0 && !actualKeys.has(key)) {
                 items.push({
@@ -142,10 +152,18 @@ function scheduleFromReadModel(
                     startTime: start,
                     endTime: normalizeTime(row.end_time),
                     status: 'scheduled',
+                    classroomId: row.classroom_id ? String(row.classroom_id) : null,
+                    classroomOverrideId: row.classroom_override_id ? String(row.classroom_override_id) : null,
                     classroomName: row.classroom_name ? String(row.classroom_name) : null,
                     instructorId: row.instructor_id ? String(row.instructor_id) : null,
+                    instructorOverrideId: row.instructor_override_id ? String(row.instructor_override_id) : null,
                     instructorName: row.instructor_name ? String(row.instructor_name) : null,
+                    substituteInstructorId: null,
+                    substituteInstructorName: null,
                     cancelReason: null,
+                    notes: null,
+                    overrideScope: null,
+                    updatedAt: row.updated_at ? String(row.updated_at) : null,
                 });
             }
             current = addDays(current, 1);
@@ -170,10 +188,13 @@ export function classOverviewFromReadModel(value: unknown, startDate: string, en
             endTime: normalizeTime(row.end_time),
             startDate: String(row.start_date),
             endDate: row.end_date ? String(row.end_date) : null,
+            intervalWeeks: Math.max(1, toNumber(row.interval_weeks, 1)),
             active: Boolean(row.active),
+            classroomId: row.classroom_id ? String(row.classroom_id) : null,
             classroomName: row.classroom_name ? String(row.classroom_name) : null,
             instructorId: row.instructor_id ? String(row.instructor_id) : null,
             instructorName: row.instructor_name ? String(row.instructor_name) : null,
+            updatedAt: row.updated_at ? String(row.updated_at) : null,
         })),
         attendance: rowsFromJson(value, 'attendance').map((row) => ({
             id: String(row.id),
@@ -189,6 +210,7 @@ export function classOverviewFromReadModel(value: unknown, startDate: string, en
             attendedMinutes: row.attended_minutes === null ? null : toNumber(row.attended_minutes),
             billableMinutes: row.billable_minutes === null ? null : toNumber(row.billable_minutes),
             notes: row.notes ? String(row.notes) : null,
+            updatedAt: row.updated_at ? String(row.updated_at) : null,
         })),
         books: rowsFromJson(value, 'books') as BookSummary[],
         staff: rowsFromJson(value, 'staff').map((row) => ({
@@ -376,7 +398,7 @@ async function loadClassSummaries(
         { data: classroomsData, error: classroomsError },
         { data: staffData, error: staffError },
     ] = await Promise.all([
-        lms.from('class_profiles').select('class_id,status,color,capacity,default_instructor_staff_id,default_classroom_id,course_id').eq('academy_id', academyId).in('class_id', classIds),
+        lms.from('class_profiles').select('class_id,status,color,capacity,default_instructor_staff_id,default_classroom_id,course_id,notes').eq('academy_id', academyId).in('class_id', classIds),
         core.from('class_students').select('class_id,student_id,status').in('class_id', classIds),
         reporting.from('v_class_learning_summary').select('class_id,weak_type_count,avg_type_score,last_learning_at').eq('academy_id', academyId).in('class_id', classIds),
         lms.from('courses').select('id,title').eq('academy_id', academyId),
@@ -429,6 +451,7 @@ async function loadClassSummaries(
                 ? null
                 : Number(summary.avg_type_score),
             lastLearningAt: summary?.last_learning_at ?? null,
+            notes: profile?.notes ?? null,
         };
     });
 }
@@ -509,8 +532,8 @@ export async function loadSchedule(
     ] = await Promise.all([
         core.from('classes').select('id,name').eq('academy_id', academyId),
         lms.from('class_profiles').select('class_id,default_instructor_staff_id,default_classroom_id').eq('academy_id', academyId),
-        lms.from('class_schedule_rules').select('id,class_id,day_of_week,start_time,end_time,start_date,end_date,active,classroom_id,instructor_staff_id,interval_weeks').eq('academy_id', academyId).eq('active', true),
-        lms.from('lesson_occurrences').select('id,class_id,rule_id,occurrence_date,start_time,end_time,status,classroom_id,substitute_staff_id,instructor_staff_id,cancel_reason').eq('academy_id', academyId).gte('occurrence_date', startDate).lte('occurrence_date', endDate),
+        lms.from('class_schedule_rules').select('id,class_id,day_of_week,start_time,end_time,start_date,end_date,active,classroom_id,instructor_staff_id,interval_weeks,updated_at').eq('academy_id', academyId).eq('active', true),
+        lms.from('lesson_occurrences').select('id,class_id,rule_id,occurrence_date,start_time,end_time,status,classroom_id,substitute_staff_id,instructor_staff_id,cancel_reason,notes,override_scope,updated_at').eq('academy_id', academyId).gte('occurrence_date', startDate).lte('occurrence_date', endDate),
         lms.from('classrooms').select('id,name').eq('academy_id', academyId),
         core.from('staff_members').select('id,person_id').eq('academy_id', academyId),
     ]);
@@ -535,7 +558,7 @@ export async function loadSchedule(
 
     for (const row of (occurrencesData || []) as Row[]) {
         const start = normalizeTime(row.start_time);
-        actualKeys.add(`${row.class_id}:${row.rule_id || 'none'}:${row.occurrence_date}:${start}`);
+        if (row.rule_id) actualKeys.add(`${row.class_id}:${row.rule_id}:${row.occurrence_date}`);
         const profile = profiles.get(row.class_id);
         const instructorId = row.substitute_staff_id || row.instructor_staff_id || profile?.default_instructor_staff_id;
         const classroomId = row.classroom_id || profile?.default_classroom_id;
@@ -550,10 +573,18 @@ export async function loadSchedule(
             startTime: start,
             endTime: normalizeTime(row.end_time),
             status: row.status as ScheduleItem['status'],
+            classroomId: classroomId ?? null,
+            classroomOverrideId: row.classroom_id ?? null,
             classroomName: classroomId ? classrooms.get(classroomId) ?? null : null,
             instructorId: instructorId ?? null,
+            instructorOverrideId: row.instructor_staff_id ?? null,
             instructorName: instructorId ? staffNames.get(instructorId) ?? null : null,
+            substituteInstructorId: row.substitute_staff_id ?? null,
+            substituteInstructorName: row.substitute_staff_id ? staffNames.get(row.substitute_staff_id) ?? null : null,
             cancelReason: row.cancel_reason ?? null,
+            notes: row.notes ?? null,
+            overrideScope: row.override_scope ?? null,
+            updatedAt: row.updated_at ?? null,
         });
     }
 
@@ -570,7 +601,7 @@ export async function loadSchedule(
             const weekOffset = weeksBetween(ruleStart, current);
             const date = dateString(current);
             const start = normalizeTime(rule.start_time);
-            const key = `${rule.class_id}:${rule.id}:${date}:${start}`;
+            const key = `${rule.class_id}:${rule.id}:${date}`;
             if (day === rule.day_of_week && weekOffset >= 0 && weekOffset % rule.interval_weeks === 0 && !actualKeys.has(key)) {
                 const profile = profiles.get(rule.class_id);
                 const classroomId = rule.classroom_id || profile?.default_classroom_id;
@@ -586,10 +617,18 @@ export async function loadSchedule(
                     startTime: start,
                     endTime: normalizeTime(rule.end_time),
                     status: 'scheduled',
+                    classroomId: classroomId ?? null,
+                    classroomOverrideId: rule.classroom_id ?? null,
                     classroomName: classroomId ? classrooms.get(classroomId) ?? null : null,
                     instructorId: instructorId ?? null,
+                    instructorOverrideId: rule.instructor_staff_id ?? null,
                     instructorName: instructorId ? staffNames.get(instructorId) ?? null : null,
+                    substituteInstructorId: null,
+                    substituteInstructorName: null,
                     cancelReason: null,
+                    notes: null,
+                    overrideScope: null,
+                    updatedAt: rule.updated_at ?? null,
                 });
             }
             current = addDays(current, 1);
@@ -607,7 +646,7 @@ async function loadScheduleRules(
 ): Promise<ScheduleRuleSummary[]> {
     let query = lms
         .from('class_schedule_rules')
-        .select('id,class_id,day_of_week,start_time,end_time,start_date,end_date,active,classroom_id,instructor_staff_id,interval_weeks')
+        .select('id,class_id,day_of_week,start_time,end_time,start_date,end_date,active,classroom_id,instructor_staff_id,interval_weeks,updated_at')
         .eq('academy_id', academyId)
         .order('day_of_week', { ascending: true })
         .order('start_time', { ascending: true });
@@ -651,10 +690,13 @@ async function loadScheduleRules(
         endTime: normalizeTime(row.end_time),
         startDate: row.start_date,
         endDate: row.end_date ?? null,
+        intervalWeeks: Math.max(1, toNumber(row.interval_weeks, 1)),
         active: Boolean(row.active),
+        classroomId: row.classroom_id ?? null,
         classroomName: row.classroom_id ? classroomMap.get(row.classroom_id) ?? null : null,
         instructorId: row.instructor_staff_id ?? null,
         instructorName: row.instructor_staff_id ? staffNames.get(row.instructor_staff_id) ?? null : null,
+        updatedAt: row.updated_at ?? null,
     }));
 }
 
@@ -715,7 +757,7 @@ async function loadAttendance(
 
     const { data: attendance, error: attendanceError } = await lms
         .from('attendance_records')
-        .select('id,occurrence_id,student_id,status,attended_minutes,billable_minutes,notes')
+        .select('id,occurrence_id,student_id,status,attended_minutes,billable_minutes,notes,updated_at')
         .eq('academy_id', academyId)
         .in('occurrence_id', occurrenceIds)
         .order('created_at', { ascending: false });
@@ -755,6 +797,7 @@ async function loadAttendance(
             attendedMinutes: row.attended_minutes ?? null,
             billableMinutes: row.billable_minutes ?? null,
             notes: row.notes ?? null,
+            updatedAt: row.updated_at ?? null,
         };
     });
 }
@@ -762,7 +805,7 @@ async function loadAttendance(
 async function loadClassStudents(core: SchemaClient, academyId: string, classId: string): Promise<ClassStudentSummary[]> {
     const { data: enrollments, error } = await core
         .from('class_students')
-        .select('student_id,status')
+        .select('student_id,status,joined_at,primary_class')
         .eq('class_id', classId);
     ensureNoError(error, 'Failed to load class students');
 
@@ -778,7 +821,7 @@ async function loadClassStudents(core: SchemaClient, academyId: string, classId:
     ensureNoError(studentsError, 'Failed to load class student records');
 
     const people = await fetchPeople(core, ((students || []) as Row[]).map((row) => row.person_id));
-    const enrollmentStatus = new Map(enrollmentRows.map((row) => [row.student_id, row.status]));
+    const enrollmentByStudent = new Map(enrollmentRows.map((row) => [row.student_id, row]));
 
     return ((students || []) as Row[]).map((row) => {
         const person = people.get(row.person_id);
@@ -786,9 +829,115 @@ async function loadClassStudents(core: SchemaClient, academyId: string, classId:
             id: row.id,
             personId: row.person_id,
             name: person?.display_name || person?.full_name || 'Unknown student',
-            status: enrollmentStatus.get(row.id) || row.status,
+            status: enrollmentByStudent.get(row.id)?.status || row.status,
+            joinedAt: enrollmentByStudent.get(row.id)?.joined_at ?? null,
+            primaryClass: Boolean(enrollmentByStudent.get(row.id)?.primary_class),
         };
     });
+}
+
+export async function loadClassMemberCandidates(
+    context: LmsRoleContext,
+    classId: string,
+    query: string | null | undefined,
+    limit = 50,
+): Promise<ClassMemberCandidate[]> {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const normalizedQuery = normalizeRosterQuery(query);
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+
+    await assertClassBelongsToAcademy(core, context.academyId, classId);
+
+    const { data: currentEnrollments, error: currentError } = await core
+        .from('class_students')
+        .select('student_id')
+        .eq('class_id', classId)
+        .eq('status', 'active');
+    ensureNoError(currentError, 'Failed to load current class members');
+    const currentIds = new Set(((currentEnrollments || []) as Row[]).map((row) => String(row.student_id)));
+
+    let matchingPersonIds: string[] | null = null;
+    if (normalizedQuery) {
+        const { data: peopleRows, error: peopleError } = await core
+            .from('people')
+            .select('id')
+            .eq('primary_academy_id', context.academyId)
+            .or(buildPeopleSearchOrFilter(normalizedQuery, ['full_name', 'display_name']))
+            .limit(200);
+        ensureNoError(peopleError, 'Failed to search student people');
+        matchingPersonIds = ((peopleRows || []) as Row[]).map((row) => String(row.id));
+        if (matchingPersonIds.length === 0) return [];
+    }
+
+    let studentQuery = core
+        .from('students')
+        .select('id,person_id,status,grade')
+        .eq('academy_id', context.academyId)
+        .in('status', ['active', 'on_leave'])
+        .order('created_at', { ascending: false })
+        .limit(boundedLimit + currentIds.size);
+    if (matchingPersonIds) studentQuery = studentQuery.in('person_id', matchingPersonIds);
+
+    const { data: studentRowsData, error: studentsError } = await studentQuery;
+    ensureNoError(studentsError, 'Failed to load class member candidates');
+    const studentRows = ((studentRowsData || []) as Row[])
+        .filter((row) => !currentIds.has(String(row.id)))
+        .slice(0, boundedLimit);
+    if (studentRows.length === 0) return [];
+
+    const studentIds = studentRows.map((row) => String(row.id));
+    const personIds = studentRows.map((row) => String(row.person_id));
+    const [people, enrollmentsResult, contractsResult] = await Promise.all([
+        fetchPeople(core, personIds),
+        core.from('class_students')
+            .select('student_id,class_id,status')
+            .in('student_id', studentIds)
+            .eq('status', 'active'),
+        lms.from('student_billing_contracts')
+            .select('id,student_id,billing_mode,hourly_rate,effective_from')
+            .eq('academy_id', context.academyId)
+            .eq('status', 'active')
+            .in('student_id', studentIds)
+            .order('effective_from', { ascending: false }),
+    ]);
+    ensureNoError(enrollmentsResult.error, 'Failed to load candidate class assignments');
+    ensureNoError(contractsResult.error, 'Failed to load candidate billing contracts');
+
+    const enrollmentRows = (enrollmentsResult.data || []) as Row[];
+    const classIds = uniqueStrings(enrollmentRows.map((row) => row.class_id));
+    const classNames = await fetchClassNames(core, classIds);
+    const classesByStudent = new Map<string, string[]>();
+    for (const row of enrollmentRows) {
+        const names = classesByStudent.get(String(row.student_id)) || [];
+        const name = classNames.get(String(row.class_id));
+        if (name) names.push(name);
+        classesByStudent.set(String(row.student_id), names);
+    }
+    const contracts = new Map<string, Row>();
+    for (const row of (contractsResult.data || []) as Row[]) {
+        if (!contracts.has(String(row.student_id))) contracts.set(String(row.student_id), row);
+    }
+
+    return studentRows.map((row) => {
+        const person = people.get(String(row.person_id));
+        const contract = contracts.get(String(row.id));
+        return {
+            studentId: String(row.id),
+            personId: String(row.person_id),
+            name: String(person?.display_name || person?.full_name || 'Unknown student'),
+            grade: row.grade ? String(row.grade) : null,
+            status: row.status as ClassMemberCandidate['status'],
+            classNames: classesByStudent.get(String(row.id)) || [],
+            billingMode: contract?.billing_mode || null,
+            hourlyRate: contract?.hourly_rate === null || contract?.hourly_rate === undefined
+                ? null
+                : toNumber(contract.hourly_rate),
+            currentRuleType: null,
+            currentRuleAmount: null,
+        };
+    }).sort((left, right) => left.name.localeCompare(right.name, 'ko-KR'));
 }
 
 async function loadClassBooks(learning: SchemaClient, content: SchemaClient, classId: string): Promise<ClassBookSummary[]> {
@@ -878,10 +1027,10 @@ async function loadClassOperationsOverviewLegacy(
     const reporting = client.schema('reporting');
     const academyId = context.academyId;
     const needsSchedule = view === 'overview' || view === 'schedule' || view === 'attendance';
-    const needsRules = view === 'settings';
+    const needsRules = view === 'schedule' || view === 'settings';
     const needsBooks = view === 'overview' || view === 'settings';
     const needsAttendance = view === 'attendance';
-    const needsReferenceData = view === 'settings';
+    const needsReferenceData = view === 'schedule' || view === 'settings';
 
     const [classes, schedule, scheduleRules, books, attendance, staff, classrooms] = await Promise.all([
         loadClassSummaries(core, lms, reporting, academyId),
@@ -952,7 +1101,39 @@ export async function loadClassOperationsOverview(
         throw error;
     }
 
-    const overview = classOverviewFromReadModel(data, startDate, endDate);
+    let overview = classOverviewFromReadModel(data, startDate, endDate);
+    const needsDirectSchedule = view === 'schedule' || view === 'attendance';
+    const needsManagerReferences = !staffMemberId && (view === 'overview' || view === 'schedule');
+    const needsManagerNotes = !staffMemberId && view === 'overview' && overview.classes.length > 0;
+    const classIds = overview.classes.map((row) => row.id);
+    const [schedule, scheduleRules, staff, classrooms, profilesResult] = await Promise.all([
+        needsDirectSchedule
+            ? loadSchedule(core, lms, context.academyId, startDate, endDate)
+            : Promise.resolve(overview.schedule),
+        needsManagerReferences && view === 'schedule'
+            ? loadScheduleRules(core, lms, context.academyId)
+            : Promise.resolve(overview.scheduleRules),
+        needsManagerReferences ? loadStaff(core, context.academyId) : Promise.resolve(overview.staff),
+        needsManagerReferences ? loadClassrooms(lms, context.academyId) : Promise.resolve(overview.classrooms),
+        needsManagerNotes
+            ? lms.from('class_profiles').select('class_id,notes').eq('academy_id', context.academyId).in('class_id', classIds)
+            : Promise.resolve({ data: [], error: null }),
+    ]);
+    ensureNoError(profilesResult.error, 'Failed to load class profile notes');
+    const notesByClass = new Map(((profilesResult.data || []) as Row[]).map((row) => [String(row.class_id), row.notes ?? null]));
+    overview = {
+        ...overview,
+        classes: needsManagerNotes
+            ? overview.classes.map((row) => ({ ...row, notes: notesByClass.get(row.id) ?? null }))
+            : overview.classes,
+        schedule,
+        scheduleRules,
+        staff,
+        classrooms,
+        truncated: needsDirectSchedule
+            ? { ...overview.truncated, occurrences: false }
+            : overview.truncated,
+    };
     if (!staffMemberId) return overview;
     return restrictReferenceDataForAssignedRole(overview, staffMemberId);
 }
