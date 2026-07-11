@@ -3,12 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  BookOpen,
-  CalendarDays,
   CalendarRange,
-  CheckCircle2,
   ClipboardCheck,
-  Clock,
   ChevronLeft,
   ChevronRight,
   Edit3,
@@ -48,7 +44,6 @@ import { PageShell, PageStatusBar } from '@/components/ui/page-shell';
 import { SelectField } from '@/components/ui/select-field';
 import { SelectableCard } from '@/components/ui/selectable-card';
 import { SkeletonPanel } from '@/components/ui/skeleton';
-import { StatCard } from '@/components/ui/stat-card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -520,9 +515,6 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
     })
   ), [attendance, scheduleClassFilter, selectedClassId, selectedDate, view]);
 
-  const todayLessons = schedule.filter((item) => item.date === today()).length;
-  const activeClassCount = classes.filter((row) => row.status === 'active' || row.active).length;
-  const totalStudents = classes.reduce((sum, row) => sum + row.studentCount, 0);
   useEffect(() => {
     if (view !== 'attendance') return;
     if (selectedScheduleId && daySchedule.some((item) => item.id === selectedScheduleId)) return;
@@ -881,22 +873,15 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   ) : undefined;
 
   const renderOverview = () => (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="운영 반" value={`${activeClassCount}개`} hint={`전체 ${classes.length}개 반`} icon={Users} tone="primary" />
-        <StatCard label="배정 학생" value={`${totalStudents}명`} hint="반별 중복 포함" icon={CheckCircle2} tone="success" />
-        <StatCard label="오늘 수업" value={`${todayLessons}회`} hint="오늘 예정/진행 수업" icon={CalendarDays} tone="info" />
-        <StatCard label="주의 유형" value={`${classes.reduce((sum, row) => sum + row.weakTypeCount, 0)}개`} hint="반별 취약 유형 합계" icon={BookOpen} tone="warning" />
-      </div>
-      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <ClassPicker
-          classes={classes}
-          selectedClassId={selectedClassId}
-          onSelectClass={selectClass}
-          onAddClass={startClassCreate}
-          canManage={canManageClassSetup}
-        />
-        <Card>
+    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+      <ClassPicker
+        classes={classes}
+        selectedClassId={selectedClassId}
+        onSelectClass={selectClass}
+        onAddClass={startClassCreate}
+        canManage={canManageClassSetup}
+      />
+      <Card>
           <CardHeader className="gap-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
@@ -1003,20 +988,13 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
               <EmptyState title="반을 선택하세요" description="왼쪽 목록에서 운영 정보를 볼 반을 선택하세요." />
             )}
           </CardContent>
-        </Card>
-      </div>
+      </Card>
     </div>
   );
 
   const renderSchedule = () => (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="표시 수업" value={`${filteredSchedule.length}회`} hint="선택 필터 기준" icon={CalendarDays} tone="primary" />
-        <StatCard label="완료" value={`${filteredSchedule.filter((item) => item.status === 'completed').length}회`} hint="수업 상태 기준" icon={CheckCircle2} tone="success" />
-        <StatCard label="변경/취소" value={`${filteredSchedule.filter((item) => item.status === 'cancelled' || item.status === 'substitute').length}회`} hint="취소와 대강 포함" icon={Clock} tone="warning" />
-      </div>
-      <Card>
-        <CardHeader className="gap-4">
+    <Card>
+      <CardHeader className="gap-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <CardTitle>주간 수업 일정</CardTitle>
@@ -1032,8 +1010,8 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
               </span>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      </CardHeader>
+      <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div>
               <Label>반 필터</Label>
@@ -1073,9 +1051,8 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
           {filteredSchedule.length === 0 && canManageClassSetup && (
             <div className="flex justify-center"><Button type="button" onClick={() => openScheduleEditor(null)}><Plus className="mr-2 h-4 w-4" />첫 시간표 추가</Button></div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   );
 
   const renderAttendance = () => (
