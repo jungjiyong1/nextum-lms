@@ -773,7 +773,7 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
 
     if (!academyId) {
         return (
-            <PageShell title="강사" description="학원 연결 정보가 필요합니다." icon={Users}>
+            <PageShell title="강사" icon={Users}>
                 <ErrorState title="현재 학원 정보를 찾을 수 없습니다." />
             </PageShell>
         );
@@ -785,7 +785,6 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
     return (
         <PageShell
             title="강사"
-            description="강사/직원 원장, 담당 반, 시간표, 계정 상태를 한 화면에서 확인합니다."
             icon={Users}
             actions={permissions.canCreate ? (
                 <Button type="button" onClick={startCreate}>

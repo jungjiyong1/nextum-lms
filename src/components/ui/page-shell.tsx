@@ -8,7 +8,6 @@ type PageStatusTone = "neutral" | "success" | "warning" | "danger" | "info"
 
 interface PageShellProps extends React.HTMLAttributes<HTMLDivElement> {
     title: string
-    description?: string
     icon?: LucideIcon
     action?: React.ReactNode
     actions?: React.ReactNode
@@ -17,7 +16,6 @@ interface PageShellProps extends React.HTMLAttributes<HTMLDivElement> {
 
 interface PageHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
     title: string
-    description?: string
     icon?: LucideIcon
     actions?: React.ReactNode
 }
@@ -37,7 +35,6 @@ const toneStyles: Record<PageStatusTone, string> = {
 
 function PageHeader({
     title,
-    description,
     icon: Icon,
     actions,
     className,
@@ -57,12 +54,7 @@ function PageHeader({
                         <Icon className="h-5 w-5" aria-hidden="true" />
                     </div>
                 )}
-                <div className="min-w-0">
-                    <h1 className="truncate text-2xl font-bold text-foreground">{title}</h1>
-                    {description && (
-                        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-                    )}
-                </div>
+                <h1 className="min-w-0 truncate text-2xl font-bold text-foreground">{title}</h1>
             </div>
             {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
         </div>
@@ -93,7 +85,6 @@ function PageStatusBar({
 
 function PageShell({
     title,
-    description,
     icon,
     action,
     actions,
@@ -104,7 +95,7 @@ function PageShell({
 }: PageShellProps) {
     return (
         <div className={cn("mx-auto flex w-full max-w-7xl flex-col gap-5 p-5 lg:p-8", className)} {...props}>
-            <PageHeader title={title} description={description} icon={icon} actions={actions ?? action} />
+            <PageHeader title={title} icon={icon} actions={actions ?? action} />
             {status}
             {children}
         </div>

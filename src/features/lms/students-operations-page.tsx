@@ -1672,7 +1672,6 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
     return (
         <PageShell
             title="학생"
-            description="학습분석, 출결, 연락처, 청구 계약을 한 화면에서 관리합니다."
             icon={GraduationCap}
             actions={permissions.canCreate ? (
                 <Button type="button" onClick={startCreate}>

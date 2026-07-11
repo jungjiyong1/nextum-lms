@@ -1915,7 +1915,6 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
     return (
         <PageShell
             title="과제 현황"
-            description="담당 반을 기준으로 과제를 선택하고, 해당 과제의 학생별 진행 상황을 확인합니다."
             icon={ClipboardList}
             actions={data?.permissions.canCreate ? (
                 <Button asChild>
@@ -2221,7 +2220,6 @@ export function AssignmentCreatePage() {
     return (
         <PageShell
             title="과제 관리"
-            description="과제 배포, 회수, 삭제만 관리합니다."
             icon={SlidersHorizontal}
             actions={(
                 <Button asChild variant="outline">

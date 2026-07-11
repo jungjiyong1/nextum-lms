@@ -47,6 +47,7 @@ import { Skeleton, SkeletonPanel } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/state';
 import { StatCard } from '@/components/ui/stat-card';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   addLmsInvalidationListener,
   exportAdminCsv,
@@ -60,6 +61,7 @@ import {
   createExpense,
   createInstructorPayment,
 } from './service';
+import { calculatePayrollDraft } from './payroll';
 import type {
   AdminExportType,
   AdminResetTarget,
@@ -68,6 +70,7 @@ import type {
   DashboardData,
   ExpenseRow,
   InstructorPaymentRow,
+  InstructorPayrollEstimate,
   PaymentRow,
   StaffSummary,
   WithholdingType,
@@ -102,6 +105,14 @@ function today(): string {
 
 function currency(value: number | null | undefined): string {
   return `${Math.round(value || 0).toLocaleString()}원`;
+}
+
+function hoursFromMinutes(minutes: number): number {
+  return Math.round((minutes / 60) * 100) / 100;
+}
+
+function hoursLabel(minutes: number): string {
+  return `${hoursFromMinutes(minutes).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}시간`;
 }
 
 function academyIdOf(value: unknown): string | null {
@@ -479,7 +490,6 @@ export function LearningHomePage() {
   return (
     <PageShell
       title="오늘 수업 대시보드"
-      description="오늘 수업이 있는 반의 과제, 출결, 취약 학생을 우선순위로 확인합니다."
       icon={BarChart3}
       action={
         <div className="flex items-center gap-2">
@@ -558,10 +568,12 @@ export function LearningHomePage() {
 export function AccountingOperationsPage() {
   const academyId = useAcademyId();
   const [month, setMonth] = useState(currentMonth());
+  const [accountingTab, setAccountingTab] = useState<'payments' | 'payroll' | 'expenses'>('payments');
   const [rows, setRows] = useState<BillingRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [payroll, setPayroll] = useState<InstructorPaymentRow[]>([]);
+  const [payrollEstimates, setPayrollEstimates] = useState<InstructorPayrollEstimate[]>([]);
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [, setRefreshing] = useState(false);
@@ -581,11 +593,12 @@ export function AccountingOperationsPage() {
   const [payrollInstructorId, setPayrollInstructorId] = useState('');
   const [payrollRecipientName, setPayrollRecipientName] = useState('');
   const [payrollPaymentDate, setPayrollPaymentDate] = useState(today());
-  const [payrollGrossAmount, setPayrollGrossAmount] = useState('');
   const [payrollWithholdingType, setPayrollWithholdingType] = useState<WithholdingType>('freelance_3.3');
   const [payrollWithholdingRate, setPayrollWithholdingRate] = useState('');
   const [payrollHours, setPayrollHours] = useState('');
   const [payrollHourlyRate, setPayrollHourlyRate] = useState('');
+  const [payrollAdditionalAmount, setPayrollAdditionalAmount] = useState('');
+  const [payrollDeductionAmount, setPayrollDeductionAmount] = useState('');
   const [payrollMethod, setPayrollMethod] = useState('계좌이체');
   const [payrollNotes, setPayrollNotes] = useState('');
 
@@ -599,6 +612,7 @@ export function AccountingOperationsPage() {
       setPayments(data.payments);
       setExpenses(data.expenses);
       setPayroll(data.payroll);
+      setPayrollEstimates(data.payrollEstimates || []);
       setStaff(data.staff);
       setSelectedStudentId((current) => data.billing.some((row) => row.studentId === current) ? current : data.billing[0]?.studentId || '');
     } catch (err) {
@@ -623,13 +637,46 @@ export function AccountingOperationsPage() {
     });
   }, [academyId, load]);
 
-  const totals = useMemo(() => ({
+  const studentTotals = useMemo(() => ({
     expected: rows.reduce((sum, row) => sum + row.expectedAmount, 0),
     invoiced: rows.reduce((sum, row) => sum + row.invoicedAmount, 0),
     paid: rows.reduce((sum, row) => sum + row.paidAmount, 0),
-    expenses: expenses.reduce((sum, row) => sum + row.amount, 0),
-    payroll: payroll.reduce((sum, row) => sum + row.netAmount, 0),
-  }), [expenses, payroll, rows]);
+    outstanding: rows.reduce((sum, row) => sum + Math.max(0, row.invoicedAmount - row.paidAmount), 0),
+  }), [rows]);
+  const expenseTotals = useMemo(() => ({
+    total: expenses.reduce((sum, row) => sum + row.amount, 0),
+    deductible: expenses.filter((row) => row.taxDeductible).reduce((sum, row) => sum + row.amount, 0),
+    missingReceiptCount: expenses.filter((row) => !row.hasReceipt).length,
+  }), [expenses]);
+  const payrollTotals = useMemo(() => ({
+    completedLessonCount: payrollEstimates.reduce((sum, row) => sum + row.completedLessonCount, 0),
+    completedMinutes: payrollEstimates.reduce((sum, row) => sum + row.completedMinutes, 0),
+    estimatedGrossAmount: payrollEstimates.reduce((sum, row) => sum + row.estimatedGrossAmount, 0),
+    paidGrossAmount: payroll.filter((row) => row.status === 'paid').reduce((sum, row) => sum + row.grossAmount, 0),
+    remainingEstimatedAmount: payrollEstimates.reduce((sum, row) => sum + row.remainingEstimatedAmount, 0),
+  }), [payroll, payrollEstimates]);
+  const payrollStaff = useMemo(() => {
+    const estimatedInstructorIds = new Set(payrollEstimates.map((row) => row.instructorId));
+    return staff.filter((row) => (
+      estimatedInstructorIds.has(row.id)
+      || (row.status !== 'inactive' && (row.role === 'teacher' || row.role === 'instructor'))
+    ));
+  }, [payrollEstimates, staff]);
+  const payrollPreview = useMemo(() => calculatePayrollDraft({
+    hoursWorked: Number(payrollHours),
+    hourlyRate: Number(payrollHourlyRate),
+    additionalAmount: Number(payrollAdditionalAmount),
+    deductionAmount: Number(payrollDeductionAmount),
+    withholdingType: payrollWithholdingType,
+    customWithholdingRate: Number(payrollWithholdingRate),
+  }), [
+    payrollAdditionalAmount,
+    payrollDeductionAmount,
+    payrollHourlyRate,
+    payrollHours,
+    payrollWithholdingRate,
+    payrollWithholdingType,
+  ]);
 
   if (!academyId) return <MissingAcademy />;
 
@@ -651,6 +698,43 @@ export function AccountingOperationsPage() {
   const selectPaymentTarget = (row: BillingRow) => {
     setSelectedStudentId(row.studentId);
     setPaymentAmount(String(Math.max(0, row.invoicedAmount - row.paidAmount) || row.invoicedAmount || row.expectedAmount));
+  };
+
+  const resetPayrollDraft = () => {
+    setPayrollInstructorId('');
+    setPayrollRecipientName('');
+    setPayrollHours('');
+    setPayrollHourlyRate('');
+    setPayrollAdditionalAmount('');
+    setPayrollDeductionAmount('');
+    setPayrollWithholdingRate('');
+    setPayrollNotes('');
+  };
+
+  const selectPayrollInstructor = (instructorId: string) => {
+    setPayrollInstructorId(instructorId);
+    setPayrollAdditionalAmount('');
+    if (!instructorId) {
+      setPayrollRecipientName('');
+      setPayrollHours('');
+      setPayrollHourlyRate('');
+      setPayrollDeductionAmount('');
+      return;
+    }
+
+    const estimate = payrollEstimates.find((row) => row.instructorId === instructorId);
+    const instructor = staff.find((row) => row.id === instructorId);
+    const hourlyRate = estimate?.hourlyRate || instructor?.hourlyRate || null;
+    setPayrollRecipientName(estimate?.instructorName || instructor?.name || '');
+    setPayrollHours(estimate && estimate.completedMinutes > 0 ? String(hoursFromMinutes(estimate.completedMinutes)) : '');
+    setPayrollHourlyRate(hourlyRate ? String(hourlyRate) : '');
+    setPayrollDeductionAmount(estimate && estimate.paidGrossAmount > 0 ? String(estimate.paidGrossAmount) : '');
+  };
+
+  const changeMonth = (nextMonth: string) => {
+    setMonth(nextMonth);
+    setPaymentAmount('');
+    resetPayrollDraft();
   };
 
   const submitPayment = async (event: React.FormEvent) => {
@@ -706,27 +790,30 @@ export function AccountingOperationsPage() {
   const submitPayroll = async (event: React.FormEvent) => {
     event.preventDefault();
     const instructor = staff.find((row) => row.id === payrollInstructorId) || null;
+    const calculationNotes = [
+      payrollPreview.baseAmount > 0
+        ? `수업급 ${Number(payrollHours) || 0}시간 × ${currency(Number(payrollHourlyRate) || 0)} = ${currency(payrollPreview.baseAmount)}`
+        : null,
+      payrollPreview.additionalAmount > 0 ? `추가금 ${currency(payrollPreview.additionalAmount)}` : null,
+      payrollPreview.deductionAmount > 0 ? `차감 ${currency(payrollPreview.deductionAmount)}` : null,
+    ].filter(Boolean).join(' · ');
+    const notes = [calculationNotes, payrollNotes.trim()].filter(Boolean).join('\n') || null;
     try {
       await createInstructorPayment(academyId, {
         instructorId: payrollInstructorId || null,
         recipientName: payrollRecipientName || instructor?.name || null,
         serviceMonth: month,
         paymentDate: payrollPaymentDate,
-        grossAmount: Number(payrollGrossAmount) || 0,
+        grossAmount: payrollPreview.grossAmount,
         withholdingType: payrollWithholdingType,
         withholdingRate: payrollWithholdingRate ? Number(payrollWithholdingRate) : undefined,
         hoursWorked: payrollHours ? Number(payrollHours) : null,
         hourlyRate: payrollHourlyRate ? Number(payrollHourlyRate) : instructor?.hourlyRate ?? null,
         paymentMethod: payrollMethod,
         status: 'paid',
-        notes: payrollNotes || null,
+        notes,
       });
-      setPayrollGrossAmount('');
-      setPayrollHours('');
-      setPayrollHourlyRate('');
-      setPayrollWithholdingRate('');
-      setPayrollRecipientName('');
-      setPayrollNotes('');
+      resetPayrollDraft();
       toast.success('강사 지급 기록을 저장했습니다.');
       await load({ force: true });
     } catch (err) {
@@ -736,23 +823,50 @@ export function AccountingOperationsPage() {
 
   return (
     <PageShell
-      title="회계 / 청구"
-      description="청구서 생성 이후 입금, 지출, 강사 지급까지 한 달 운영 흐름을 관리합니다."
+      title="회계"
       icon={CreditCard}
-      action={<div className="flex gap-2"><Input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="w-40" /><Button onClick={generate}>청구서 생성</Button></div>}
+      action={<Input aria-label="회계 기준 월" type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="w-40" />}
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label="예상 청구" value={currency(totals.expected)} hint="계약과 출결 기준" icon={CreditCard} />
-        <MetricCard label="발행 청구" value={currency(totals.invoiced)} hint="invoice 기준" icon={BookOpen} />
-        <MetricCard label="입금" value={currency(totals.paid)} hint="납부 반영액" icon={Activity} />
-        <MetricCard label="지출" value={currency(totals.expenses)} hint="운영 비용" icon={ReceiptText} />
-        <MetricCard label="강사 지급" value={currency(totals.payroll)} hint="net 기준" icon={Users} />
-      </div>
+      <Tabs value={accountingTab} onValueChange={(value) => setAccountingTab(value as typeof accountingTab)} variant="underline">
+        <TabsList className="flex h-auto w-full justify-start overflow-x-auto">
+          <TabsTrigger value="payments"><CreditCard className="mr-2 h-4 w-4" />학생 수납</TabsTrigger>
+          <TabsTrigger value="payroll"><Users className="mr-2 h-4 w-4" />강사 급여</TabsTrigger>
+          <TabsTrigger value="expenses"><ReceiptText className="mr-2 h-4 w-4" />지출</TabsTrigger>
+        </TabsList>
+        <TabsContent value={accountingTab} className="space-y-5">
+
+      {accountingTab === 'payments' && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="예상 청구" value={currency(studentTotals.expected)} hint="계약·출결 기준" icon={CreditCard} />
+          <MetricCard label="발행 청구" value={currency(studentTotals.invoiced)} hint="이번 달 청구서" icon={BookOpen} />
+          <MetricCard label="수납" value={currency(studentTotals.paid)} hint="납부 반영액" icon={Activity} />
+          <MetricCard label="미수" value={currency(studentTotals.outstanding)} hint="남은 청구액" icon={AlertTriangle} />
+        </div>
+      )}
+      {accountingTab === 'payroll' && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="완료 수업" value={hoursLabel(payrollTotals.completedMinutes)} hint={`${payrollTotals.completedLessonCount}회`} icon={Clock} />
+          <MetricCard label="예상 총급여" value={currency(payrollTotals.estimatedGrossAmount)} hint="완료 시간 × 시급" icon={Users} />
+          <MetricCard label="지급 총액" value={currency(payrollTotals.paidGrossAmount)} hint="세전 지급 기록" icon={CheckCircle2} />
+          <MetricCard label="남은 예상액" value={currency(payrollTotals.remainingEstimatedAmount)} hint="예상액 - 지급액" icon={AlertTriangle} />
+        </div>
+      )}
+      {accountingTab === 'expenses' && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <MetricCard label="지출 합계" value={currency(expenseTotals.total)} hint="이번 달" icon={ReceiptText} />
+          <MetricCard label="세무 반영" value={currency(expenseTotals.deductible)} hint="공제 대상 표시" icon={CheckCircle2} />
+          <MetricCard label="증빙 미확인" value={`${expenseTotals.missingReceiptCount}건`} hint="영수증 확인 필요" icon={AlertTriangle} />
+        </div>
+      )}
       {loading ? <LoadingBlock /> : (
         <div className="space-y-5">
+          {accountingTab === 'payments' && (
           <div className="grid gap-5 xl:grid-cols-[1.3fr_0.9fr]">
             <Card>
-              <CardHeader><CardTitle>학생별 청구 상태</CardTitle></CardHeader>
+              <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+                <CardTitle>학생별 청구 상태</CardTitle>
+                <Button onClick={generate}>청구서 생성</Button>
+              </CardHeader>
               <CardContent className="p-0">
                 <DataTable>
                     <Table>
@@ -813,8 +927,10 @@ export function AccountingOperationsPage() {
               </CardContent>
             </Card>
           </div>
+          )}
 
-          <div className="grid gap-5 xl:grid-cols-2">
+          <div className="grid gap-5 xl:grid-cols-[1.3fr_0.9fr]">
+            {accountingTab === 'expenses' && (
             <Card>
               <CardHeader><CardTitle>지출 기록</CardTitle></CardHeader>
               <CardContent>
@@ -843,16 +959,64 @@ export function AccountingOperationsPage() {
                 </form>
               </CardContent>
             </Card>
+            )}
+
+            {accountingTab === 'payroll' && (<>
+            <Card>
+              <CardHeader><CardTitle>월 급여 예상</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <DataTable>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="px-4 py-3 font-medium">강사</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">수업 진행</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">시급</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">예상 급여</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">지급</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">남은 예상액</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">처리</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payrollEstimates.map((row) => (
+                        <TableRow key={row.instructorId}>
+                          <TableCell className="px-4 py-3 font-medium">{row.instructorName}</TableCell>
+                          <TableCell className="px-4 py-3">
+                            <div className="font-medium">완료 {row.completedLessonCount}/{row.scheduledLessonCount}회</div>
+                            <div className="text-xs text-muted-foreground">{hoursLabel(row.completedMinutes)} / {hoursLabel(row.scheduledMinutes)}</div>
+                          </TableCell>
+                          <TableCell className="px-4 py-3 tabular-nums">
+                            {row.hourlyRate ? currency(row.hourlyRate) : <span className="text-warning-foreground">시급 미설정</span>}
+                          </TableCell>
+                          <TableCell className="px-4 py-3 tabular-nums">{row.hourlyRate ? currency(row.estimatedGrossAmount) : '-'}</TableCell>
+                          <TableCell className="px-4 py-3 tabular-nums">{currency(row.paidGrossAmount)}</TableCell>
+                          <TableCell className="px-4 py-3 tabular-nums font-medium">{row.hourlyRate ? currency(row.remainingEstimatedAmount) : '-'}</TableCell>
+                          <TableCell className="px-4 py-3">
+                            <Button type="button" size="sm" variant="outline" onClick={() => selectPayrollInstructor(row.instructorId)}>
+                              지급 작성
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {payrollEstimates.length === 0 && (
+                        <TableRow><TableCell colSpan={7} className="px-4 py-8 text-center text-muted-foreground">이번 달 강사 수업이나 시급 정보가 없습니다.</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </DataTable>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader><CardTitle>강사 지급</CardTitle></CardHeader>
               <CardContent>
                 <form onSubmit={submitPayroll} className="space-y-3">
                   <div>
-                    <Label>강사/직원</Label>
-                    <SelectField value={payrollInstructorId} onChange={(event) => setPayrollInstructorId(event.target.value)}>
+                    <Label>강사</Label>
+                    <SelectField value={payrollInstructorId} onChange={(event) => selectPayrollInstructor(event.target.value)}>
                       <option value="">직접 입력</option>
-                      {staff.map((row) => (
+                      {payrollStaff.map((row) => (
                         <option key={row.id} value={row.id}>{row.name}</option>
                       ))}
                     </SelectField>
@@ -861,10 +1025,13 @@ export function AccountingOperationsPage() {
                     <div><Label>수령인명</Label><Input value={payrollRecipientName} onChange={(event) => setPayrollRecipientName(event.target.value)} placeholder="직접 입력 시 필요" /></div>
                     <div><Label>지급일</Label><Input type="date" value={payrollPaymentDate} onChange={(event) => setPayrollPaymentDate(event.target.value)} /></div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div><Label>총액</Label><Input type="number" value={payrollGrossAmount} onChange={(event) => setPayrollGrossAmount(event.target.value)} /></div>
-                    <div><Label>시간</Label><Input type="number" value={payrollHours} onChange={(event) => setPayrollHours(event.target.value)} /></div>
-                    <div><Label>시급</Label><Input type="number" value={payrollHourlyRate} onChange={(event) => setPayrollHourlyRate(event.target.value)} /></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label>수업 시간</Label><Input type="number" min="0" step="0.01" value={payrollHours} onChange={(event) => setPayrollHours(event.target.value)} /></div>
+                    <div><Label>시급</Label><Input type="number" min="0" step="1" value={payrollHourlyRate} onChange={(event) => setPayrollHourlyRate(event.target.value)} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label>추가금</Label><Input type="number" min="0" step="1" value={payrollAdditionalAmount} onChange={(event) => setPayrollAdditionalAmount(event.target.value)} placeholder="보너스·교통비 등" /></div>
+                    <div><Label>차감·기지급</Label><Input type="number" min="0" step="1" value={payrollDeductionAmount} onChange={(event) => setPayrollDeductionAmount(event.target.value)} placeholder="기지급액·선지급·조정" /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -881,13 +1048,22 @@ export function AccountingOperationsPage() {
                     <div><Label>원천징수율 (%)</Label><Input type="number" step="0.1" min="0" value={payrollWithholdingRate} onChange={(event) => setPayrollWithholdingRate(event.target.value)} /></div>
                   )}
                   <div><Label>메모</Label><Input value={payrollNotes} onChange={(event) => setPayrollNotes(event.target.value)} /></div>
-                  <Button type="submit" className="w-full">지급 저장</Button>
+                  <div className="space-y-2 rounded-xl bg-muted/60 p-4 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">수업급</span><strong>{currency(payrollPreview.baseAmount)}</strong></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">추가·차감</span><strong>{currency(payrollPreview.additionalAmount - payrollPreview.deductionAmount)}</strong></div>
+                    <div className="flex justify-between border-t pt-2"><span>세전 지급액</span><strong>{currency(payrollPreview.grossAmount)}</strong></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">원천징수</span><span>-{currency(payrollPreview.withholdingTax + payrollPreview.localTax)}</span></div>
+                    <div className="flex justify-between text-base"><span>실지급액</span><strong>{currency(payrollPreview.netAmount)}</strong></div>
+                  </div>
+                  <Button type="submit" className="w-full" disabled={payrollPreview.grossAmount <= 0 || (!payrollInstructorId && !payrollRecipientName.trim())}>지급 저장</Button>
                 </form>
               </CardContent>
             </Card>
+            </>)}
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-3">
+          <div className="space-y-5">
+            {accountingTab === 'payments' && (
             <Card>
               <CardHeader><CardTitle>최근 입금</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -906,7 +1082,9 @@ export function AccountingOperationsPage() {
                 {payments.length === 0 && <p className="py-8 text-center text-muted-foreground">입금 기록이 없습니다.</p>}
               </CardContent>
             </Card>
+            )}
 
+            {accountingTab === 'expenses' && (
             <Card>
               <CardHeader><CardTitle>최근 지출</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -925,7 +1103,9 @@ export function AccountingOperationsPage() {
                 {expenses.length === 0 && <p className="py-8 text-center text-muted-foreground">지출 기록이 없습니다.</p>}
               </CardContent>
             </Card>
+            )}
 
+            {accountingTab === 'payroll' && (
             <Card>
               <CardHeader><CardTitle>강사 지급 내역</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -944,9 +1124,12 @@ export function AccountingOperationsPage() {
                 {payroll.length === 0 && <p className="py-8 text-center text-muted-foreground">지급 기록이 없습니다.</p>}
               </CardContent>
             </Card>
+            )}
           </div>
         </div>
       )}
+        </TabsContent>
+      </Tabs>
     </PageShell>
   );
 }
@@ -1075,7 +1258,7 @@ export function SettingsOperationsPage() {
   };
 
   return (
-    <PageShell title="설정" description="학원 연결, 세금 기준, 운영 데이터 내보내기와 초기화를 관리합니다." icon={Settings}>
+    <PageShell title="설정" icon={Settings}>
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-5">
           <Card>

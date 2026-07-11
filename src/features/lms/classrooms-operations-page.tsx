@@ -812,22 +812,18 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const pageMeta = {
     overview: {
       title: '반 운영',
-      description: '반별 학생, 교재, 운영 상태를 한 화면에서 확인합니다.',
       icon: Users,
     },
     schedule: {
       title: '시간표',
-      description: '다가오는 수업을 날짜, 반, 강사, 강의실 기준으로 확인합니다.',
       icon: CalendarRange,
     },
     attendance: {
       title: '출결',
-      description: '날짜와 수업을 선택한 뒤 학생 출결과 수업 상태를 기록합니다.',
       icon: ClipboardCheck,
     },
     settings: {
       title: '기준 정보',
-      description: '반과 시간표에서 공통으로 사용하는 강의실과 교재를 관리합니다.',
       icon: Settings,
     },
   }[view];
@@ -1231,7 +1227,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
   return (
     <>
-      <PageShell title={pageMeta.title} description={pageMeta.description} icon={pageMeta.icon} actions={actions} status={status}>
+      <PageShell title={pageMeta.title} icon={pageMeta.icon} actions={actions} status={status}>
         {loading && <LoadingBlock />}
         {!loading && view === 'overview' && renderOverview()}
         {!loading && view === 'schedule' && renderSchedule()}

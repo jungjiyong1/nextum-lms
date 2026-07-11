@@ -524,11 +524,25 @@ export interface InstructorPaymentRow {
   notes: string | null;
 }
 
+export interface InstructorPayrollEstimate {
+  instructorId: string;
+  instructorName: string;
+  hourlyRate: number | null;
+  completedLessonCount: number;
+  completedMinutes: number;
+  scheduledLessonCount: number;
+  scheduledMinutes: number;
+  estimatedGrossAmount: number;
+  paidGrossAmount: number;
+  remainingEstimatedAmount: number;
+}
+
 export interface AccountingOperationsOverview {
   billing: BillingRow[];
   payments: PaymentRow[];
   expenses: ExpenseRow[];
   payroll: InstructorPaymentRow[];
+  payrollEstimates: InstructorPayrollEstimate[];
   staff: StaffSummary[];
 }
 

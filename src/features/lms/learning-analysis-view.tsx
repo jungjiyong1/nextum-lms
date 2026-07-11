@@ -146,7 +146,6 @@ function LearningAnalysisLoading() {
   return (
     <PageShell
       title="학습 분석"
-      description="학습 근거를 불러오고 있습니다."
       icon={BarChart3}
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1071,7 +1070,7 @@ export function LearningAnalysisView({
 
   if (!data) {
     return (
-      <PageShell title="학습 분석" description="학생의 독립 풀이 근거를 확인합니다." icon={BarChart3}>
+      <PageShell title="학습 분석" icon={BarChart3}>
         {error ? (
           <ErrorState
             title="학습 분석을 불러오지 못했습니다"
@@ -1090,7 +1089,6 @@ export function LearningAnalysisView({
     <>
       <PageShell
         title="학습 분석"
-        description="학생의 관찰 근거와 다음 확인·지원 행동을 함께 봅니다."
         icon={BarChart3}
         actions={(
           <Button type="button" onClick={() => openPlanDialog(tab === 'exam-preparation' ? 'exam' : 'current')}>

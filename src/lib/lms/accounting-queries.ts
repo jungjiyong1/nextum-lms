@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { calculateInvoiceDraft } from '@/features/lms/billing';
+import { buildInstructorPayrollEstimates } from '@/features/lms/payroll';
 import { COMPLETED_PAYMENT_STATUS } from '@/features/lms/status';
 import type {
     AccountingOperationsOverview,
@@ -11,6 +12,7 @@ import type {
     PaymentRow,
 } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { loadSchedule } from './class-queries';
 import { loadStaffSummariesForAcademy } from './staff-queries';
 import { loadStudentSummariesForAcademy } from './student-queries';
 import type { LmsRoleContext } from './auth';
@@ -363,19 +365,23 @@ export async function loadAccountingOperationsOverview(
     const lms = client.schema('lms');
     const range = monthRange(serviceMonth);
 
-    const [billing, payments, expenses, payroll, staff] = await Promise.all([
+    const [billing, payments, expenses, payroll, staff, schedule] = await Promise.all([
         loadBillingRows(core, lms, context.academyId, serviceMonth),
         loadPaymentRows(core, lms, context.academyId, range.start, range.end),
         loadExpenseRows(lms, context.academyId, range.start, range.end),
         loadInstructorPaymentRows(core, lms, context.academyId, serviceMonth),
         loadStaffSummariesForAcademy(context.academyId),
+        loadSchedule(core, lms, context.academyId, range.start, range.end),
     ]);
+
+    const payrollEstimates = buildInstructorPayrollEstimates({ schedule, staff, payments: payroll });
 
     return {
         billing,
         payments,
         expenses,
         payroll,
+        payrollEstimates,
         staff,
     };
 }

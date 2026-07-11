@@ -10,6 +10,10 @@ const accountingPage = readFileSync(resolve(
     process.cwd(),
     'src/features/lms/pages.tsx',
 ), 'utf8');
+const accountingQuery = readFileSync(resolve(
+    process.cwd(),
+    'src/lib/lms/accounting-queries.ts',
+), 'utf8');
 
 describe('instructor and accounting workflow boundary', () => {
     it('keeps payroll workflows out of the instructor screen', () => {
@@ -20,8 +24,15 @@ describe('instructor and accounting workflow boundary', () => {
 
     it('keeps payroll processing in the accounting screen', () => {
         expect(accountingPage).toContain('createInstructorPayment');
-        expect(accountingPage).toContain('강사 지급');
+        expect(accountingPage).toContain('value="payments"');
+        expect(accountingPage).toContain('value="payroll"');
+        expect(accountingPage).toContain('value="expenses"');
+        expect(accountingPage).toContain('월 급여 예상');
+        expect(accountingPage).toContain('추가금');
+        expect(accountingPage).toContain('차감·기지급');
         expect(accountingPage).toContain('시급');
+        expect(accountingQuery).toContain('loadSchedule');
+        expect(accountingQuery).toContain('buildInstructorPayrollEstimates');
     });
 
     it('opens the class schedule first without an overview tab', () => {
