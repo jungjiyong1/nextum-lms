@@ -1807,9 +1807,6 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                                             <CardTitle>{detail.summary.name}</CardTitle>
                                             <StudentStatusBadge status={detail.summary.status} />
                                         </div>
-                                        <p className="mt-1 text-sm text-muted-foreground">
-                                            {detail.summary.classNames.join(', ') || '배정 반 없음'} · {detail.summary.phone || '학생 연락처 없음'} · 보호자 {detail.summary.parentPhone || '-'}
-                                        </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {detail.permissions.canEdit && formMode !== 'edit' && (

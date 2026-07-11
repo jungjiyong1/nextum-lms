@@ -1131,28 +1131,10 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
                     ) : detail ? (
                         <Card className="overflow-hidden">
                             <CardHeader className="border-b">
-                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                    <div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <CardTitle>{detail.summary.name}</CardTitle>
-                                            <StatusBadge status={detail.summary.status} label={statusLabel(detail.summary.status)} />
-                                            <StatusBadge status={detail.summary.role} label={roleLabel(detail.summary.role)} tone={roleTone(detail.summary.role)} />
-                                        </div>
-                                        <p className="mt-1 text-sm text-muted-foreground">
-                                            {(detail.summary.classNames || []).join(', ') || '담당 반 없음'}
-                                            {!detail.summary.visibleToPeerOnly && ` · ${detail.summary.phone || '연락처 없음'}`}
-                                        </p>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <div className="rounded-xl bg-muted px-3 py-2 text-right text-xs">
-                                            <p className="text-muted-foreground">담당 반</p>
-                                            <p className="font-semibold text-foreground">{detail.summary.activeClassCount || 0}개</p>
-                                        </div>
-                                        <div className="rounded-xl bg-muted px-3 py-2 text-right text-xs">
-                                            <p className="text-muted-foreground">상태</p>
-                                            <p className="font-semibold text-foreground">{statusLabel(detail.summary.status)}</p>
-                                        </div>
-                                    </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <CardTitle>{detail.summary.name}</CardTitle>
+                                    <StatusBadge status={detail.summary.status} label={statusLabel(detail.summary.status)} />
+                                    <StatusBadge status={detail.summary.role} label={roleLabel(detail.summary.role)} tone={roleTone(detail.summary.role)} />
                                 </div>
                             </CardHeader>
                             <CardContent className="p-4">
