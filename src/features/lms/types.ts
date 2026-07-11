@@ -11,7 +11,7 @@ export type StudentStatus = 'active' | 'inactive' | 'on_leave' | 'graduated' | '
 export type StaffRole = 'admin' | 'teacher' | 'instructor' | 'staff';
 export type StaffStatus = 'active' | 'inactive' | 'on_leave';
 export type ClassStatus = 'active' | 'inactive' | 'archived';
-export type LessonOccurrenceStatus = 'scheduled' | 'completed' | 'cancelled' | 'makeup' | 'substitute';
+export type LessonOccurrenceStatus = 'normal' | 'cancelled' | 'makeup' | 'substitute';
 export type StudentLearningPeriod = '30d' | '90d' | '180d' | 'all';
 export type StudentLearningStatus = 'insufficient' | 'weak' | 'watch' | 'ok';
 export type StudentAssignmentProgressStatus = 'not_started' | 'in_progress' | 'completed';
@@ -265,12 +265,18 @@ export interface StudentMutationResult {
   authUserIds?: string[];
 }
 
+export interface StudentGradeAppAccount {
+  loginId: string | null;
+  status: string;
+}
+
 export interface StudentDetail {
   summary: StudentSummary;
   permissions: StudentOperationsPermissions;
   loadedSections: StudentDetailSection[];
   signupInvitation: StudentSignupInvitation | null;
   hasGradeAppAccount: boolean;
+  gradeAppAccount: StudentGradeAppAccount | null;
   learningAnalytics: StudentLearningAnalytics | null;
   weakTypes: WeakTypeRow[];
   recentAttempts: StudentLearningAttemptRow[];
@@ -403,6 +409,7 @@ export interface ScheduleItem {
   startTime: string;
   endTime: string;
   status: LessonOccurrenceStatus;
+  hasEnded: boolean;
   classroomId?: string | null;
   classroomOverrideId?: string | null;
   classroomName: string | null;
@@ -772,6 +779,7 @@ export interface HomeDashboardLesson {
   startTime: string;
   endTime: string;
   status: LessonOccurrenceStatus;
+  hasEnded: boolean;
   instructorName: string | null;
   classroomName: string | null;
 }

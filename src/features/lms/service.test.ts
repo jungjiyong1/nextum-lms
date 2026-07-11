@@ -102,7 +102,7 @@ describe('LMS service cache policy', () => {
       date: '2026-07-06',
       startTime: '10:00',
       endTime: '11:00',
-      status: 'scheduled' as const,
+      status: 'normal' as const,
     };
     await checkScheduleConflicts('academy-1', recurring);
     await mutateSchedule('academy-1', recurring);

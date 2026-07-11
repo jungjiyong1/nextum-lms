@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import type { ScheduleItem } from '../types';
 import {
   addDateValue,
+  isSpecialLessonStatus,
   layoutScheduleOverlaps,
+  lessonSpecialStatusSelection,
+  resolveLessonOccurrenceStatus,
   scheduleHourRange,
   startOfWeekValue,
   weekDateValues,
@@ -20,7 +23,8 @@ function lesson(id: string, startTime: string, endTime: string): ScheduleItem {
     date: '2026-07-06',
     startTime,
     endTime,
-    status: 'scheduled',
+    status: 'normal',
+    hasEnded: false,
     classroomName: null,
     instructorId: null,
     instructorName: null,
@@ -56,5 +60,15 @@ describe('class schedule date and layout helpers', () => {
   it('keeps a readable hour range around the scheduled lessons', () => {
     expect(scheduleHourRange([lesson('a', '16:30', '18:10')])).toEqual({ startHour: 15, endHour: 20 });
     expect(scheduleHourRange([])).toEqual({ startHour: 9, endHour: 22 });
+  });
+
+  it('treats normal lessons separately from operational exceptions', () => {
+    expect(lessonSpecialStatusSelection('normal')).toBe('');
+    expect(isSpecialLessonStatus('cancelled')).toBe(true);
+    expect(isSpecialLessonStatus('makeup')).toBe(true);
+    expect(isSpecialLessonStatus('substitute')).toBe(true);
+
+    expect(resolveLessonOccurrenceStatus('')).toBe('normal');
+    expect(resolveLessonOccurrenceStatus('makeup')).toBe('makeup');
   });
 });

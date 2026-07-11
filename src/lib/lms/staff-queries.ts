@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { requiresAssignedClassScope } from '@/core/auth/roles';
+import { lessonHasEnded, normalizeLessonOccurrenceStatus } from '@/features/lms/lesson-status';
 import type {
     InstructorPaymentRow,
     ScheduleItem,
@@ -547,6 +548,8 @@ async function loadStaffSchedule(
 
     for (const row of (occurrencesResult.data || []) as Row[]) {
         if (allowedClassIds && !allowedClassIds.has(row.class_id)) continue;
+        const date = String(row.occurrence_date);
+        const endTime = normalizeTime(row.end_time);
         schedule.push({
             id: row.id,
             actualId: row.id,
@@ -554,10 +557,11 @@ async function loadStaffSchedule(
             classId: row.class_id,
             className: classNames.get(row.class_id) || 'Unknown class',
             ruleId: row.rule_id ?? null,
-            date: row.occurrence_date,
+            date,
             startTime: normalizeTime(row.start_time),
-            endTime: normalizeTime(row.end_time),
-            status: row.status,
+            endTime,
+            status: normalizeLessonOccurrenceStatus(row.status),
+            hasEnded: lessonHasEnded(date, endTime),
             classroomName: row.classroom_id ? classroomNames.get(row.classroom_id) ?? null : null,
             instructorId: staffId,
             instructorName: null,
@@ -567,6 +571,8 @@ async function loadStaffSchedule(
 
     for (const row of (rulesResult.data || []) as Row[]) {
         if (allowedClassIds && !allowedClassIds.has(row.class_id)) continue;
+        const date = String(row.start_date);
+        const endTime = normalizeTime(row.end_time);
         schedule.push({
             id: `rule:${row.id}`,
             actualId: null,
@@ -574,10 +580,11 @@ async function loadStaffSchedule(
             classId: row.class_id,
             className: classNames.get(row.class_id) || 'Unknown class',
             ruleId: row.id,
-            date: row.start_date,
+            date,
             startTime: normalizeTime(row.start_time),
-            endTime: normalizeTime(row.end_time),
-            status: 'scheduled',
+            endTime,
+            status: 'normal',
+            hasEnded: lessonHasEnded(date, endTime),
             classroomName: row.classroom_id ? classroomNames.get(row.classroom_id) ?? null : null,
             instructorId: staffId,
             instructorName: null,

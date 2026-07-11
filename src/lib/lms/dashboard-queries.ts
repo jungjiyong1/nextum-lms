@@ -438,6 +438,7 @@ function toHomeLesson(item: {
     startTime: string;
     endTime: string;
     status: HomeDashboardLesson['status'];
+    hasEnded: boolean;
     instructorName: string | null;
     classroomName: string | null;
 }): HomeDashboardLesson {
@@ -449,6 +450,7 @@ function toHomeLesson(item: {
         startTime: item.startTime,
         endTime: item.endTime,
         status: item.status,
+        hasEnded: item.hasEnded,
         instructorName: item.instructorName,
         classroomName: item.classroomName,
     };

@@ -4,6 +4,7 @@ import { createHmac, randomBytes } from 'crypto';
 import { requiresAssignedClassScope } from '@/core/auth/roles';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { calculateInvoiceDraft } from '@/features/lms/billing';
+import { lessonStatusRpcValue, normalizeLessonOccurrenceStatus } from '@/features/lms/lesson-status';
 import {
     COMPLETED_PAYMENT_STATUS,
     normalizePaymentStatus,
@@ -41,7 +42,6 @@ import type {
     UpdateScheduleRuleInput,
     UpdateStudentInput,
     WithholdingType,
-    LessonOccurrenceStatus,
 } from '@/features/lms/types';
 import type { LmsRoleContext } from './auth';
 import { LmsAuthError } from './auth';
@@ -441,13 +441,6 @@ function normalizeStaffStatus(value: StaffStatus): StaffStatus {
 function normalizeClassStatus(value: ClassStatus): ClassStatus {
     if (value === 'active' || value === 'inactive' || value === 'archived') return value;
     return 'active';
-}
-
-function normalizeLessonOccurrenceStatus(value: LessonOccurrenceStatus): LessonOccurrenceStatus {
-    if (value === 'scheduled' || value === 'completed' || value === 'cancelled' || value === 'makeup' || value === 'substitute') {
-        return value;
-    }
-    return 'scheduled';
 }
 
 function isBillableStudentStatus(status: StudentStatus) {
@@ -1313,7 +1306,7 @@ export async function mutateScheduleForAcademy(
             ...params,
             p_scope: input.scope,
             p_substitute_instructor_id: input.substituteInstructorId || null,
-            p_status: input.status || 'scheduled',
+            p_status: lessonStatusRpcValue(input.status || 'normal'),
             p_cancel_reason: input.cancelReason || null,
             p_notes: input.notes || null,
             p_conflict_override_reason: input.conflictOverrideReason || null,
@@ -1917,7 +1910,7 @@ async function ensureLessonOccurrence(
         occurrence_date: input.date,
         start_time: input.startTime,
         end_time: input.endTime,
-        status: 'scheduled',
+        status: lessonStatusRpcValue('normal'),
     };
 
     const { data, error } = await lms.from('lesson_occurrences').insert(row).select('id').single();
@@ -1968,7 +1961,7 @@ export async function updateLessonOccurrenceForAcademy(academyId: string, input:
         throw new Error('취소 사유를 입력하세요.');
     }
     const updates: Row = {
-        status,
+        status: lessonStatusRpcValue(status),
         cancel_reason: status === 'cancelled' ? input.cancelReason?.trim() : null,
     };
     if (input.notes !== undefined) updates.notes = input.notes || null;

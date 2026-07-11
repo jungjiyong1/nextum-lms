@@ -1,8 +1,8 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { StatusBadge } from '@/components/ui/status-badge';
 import type { ScheduleItem } from '../types';
+import { LessonSpecialStatusBadge } from './lesson-special-status-badge';
 import {
   dateValue,
   formatKoreanDate,
@@ -13,14 +13,6 @@ import {
   scheduleHourRange,
   weekDateValues,
 } from './schedule-utils';
-
-const statusLabels: Record<ScheduleItem['status'], string> = {
-  scheduled: '예정',
-  completed: '완료',
-  cancelled: '취소',
-  makeup: '보강',
-  substitute: '대강',
-};
 
 export function ScheduleWeekView({
   weekStart,
@@ -96,7 +88,7 @@ export function ScheduleWeekView({
                       <span className="min-w-0 space-y-0.5">
                         <span className="flex items-center gap-1 text-xs font-semibold">
                           <span className="truncate">{item.className}</span>
-                          <StatusBadge status={item.status} label={statusLabels[item.status]} className="shrink-0" />
+                          <LessonSpecialStatusBadge status={item.status} className="shrink-0" />
                         </span>
                         <span className="block text-xs tabular-nums text-muted-foreground">{item.startTime}-{item.endTime}</span>
                         <span className="block truncate text-xs text-muted-foreground">{item.instructorName || '강사 미지정'}</span>

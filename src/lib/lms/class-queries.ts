@@ -2,6 +2,7 @@ import 'server-only';
 
 import { requiresAssignedClassScope } from '@/core/auth/roles';
 import { applyAssignedClassScope } from '@/features/lms/classScope';
+import { lessonHasEnded, normalizeLessonOccurrenceStatus } from '@/features/lms/lesson-status';
 import type {
     AttendanceRow,
     BookSummary,
@@ -97,7 +98,9 @@ function scheduleFromReadModel(
     const actualKeys = new Set<string>();
 
     for (const row of occurrenceRows) {
+        const date = String(row.occurrence_date);
         const start = normalizeTime(row.start_time);
+        const end = normalizeTime(row.end_time);
         if (row.rule_id) actualKeys.add(`${row.class_id}:${row.rule_id}:${row.occurrence_date}`);
         if (row.cancel_reason === SCHEDULE_DELETED_MARKER) continue;
         items.push({
@@ -107,10 +110,11 @@ function scheduleFromReadModel(
             classId: String(row.class_id),
             className: String(row.class_name || 'Unknown class'),
             ruleId: row.rule_id ? String(row.rule_id) : null,
-            date: String(row.occurrence_date),
+            date,
             startTime: start,
-            endTime: normalizeTime(row.end_time),
-            status: row.status as ScheduleItem['status'],
+            endTime: end,
+            status: normalizeLessonOccurrenceStatus(row.status),
+            hasEnded: lessonHasEnded(date, end),
             classroomId: row.classroom_id ? String(row.classroom_id) : null,
             classroomOverrideId: row.classroom_override_id ? String(row.classroom_override_id) : null,
             classroomName: row.classroom_name ? String(row.classroom_name) : null,
@@ -139,6 +143,7 @@ function scheduleFromReadModel(
             const weekOffset = weeksBetween(ruleStart, current);
             const date = dateString(current);
             const start = normalizeTime(row.start_time);
+            const end = normalizeTime(row.end_time);
             const intervalWeeks = Math.max(1, toNumber(row.interval_weeks, 1));
             const key = `${row.class_id}:${row.id}:${date}`;
             if (day === toNumber(row.day_of_week) && weekOffset >= 0
@@ -152,8 +157,9 @@ function scheduleFromReadModel(
                     ruleId: String(row.id),
                     date,
                     startTime: start,
-                    endTime: normalizeTime(row.end_time),
-                    status: 'scheduled',
+                    endTime: end,
+                    status: 'normal',
+                    hasEnded: lessonHasEnded(date, end),
                     classroomId: row.classroom_id ? String(row.classroom_id) : null,
                     classroomOverrideId: row.classroom_override_id ? String(row.classroom_override_id) : null,
                     classroomName: row.classroom_name ? String(row.classroom_name) : null,
@@ -562,7 +568,9 @@ export async function loadSchedule(
     const actualKeys = new Set<string>();
 
     for (const row of (occurrencesData || []) as Row[]) {
+        const date = String(row.occurrence_date);
         const start = normalizeTime(row.start_time);
+        const end = normalizeTime(row.end_time);
         if (row.rule_id) actualKeys.add(`${row.class_id}:${row.rule_id}:${row.occurrence_date}`);
         if (row.cancel_reason === SCHEDULE_DELETED_MARKER) continue;
         const profile = profiles.get(row.class_id);
@@ -576,10 +584,11 @@ export async function loadSchedule(
             className: classes.get(row.class_id) || 'Unknown class',
             classColor: profile?.color ?? null,
             ruleId: row.rule_id ?? null,
-            date: row.occurrence_date,
+            date,
             startTime: start,
-            endTime: normalizeTime(row.end_time),
-            status: row.status as ScheduleItem['status'],
+            endTime: end,
+            status: normalizeLessonOccurrenceStatus(row.status),
+            hasEnded: lessonHasEnded(date, end),
             classroomId: classroomId ?? null,
             classroomOverrideId: row.classroom_id ?? null,
             classroomName: classroomId ? classrooms.get(classroomId) ?? null : null,
@@ -608,6 +617,7 @@ export async function loadSchedule(
             const weekOffset = weeksBetween(ruleStart, current);
             const date = dateString(current);
             const start = normalizeTime(rule.start_time);
+            const end = normalizeTime(rule.end_time);
             const key = `${rule.class_id}:${rule.id}:${date}`;
             if (day === rule.day_of_week && weekOffset >= 0 && weekOffset % rule.interval_weeks === 0 && !actualKeys.has(key)) {
                 const profile = profiles.get(rule.class_id);
@@ -623,8 +633,9 @@ export async function loadSchedule(
                     ruleId: rule.id,
                     date,
                     startTime: start,
-                    endTime: normalizeTime(rule.end_time),
-                    status: 'scheduled',
+                    endTime: end,
+                    status: 'normal',
+                    hasEnded: lessonHasEnded(date, end),
                     classroomId: classroomId ?? null,
                     classroomOverrideId: rule.classroom_id ?? null,
                     classroomName: classroomId ? classrooms.get(classroomId) ?? null : null,

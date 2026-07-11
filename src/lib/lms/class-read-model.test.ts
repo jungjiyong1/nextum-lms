@@ -49,13 +49,13 @@ describe('class operations v2 read model adapter', () => {
         expect(overview.schedule[0]).toMatchObject({
             actualId: 'occurrence-1',
             virtual: false,
-            status: 'completed',
+            status: 'normal',
             classColor: '#2563eb',
         });
         expect(overview.schedule[1]).toMatchObject({
             id: 'virtual:rule-1:2026-07-13',
             virtual: true,
-            status: 'scheduled',
+            status: 'normal',
             classColor: '#2563eb',
         });
         expect(overview.truncated).toEqual({

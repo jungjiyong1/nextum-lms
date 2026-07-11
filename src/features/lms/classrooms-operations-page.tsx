@@ -71,26 +71,30 @@ import type {
   ClassStudentSummary,
   ClassSummary,
   ClassroomSummary,
-  LessonOccurrenceStatus,
   ScheduleItem,
   ScheduleRuleSummary,
   StaffSummary,
 } from './types';
 import { AttendanceRoster } from './classrooms/attendance-roster';
 import { ClassMemberDialog } from './classrooms/class-member-dialog';
+import { LessonSpecialStatusBadge } from './classrooms/lesson-special-status-badge';
 import { ScheduleEditorDialog } from './classrooms/schedule-editor-dialog';
 import { ScheduleWeekView } from './classrooms/schedule-week-view';
 import {
   addDateValue,
+  lessonSpecialStatusSelection,
+  resolveLessonOccurrenceStatus,
   safeScheduleClassColor,
   scheduleClassTint,
+  specialLessonStatusLabels,
+  specialLessonStatuses,
   startOfWeekValue,
+  type LessonSpecialStatusSelection,
 } from './classrooms/schedule-utils';
 
 type ClassroomsView = 'overview' | 'schedule' | 'attendance' | 'settings';
 type LmsPageLoadOptions = { force?: boolean; background?: boolean };
 
-const lessonStatuses: LessonOccurrenceStatus[] = ['scheduled', 'completed', 'cancelled', 'makeup', 'substitute'];
 const classStatuses: ClassStatus[] = ['active', 'inactive', 'archived'];
 
 const classStatusLabels: Record<ClassStatus, string> = {
@@ -105,14 +109,6 @@ const attendanceStatusLabels: Record<AttendanceStatus, string> = {
   absent: '결석',
   excused: '인정 결석',
   makeup: '보강',
-};
-
-const lessonStatusLabels: Record<LessonOccurrenceStatus, string> = {
-  scheduled: '예정',
-  completed: '완료',
-  cancelled: '취소',
-  makeup: '보강',
-  substitute: '대강',
 };
 
 function today(): string {
@@ -277,7 +273,7 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
                 <p className="mt-1 text-sm tabular-nums text-muted-foreground">{item.date} · {item.startTime}-{item.endTime}</p>
                 <p className="mt-1 truncate text-xs text-muted-foreground">{item.instructorName || '강사 미지정'} · {item.classroomName || '강의실 미지정'}</p>
               </div>
-              <StatusBadge status={item.status} label={lessonStatusLabels[item.status]} />
+              <LessonSpecialStatusBadge status={item.status} />
             </div>
             {onSelect && <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => onSelect(item)}>보기·수정</Button>}
           </div>
@@ -293,7 +289,7 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
                 <TableHead className="px-4 py-3 font-medium">시간</TableHead>
                 <TableHead className="px-4 py-3 font-medium">반</TableHead>
                 <TableHead className="px-4 py-3 font-medium">강사/강의실</TableHead>
-                <TableHead className="px-4 py-3 font-medium">상태</TableHead>
+                <TableHead className="px-4 py-3 font-medium">특이사항</TableHead>
                 {onSelect && <TableHead className="px-4 py-3 text-right font-medium">관리</TableHead>}
               </TableRow>
             </TableHeader>
@@ -309,7 +305,7 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
                     </span>
                   </TableCell>
                   <TableCell className="px-4 py-3 text-muted-foreground">{item.instructorName || '-'} · {item.classroomName || '-'}</TableCell>
-                  <TableCell className="px-4 py-3"><StatusBadge status={item.status} label={lessonStatusLabels[item.status]} /></TableCell>
+                  <TableCell className="px-4 py-3"><LessonSpecialStatusBadge status={item.status} /></TableCell>
                   {onSelect && <TableCell className="px-4 py-3 text-right"><Button type="button" variant="outline" size="sm" onClick={() => onSelect(item)}>보기·수정</Button></TableCell>}
                 </TableRow>
               ))}
@@ -436,7 +432,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const [bookSubject, setBookSubject] = useState('');
   const [bookGrade, setBookGrade] = useState('');
 
-  const [lessonStatus, setLessonStatus] = useState<LessonOccurrenceStatus>('scheduled');
+  const [lessonSpecialStatus, setLessonSpecialStatus] = useState<LessonSpecialStatusSelection>('');
   const [lessonCancelReason, setLessonCancelReason] = useState('');
   const [lessonNotes, setLessonNotes] = useState('');
 
@@ -546,12 +542,12 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
   useEffect(() => {
     if (!selectedSchedule) {
-      setLessonStatus('scheduled');
+      setLessonSpecialStatus('');
       setLessonCancelReason('');
       setLessonNotes('');
       return;
     }
-    setLessonStatus(selectedSchedule.status);
+    setLessonSpecialStatus(lessonSpecialStatusSelection(selectedSchedule.status));
     setLessonCancelReason(selectedSchedule.cancelReason || '');
     setLessonNotes(selectedSchedule.notes || '');
     if (selectedSchedule.classId !== selectedClassId) {
@@ -789,10 +785,11 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
       toast.warning('출결 변경사항을 먼저 저장하거나 취소하세요.');
       return;
     }
-    if (lessonStatus === 'cancelled' && !lessonCancelReason.trim()) {
+    if (lessonSpecialStatus === 'cancelled' && !lessonCancelReason.trim()) {
       toast.error('수업 취소 사유를 입력하세요.');
       return;
     }
+    const status = resolveLessonOccurrenceStatus(lessonSpecialStatus);
     try {
       await updateLessonOccurrence(academyId, {
         occurrenceId: selectedSchedule.actualId,
@@ -801,11 +798,11 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
         date: selectedSchedule.date,
         startTime: selectedSchedule.startTime,
         endTime: selectedSchedule.endTime,
-        status: lessonStatus,
-        cancelReason: lessonStatus === 'cancelled' ? lessonCancelReason.trim() : null,
-        notes: lessonStatus === 'cancelled' ? undefined : lessonNotes.trim() || null,
+        status,
+        cancelReason: lessonSpecialStatus === 'cancelled' ? lessonCancelReason.trim() : null,
+        notes: lessonSpecialStatus === 'cancelled' ? undefined : lessonNotes.trim() || null,
       });
-      toast.success('수업 상태를 저장했습니다.');
+      toast.success('수업 특이사항을 저장했습니다.');
       await loadBase({ force: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '수업 상태 저장에 실패했습니다.');
@@ -1053,10 +1050,10 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
               </SelectField>
             </div>
             <div>
-              <Label>상태</Label>
+              <Label>특이사항</Label>
               <SelectField value={scheduleStatusFilter} onChange={(event) => setScheduleStatusFilter(event.target.value)}>
-                <option value="">전체 상태</option>
-                {lessonStatuses.map((lessonStatusValue) => <option key={lessonStatusValue} value={lessonStatusValue}>{lessonStatusLabels[lessonStatusValue]}</option>)}
+                <option value="">모든 수업</option>
+                {specialLessonStatuses.map((value) => <option key={value} value={value}>{specialLessonStatusLabels[value]}</option>)}
               </SelectField>
             </div>
           </div>
@@ -1110,7 +1107,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
                     <div className="font-semibold">{item.className}</div>
                     <div className="mt-1 text-sm text-muted-foreground">{item.startTime} - {item.endTime} · {item.instructorName || '-'} · {item.classroomName || '-'}</div>
                   </div>
-                  <StatusBadge status={item.status} label={lessonStatusLabels[item.status]} />
+                  <LessonSpecialStatusBadge status={item.status} />
                 </SelectableCard>
             ))}
           </div>
@@ -1120,28 +1117,29 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
       {selectedSchedule && (
         <Card>
-          <CardHeader><CardTitle>수업 상태</CardTitle></CardHeader>
+          <CardHeader><CardTitle>수업 특이사항</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={submitLessonStatus} className="grid gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
               <div>
-                <Label>상태</Label>
-                <SelectField value={lessonStatus} onChange={(event) => setLessonStatus(event.target.value as LessonOccurrenceStatus)}>
-                  {lessonStatuses.map((lessonStatusValue) => <option key={lessonStatusValue} value={lessonStatusValue}>{lessonStatusLabels[lessonStatusValue]}</option>)}
+                <Label>구분</Label>
+                <SelectField value={lessonSpecialStatus} onChange={(event) => setLessonSpecialStatus(event.target.value as LessonSpecialStatusSelection)}>
+                  <option value="">없음</option>
+                  {specialLessonStatuses.map((value) => <option key={value} value={value}>{specialLessonStatusLabels[value]}</option>)}
                 </SelectField>
               </div>
-              {lessonStatus === 'cancelled' ? (
+              {lessonSpecialStatus === 'cancelled' ? (
                 <div><Label>취소 사유</Label><Input required value={lessonCancelReason} onChange={(event) => setLessonCancelReason(event.target.value)} /></div>
               ) : (
                 <div><Label>운영 메모</Label><Input value={lessonNotes} onChange={(event) => setLessonNotes(event.target.value)} /></div>
               )}
-              <Button type="submit" variant="outline" disabled={attendanceDirty}>수업 상태 저장</Button>
+              <Button type="submit" variant="outline" disabled={attendanceDirty}>특이사항 저장</Button>
             </form>
           </CardContent>
         </Card>
       )}
 
       {detailLoading ? <LoadingBlock /> : selectedSchedule?.status === 'cancelled' ? (
-        <EmptyState title="취소된 수업은 출결을 입력할 수 없습니다" description="수업 상태를 예정 또는 보강으로 변경한 뒤 출결을 입력하세요." />
+        <EmptyState title="취소된 수업은 출결을 입력할 수 없습니다" description="취소를 해제하거나 보강으로 변경한 뒤 출결을 입력하세요." />
       ) : (
         <AttendanceRoster
           key={selectedSchedule?.id || 'empty'}

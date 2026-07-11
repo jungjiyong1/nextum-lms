@@ -1,4 +1,24 @@
-import type { ScheduleItem } from '../types';
+import { isSpecialLessonStatus, type SpecialLessonStatus } from '../lesson-status';
+import type { LessonOccurrenceStatus, ScheduleItem } from '../types';
+
+export type LessonSpecialStatusSelection = '' | SpecialLessonStatus;
+export { isSpecialLessonStatus };
+
+export const specialLessonStatuses: readonly SpecialLessonStatus[] = ['cancelled', 'makeup', 'substitute'];
+
+export const specialLessonStatusLabels: Record<SpecialLessonStatus, string> = {
+  cancelled: '취소',
+  makeup: '보강',
+  substitute: '대강',
+};
+
+export function lessonSpecialStatusSelection(status: LessonOccurrenceStatus | null | undefined): LessonSpecialStatusSelection {
+  return status && isSpecialLessonStatus(status) ? status : '';
+}
+
+export function resolveLessonOccurrenceStatus(selection: LessonSpecialStatusSelection): LessonOccurrenceStatus {
+  return selection || 'normal';
+}
 
 export function dateValue(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;

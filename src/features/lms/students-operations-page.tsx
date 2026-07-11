@@ -134,6 +134,7 @@ function mergeStudentDetail(current: StudentDetail | null, next: StudentDetail):
         loadedSections,
         signupInvitation: next.signupInvitation,
         hasGradeAppAccount: next.hasGradeAppAccount,
+        gradeAppAccount: next.gradeAppAccount,
         learningAnalytics: nextLoaded('learning') ? next.learningAnalytics : current.learningAnalytics,
         weakTypes: nextLoaded('learning') ? next.weakTypes : current.weakTypes,
         recentAttempts: nextLoaded('learning') ? next.recentAttempts : current.recentAttempts,
@@ -924,6 +925,7 @@ function ManagementTab({
     onArchive,
     onHardDelete,
     onCopyInviteCode,
+    onCopyLoginId,
     onIssueInvitation,
     issuingInvitation,
 }: {
@@ -935,6 +937,7 @@ function ManagementTab({
     onArchive: () => void;
     onHardDelete: () => void;
     onCopyInviteCode: (code: string | null | undefined) => void;
+    onCopyLoginId: (loginId: string | null | undefined) => void;
     onIssueInvitation: () => void;
     issuingInvitation: boolean;
 }) {
@@ -947,10 +950,10 @@ function ManagementTab({
                         <div>
                             <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                                 <KeyRound className="h-4 w-4" />
-                                Grade app 가입 코드
+                                Grade app 계정
                             </p>
                             <p className="mt-1 text-xs text-muted-foreground">
-                                미사용 코드만 표시됩니다. 학생이 가입하면 코드는 더 이상 사용할 수 없습니다.
+                                가입 전에는 일회용 코드를, 가입 후에는 관리자에게 로그인 아이디를 표시합니다.
                             </p>
                         </div>
                         {!detail.hasGradeAppAccount && (
@@ -968,7 +971,50 @@ function ManagementTab({
                     </div>
                     <div className="mt-4 rounded-xl bg-muted p-3">
                         {detail.hasGradeAppAccount ? (
-                            <p className="text-sm font-medium text-success-foreground">가입 완료</p>
+                            <div className="space-y-3">
+                                <p className="text-sm font-medium text-success-foreground">가입 완료</p>
+                                {detail.gradeAppAccount && (
+                                    <div className="grid gap-3 rounded-lg border bg-card p-3 text-sm">
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                            <div className="min-w-0">
+                                                <p className="text-xs text-muted-foreground">아이디</p>
+                                                <code className="select-all break-all font-semibold text-foreground">
+                                                    {detail.gradeAppAccount.loginId || '등록된 아이디 없음'}
+                                                </code>
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={!detail.gradeAppAccount.loginId}
+                                                onClick={() => onCopyLoginId(detail.gradeAppAccount?.loginId)}
+                                            >
+                                                <Copy className="mr-2 h-4 w-4" />
+                                                아이디 복사
+                                            </Button>
+                                        </div>
+                                        <div className="flex items-start justify-between gap-3 border-t pt-3">
+                                            <span className="text-xs text-muted-foreground">계정 상태</span>
+                                            <span className="font-medium text-foreground">
+                                                {detail.gradeAppAccount.status === 'active'
+                                                    ? '사용 중'
+                                                    : detail.gradeAppAccount.status === 'disabled'
+                                                        ? '비활성'
+                                                        : detail.gradeAppAccount.status === 'invited'
+                                                            ? '초대 중'
+                                                            : detail.gradeAppAccount.status}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-start justify-between gap-3 border-t pt-3">
+                                            <span className="text-xs text-muted-foreground">비밀번호</span>
+                                            <div className="text-right">
+                                                <p className="font-medium text-foreground">보안상 조회할 수 없음</p>
+                                                <p className="mt-1 text-xs text-muted-foreground">가입 시 설정한 비밀번호는 변경되지 않습니다.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         ) : detail.signupInvitation ? (
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
@@ -1466,6 +1512,16 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
         }
     };
 
+    const copyLoginId = async (loginId: string | null | undefined) => {
+        if (!loginId) return;
+        try {
+            await navigator.clipboard.writeText(loginId);
+            toast.success('Grade app 아이디를 복사했습니다.');
+        } catch {
+            toast.error('Grade app 아이디 복사에 실패했습니다.');
+        }
+    };
+
     const issueInvitationForDetail = async () => {
         if (!academyId || !detail) return;
         setIssuingInvitation(true);
@@ -1855,6 +1911,7 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                                                 onArchive={() => setArchiveOpen(true)}
                                                 onHardDelete={openHardDelete}
                                                 onCopyInviteCode={(code) => void copyInviteCode(code)}
+                                                onCopyLoginId={(loginId) => void copyLoginId(loginId)}
                                                 onIssueInvitation={() => void issueInvitationForDetail()}
                                                 issuingInvitation={issuingInvitation}
                                             />

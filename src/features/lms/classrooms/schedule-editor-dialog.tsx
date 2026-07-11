@@ -22,7 +22,6 @@ import { checkScheduleConflicts, deleteSchedule, mutateSchedule } from '../servi
 import type {
   ClassSummary,
   ClassroomSummary,
-  LessonOccurrenceStatus,
   ScheduleConflict,
   ScheduleEditScope,
   ScheduleEntryKind,
@@ -31,16 +30,17 @@ import type {
   ScheduleRuleSummary,
   StaffSummary,
 } from '../types';
-import { dateValue, parseDateValue } from './schedule-utils';
+import {
+  dateValue,
+  lessonSpecialStatusSelection,
+  parseDateValue,
+  resolveLessonOccurrenceStatus,
+  specialLessonStatusLabels,
+  specialLessonStatuses,
+  type LessonSpecialStatusSelection,
+} from './schedule-utils';
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
-const statusLabels: Record<LessonOccurrenceStatus, string> = {
-  scheduled: '예정',
-  completed: '완료',
-  cancelled: '취소',
-  makeup: '보강',
-  substitute: '대강',
-};
 const conflictLabels: Record<ScheduleConflict['kind'], string> = {
   class: '반 시간 중복',
   instructor: '강사 시간 중복',
@@ -91,7 +91,7 @@ export function ScheduleEditorDialog({
   const [instructorId, setInstructorId] = useState('');
   const [classroomId, setClassroomId] = useState('');
   const [substituteInstructorId, setSubstituteInstructorId] = useState('');
-  const [status, setStatus] = useState<LessonOccurrenceStatus>('scheduled');
+  const [specialStatus, setSpecialStatus] = useState<LessonSpecialStatusSelection>('');
   const [cancelReason, setCancelReason] = useState('');
   const [notes, setNotes] = useState('');
   const [conflicts, setConflicts] = useState<ScheduleConflict[]>([]);
@@ -128,7 +128,7 @@ export function ScheduleEditorDialog({
     setEndDate(linkedRule?.endDate || '');
     setDayOfWeek(linkedRule?.dayOfWeek ?? (lesson?.date ? dayOfWeekFromDate(lesson.date) : 0));
     setIntervalWeeks(String(linkedRule?.intervalWeeks || 1));
-    setStatus(lesson?.status || 'scheduled');
+    setSpecialStatus(lessonSpecialStatusSelection(lesson?.status));
     setCancelReason(lesson?.cancelReason || '');
     setNotes(lesson?.notes || '');
     setEntryKind(lesson ? 'single' : 'recurring');
@@ -178,27 +178,30 @@ export function ScheduleEditorDialog({
     }
   };
 
-  const buildInput = (): ScheduleMutationInput => ({
-    kind: entryKind,
-    scope: entryKind === 'single' ? 'single' : scope === 'single' ? 'all' : scope,
-    classId,
-    ruleId: lesson?.ruleId || null,
-    occurrenceId: lesson?.actualId || null,
-    date: entryKind === 'single' ? date : null,
-    dayOfWeek: entryKind === 'recurring' ? dayOfWeek : null,
-    startDate: entryKind === 'recurring' ? startDate : null,
-    endDate: entryKind === 'recurring' ? endDate || null : null,
-    intervalWeeks: Math.max(1, Number(intervalWeeks) || 1),
-    startTime,
-    endTime,
-    instructorId: instructorId || null,
-    classroomId: classroomId || null,
-    substituteInstructorId: entryKind === 'single' ? substituteInstructorId || null : null,
-    status: entryKind === 'single' ? status : 'scheduled',
-    cancelReason: status === 'cancelled' ? cancelReason || null : null,
-    notes: entryKind === 'single' ? notes || null : null,
-    conflictOverrideReason: overrideReason || null,
-  });
+  const buildInput = (): ScheduleMutationInput => {
+    const status = resolveLessonOccurrenceStatus(specialStatus);
+    return {
+      kind: entryKind,
+      scope: entryKind === 'single' ? 'single' : scope === 'single' ? 'all' : scope,
+      classId,
+      ruleId: lesson?.ruleId || null,
+      occurrenceId: lesson?.actualId || null,
+      date: entryKind === 'single' ? date : null,
+      dayOfWeek: entryKind === 'recurring' ? dayOfWeek : null,
+      startDate: entryKind === 'recurring' ? startDate : null,
+      endDate: entryKind === 'recurring' ? endDate || null : null,
+      intervalWeeks: Math.max(1, Number(intervalWeeks) || 1),
+      startTime,
+      endTime,
+      instructorId: instructorId || null,
+      classroomId: classroomId || null,
+      substituteInstructorId: entryKind === 'single' && specialStatus === 'substitute' ? substituteInstructorId || null : null,
+      status: entryKind === 'single' ? status : 'normal',
+      cancelReason: specialStatus === 'cancelled' ? cancelReason || null : null,
+      notes: entryKind === 'single' ? notes || null : null,
+      conflictOverrideReason: overrideReason || null,
+    };
+  };
 
   const save = async () => {
     if (!classId || !startTime || !endTime || startTime >= endTime) {
@@ -209,19 +212,19 @@ export function ScheduleEditorDialog({
       toast.error('반복 시작일을 입력하세요.');
       return;
     }
-    if (convertingSingleToRecurring && lesson?.status !== 'scheduled') {
-      toast.error('예정 상태의 일회성 수업만 반복 수업으로 전환할 수 있습니다.');
+    if (convertingSingleToRecurring && lesson?.status !== 'normal') {
+      toast.error('취소·보강·대강이 아닌 일반 일회성 수업만 반복 수업으로 전환할 수 있습니다.');
       return;
     }
     if (entryKind === 'single' && !date) {
       toast.error('수업 날짜를 입력하세요.');
       return;
     }
-    if (entryKind === 'single' && status === 'cancelled' && !cancelReason.trim()) {
+    if (entryKind === 'single' && specialStatus === 'cancelled' && !cancelReason.trim()) {
       toast.error('수업 취소 사유를 입력하세요.');
       return;
     }
-    if (entryKind === 'single' && status === 'substitute' && !substituteInstructorId) {
+    if (entryKind === 'single' && specialStatus === 'substitute' && !substituteInstructorId) {
       toast.error('대강 강사를 선택하세요.');
       return;
     }
@@ -389,22 +392,23 @@ export function ScheduleEditorDialog({
 
         {entryKind === 'single' && (
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="schedule-status">수업 상태</Label>
-                <SelectField id="schedule-status" value={status} onChange={(event) => setStatus(event.target.value as LessonOccurrenceStatus)}>
-                  {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </SelectField>
-              </div>
+            <div>
+              <Label htmlFor="schedule-special-status">특이사항</Label>
+              <SelectField id="schedule-special-status" value={specialStatus} onChange={(event) => setSpecialStatus(event.target.value as LessonSpecialStatusSelection)}>
+                <option value="">없음</option>
+                {specialLessonStatuses.map((value) => <option key={value} value={value}>{specialLessonStatusLabels[value]}</option>)}
+              </SelectField>
+            </div>
+            {specialStatus === 'substitute' && (
               <div>
                 <Label htmlFor="schedule-substitute">대강 강사</Label>
                 <SelectField id="schedule-substitute" value={substituteInstructorId} onChange={(event) => setSubstituteInstructorId(event.target.value)}>
-                  <option value="">없음</option>
+                  <option value="">강사 선택</option>
                   {staff.filter((row) => row.status === 'active').map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
                 </SelectField>
               </div>
-            </div>
-            {status === 'cancelled' && <div><Label htmlFor="schedule-cancel-reason">취소 사유</Label><Input id="schedule-cancel-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} /></div>}
+            )}
+            {specialStatus === 'cancelled' && <div><Label htmlFor="schedule-cancel-reason">취소 사유</Label><Input id="schedule-cancel-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} /></div>}
             <div><Label htmlFor="schedule-notes">운영 메모</Label><Textarea id="schedule-notes" value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
           </div>
         )}

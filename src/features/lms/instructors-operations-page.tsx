@@ -57,6 +57,7 @@ import {
     previewHardDeleteStaff,
     updateStaff,
 } from './service';
+import { LessonSpecialStatusBadge } from './classrooms/lesson-special-status-badge';
 import { LatestAbortController } from './latest-abort-controller';
 import { useDebouncedValue } from './use-debounced-value';
 import type {
@@ -418,7 +419,7 @@ function ClassesTab({ classes, schedule }: { classes: ClassSummary[]; schedule: 
                             <TableHead>시간</TableHead>
                             <TableHead>반</TableHead>
                             <TableHead>강의실</TableHead>
-                            <TableHead>상태</TableHead>
+                            <TableHead>특이사항</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -428,7 +429,7 @@ function ClassesTab({ classes, schedule }: { classes: ClassSummary[]; schedule: 
                                 <TableCell>{row.startTime} - {row.endTime}</TableCell>
                                 <TableCell className="font-medium">{row.className}</TableCell>
                                 <TableCell className="text-muted-foreground">{row.classroomName || '-'}</TableCell>
-                                <TableCell><StatusBadge status={row.status} label={row.virtual ? '반복' : undefined} /></TableCell>
+                                <TableCell><LessonSpecialStatusBadge status={row.status} /></TableCell>
                             </TableRow>
                         ))}
                         {schedule.length === 0 && (

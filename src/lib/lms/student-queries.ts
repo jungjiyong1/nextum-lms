@@ -10,6 +10,7 @@ import type {
     StudentAttendanceSummary,
     StudentDetail,
     StudentDetailSection,
+    StudentGradeAppAccount,
     StudentHardDeletePreview,
     StudentLearningAnalytics,
     StudentLearningAttemptRow,
@@ -1001,7 +1002,12 @@ async function loadStudentSignupState(
     academyId: string,
     studentId: string,
     personId: string,
-): Promise<{ signupInvitation: StudentSignupInvitation | null; hasGradeAppAccount: boolean }> {
+    actorRole: LmsRoleContext['role'],
+): Promise<{
+    signupInvitation: StudentSignupInvitation | null;
+    hasGradeAppAccount: boolean;
+    gradeAppAccount: StudentGradeAppAccount | null;
+}> {
     const [memberResult, inviteResult] = await Promise.all([
         core
             .from('academy_members')
@@ -1010,7 +1016,6 @@ async function loadStudentSignupState(
             .eq('person_id', personId)
             .eq('role', 'student')
             .eq('active', true)
-            .not('user_account_id', 'is', null)
             .limit(1),
         core
             .from('account_invitations')
@@ -1025,7 +1030,21 @@ async function loadStudentSignupState(
     ensureNoError(memberResult.error, 'Failed to load student account status');
     ensureNoError(inviteResult.error, 'Failed to load student signup invitation');
 
-    const hasGradeAppAccount = ((memberResult.data || []) as Row[]).length > 0;
+    const member = ((memberResult.data || []) as Row[])[0];
+    const userAccountId = typeof member?.user_account_id === 'string' ? member.user_account_id : null;
+    const hasGradeAppAccount = Boolean(userAccountId);
+    let gradeAppAccount: StudentGradeAppAccount | null = null;
+    if (userAccountId && (actorRole === 'owner' || actorRole === 'admin')) {
+        const accountResult = await core
+            .from('user_accounts')
+            .select('login_id,auth_email,status')
+            .eq('id', userAccountId)
+            .eq('person_id', personId)
+            .maybeSingle();
+        ensureNoError(accountResult.error, 'Failed to load student Grade app account');
+        gradeAppAccount = parseStudentGradeAppAccount(actorRole, accountResult.data as Row | null);
+    }
+
     const invite = ((inviteResult.data || []) as Row[])[0];
     const inviteCode = typeof invite?.invite_code_display === 'string' ? invite.invite_code_display : '';
     const expiresAt = typeof invite?.expires_at === 'string' ? invite.expires_at : '';
@@ -1033,6 +1052,7 @@ async function loadStudentSignupState(
 
     return {
         hasGradeAppAccount,
+        gradeAppAccount,
         signupInvitation: isUsable
             ? {
                 id: invite.id,
@@ -1041,6 +1061,24 @@ async function loadStudentSignupState(
                 loginHint: invite.login_hint ?? null,
             }
             : null,
+    };
+}
+
+export function parseStudentGradeAppAccount(
+    actorRole: LmsRoleContext['role'],
+    account: Row | null,
+): StudentGradeAppAccount | null {
+    if ((actorRole !== 'owner' && actorRole !== 'admin') || !account) return null;
+
+    const loginId = typeof account.login_id === 'string' && account.login_id.trim()
+        ? account.login_id.trim()
+        : typeof account.auth_email === 'string' && account.auth_email.trim()
+            ? account.auth_email.trim()
+            : null;
+
+    return {
+        loginId,
+        status: typeof account.status === 'string' ? account.status : 'unknown',
     };
 }
 
@@ -1060,6 +1098,7 @@ function blankStudentDetail(
         loadedSections,
         signupInvitation: null,
         hasGradeAppAccount: false,
+        gradeAppAccount: null,
         learningAnalytics: null,
         weakTypes: [],
         recentAttempts: [],
@@ -1131,9 +1170,16 @@ export async function loadStudentDetail(
         : [requestedSection];
     const detail = blankStudentDetail(summary, permissions, loadedSections);
     if (permissions.canEdit) {
-        const signupState = await loadStudentSignupState(core, context.academyId, studentId, summary.personId);
+        const signupState = await loadStudentSignupState(
+            core,
+            context.academyId,
+            studentId,
+            summary.personId,
+            context.role,
+        );
         detail.signupInvitation = signupState.signupInvitation;
         detail.hasGradeAppAccount = signupState.hasGradeAppAccount;
+        detail.gradeAppAccount = signupState.gradeAppAccount;
     }
 
     if (requestedSection === 'learning' || requestedSection === 'full') {
