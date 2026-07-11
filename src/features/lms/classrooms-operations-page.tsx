@@ -80,7 +80,12 @@ import { AttendanceRoster } from './classrooms/attendance-roster';
 import { ClassMemberDialog } from './classrooms/class-member-dialog';
 import { ScheduleEditorDialog } from './classrooms/schedule-editor-dialog';
 import { ScheduleWeekView } from './classrooms/schedule-week-view';
-import { addDateValue, startOfWeekValue } from './classrooms/schedule-utils';
+import {
+  addDateValue,
+  safeScheduleClassColor,
+  scheduleClassTint,
+  startOfWeekValue,
+} from './classrooms/schedule-utils';
 
 type ClassroomsView = 'overview' | 'schedule' | 'attendance' | 'settings';
 type LmsPageLoadOptions = { force?: boolean; background?: boolean };
@@ -257,7 +262,15 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
     <>
       <div className="space-y-2 lg:hidden">
         {schedule.map((item) => (
-          <div key={item.id} className="space-y-3 rounded-xl border bg-card p-3">
+          <div
+            key={item.id}
+            className="space-y-3 rounded-xl border bg-card p-3"
+            style={{
+              borderLeftColor: safeScheduleClassColor(item.classColor),
+              borderLeftWidth: 4,
+              backgroundColor: scheduleClassTint(item.classColor, '0d'),
+            }}
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-medium">{item.className}</p>
@@ -286,10 +299,15 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
             </TableHeader>
             <TableBody>
               {schedule.map((item) => (
-                <TableRow key={item.id}>
+                <TableRow key={item.id} style={{ backgroundColor: scheduleClassTint(item.classColor, '08') }}>
                   <TableCell className="px-4 py-3">{item.date}</TableCell>
                   <TableCell className="px-4 py-3 tabular-nums">{item.startTime} - {item.endTime}</TableCell>
-                  <TableCell className="px-4 py-3 font-medium">{item.className}</TableCell>
+                  <TableCell className="px-4 py-3 font-medium">
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: safeScheduleClassColor(item.classColor) }} />
+                      {item.className}
+                    </span>
+                  </TableCell>
                   <TableCell className="px-4 py-3 text-muted-foreground">{item.instructorName || '-'} · {item.classroomName || '-'}</TableCell>
                   <TableCell className="px-4 py-3"><StatusBadge status={item.status} label={lessonStatusLabels[item.status]} /></TableCell>
                   {onSelect && <TableCell className="px-4 py-3 text-right"><Button type="button" variant="outline" size="sm" onClick={() => onSelect(item)}>보기·수정</Button></TableCell>}

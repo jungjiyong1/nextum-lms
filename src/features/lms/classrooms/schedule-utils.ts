@@ -8,6 +8,14 @@ export function parseDateValue(value: string): Date {
   return new Date(`${value}T00:00:00`);
 }
 
+export function safeScheduleClassColor(value: string | null | undefined): string {
+  return value && /^#[0-9a-f]{6}$/i.test(value) ? value : '#64748b';
+}
+
+export function scheduleClassTint(value: string | null | undefined, alpha = '18'): string {
+  return `${safeScheduleClassColor(value)}${alpha}`;
+}
+
 export function startOfWeekValue(value: string): string {
   const date = parseDateValue(value);
   const mondayOffset = (date.getDay() + 6) % 7;

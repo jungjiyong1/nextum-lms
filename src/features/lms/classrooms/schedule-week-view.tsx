@@ -3,7 +3,16 @@
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { ScheduleItem } from '../types';
-import { dateValue, formatKoreanDate, layoutScheduleOverlaps, minutesFromTime, scheduleHourRange, weekDateValues } from './schedule-utils';
+import {
+  dateValue,
+  formatKoreanDate,
+  layoutScheduleOverlaps,
+  minutesFromTime,
+  safeScheduleClassColor,
+  scheduleClassTint,
+  scheduleHourRange,
+  weekDateValues,
+} from './schedule-utils';
 
 const statusLabels: Record<ScheduleItem['status'], string> = {
   scheduled: '예정',
@@ -64,6 +73,7 @@ export function ScheduleWeekView({
                   const duration = Math.max(30, minutesFromTime(item.endTime) - minutesFromTime(item.startTime));
                   const top = Math.max(0, (start / totalMinutes) * canvasHeight);
                   const height = Math.max(42, (duration / totalMinutes) * canvasHeight - 4);
+                  const classColor = safeScheduleClassColor(item.classColor);
                   return (
                     <Button
                       key={item.id}
@@ -71,12 +81,15 @@ export function ScheduleWeekView({
                       variant="outline"
                       disabled={!onSelect}
                       onClick={() => onSelect?.(item)}
-                      className="absolute h-auto items-start justify-start overflow-hidden border-primary/30 bg-primary-soft px-2 py-1.5 text-left hover:bg-primary-soft disabled:cursor-default disabled:opacity-100"
+                      className="absolute h-auto items-start justify-start overflow-hidden px-2 py-1.5 text-left hover:brightness-[0.98] disabled:cursor-default disabled:opacity-100"
                       style={{
                         top,
                         height,
                         left: `calc(${(lane / laneCount) * 100}% + 4px)`,
                         width: `calc(${100 / laneCount}% - 8px)`,
+                        borderColor: classColor,
+                        backgroundColor: scheduleClassTint(classColor),
+                        boxShadow: `inset 3px 0 0 ${classColor}`,
                       }}
                       aria-label={`${item.className} ${item.startTime}부터 ${item.endTime}까지`}
                     >

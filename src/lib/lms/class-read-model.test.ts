@@ -7,7 +7,7 @@ import { classOverviewFromReadModel } from './class-queries';
 describe('class operations v2 read model adapter', () => {
     it('merges actual and virtual schedule rows without duplicating an occurrence', () => {
         const overview = classOverviewFromReadModel({
-            classes: [{ id: 'class-1', name: 'A반' }],
+            classes: [{ id: 'class-1', name: 'A반', color: '#2563eb' }],
             scheduleRules: [{
                 id: 'rule-1',
                 class_id: 'class-1',
@@ -50,11 +50,13 @@ describe('class operations v2 read model adapter', () => {
             actualId: 'occurrence-1',
             virtual: false,
             status: 'completed',
+            classColor: '#2563eb',
         });
         expect(overview.schedule[1]).toMatchObject({
             id: 'virtual:rule-1:2026-07-13',
             virtual: true,
             status: 'scheduled',
+            classColor: '#2563eb',
         });
         expect(overview.truncated).toEqual({
             classes: true,
@@ -65,6 +67,31 @@ describe('class operations v2 read model adapter', () => {
             staff: false,
             classrooms: false,
         });
+    });
+
+    it('suppresses a deleted recurring occurrence without regenerating its virtual row', () => {
+        const overview = classOverviewFromReadModel({
+            classes: [{ id: 'class-1', name: 'A반', color: '#dc2626' }],
+            scheduleRules: [{
+                id: 'rule-1', class_id: 'class-1', class_name: 'A반', day_of_week: 0,
+                start_time: '10:00:00', end_time: '11:00:00', start_date: '2026-07-06',
+                end_date: null, active: true, interval_weeks: 1,
+            }],
+            occurrences: [{
+                id: 'deleted-occurrence', class_id: 'class-1', class_name: 'A반', rule_id: 'rule-1',
+                occurrence_date: '2026-07-06', start_time: '10:00:00', end_time: '11:00:00',
+                status: 'cancelled', cancel_reason: '__nextum_schedule_deleted__',
+            }],
+            attendance: [], books: [], staff: [], classrooms: [],
+        }, '2026-07-06', '2026-07-13');
+
+        expect(overview.schedule).toEqual([
+            expect.objectContaining({
+                id: 'virtual:rule-1:2026-07-13',
+                date: '2026-07-13',
+                classColor: '#dc2626',
+            }),
+        ]);
     });
 
     it('maps bounded attendance DTO fields', () => {

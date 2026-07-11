@@ -20,6 +20,7 @@ import type {
     CreateClassInput,
     CreateClassroomInput,
     CreateScheduleRuleInput,
+    DeleteScheduleInput,
     CreateStaffInput,
     CreateStudentInput,
     RecordAttendanceInput,
@@ -1288,23 +1289,70 @@ export async function mutateScheduleForAcademy(
     const lms = client.schema('lms');
     const params = scheduleRpcParams(academyId, input);
     const overrideAllowed = actor.role === 'owner' || actor.role === 'admin';
-    const { data, error } = await lms.rpc('mutate_schedule_v1', {
-        ...params,
-        p_scope: input.scope,
-        p_substitute_instructor_id: input.substituteInstructorId || null,
-        p_status: input.status || 'scheduled',
-        p_cancel_reason: input.cancelReason || null,
-        p_notes: input.notes || null,
-        p_conflict_override_reason: input.conflictOverrideReason || null,
-        p_conflict_override_allowed: overrideAllowed,
-        p_actor_person_id: actor.personId,
-    });
+    const convertingSingleToRecurring = input.kind === 'recurring'
+        && Boolean(input.occurrenceId)
+        && !input.ruleId;
+    const { data, error } = convertingSingleToRecurring
+        ? await lms.rpc('convert_single_schedule_to_recurring_v1', {
+            p_academy_id: academyId,
+            p_class_id: input.classId,
+            p_occurrence_id: input.occurrenceId,
+            p_day_of_week: input.dayOfWeek ?? null,
+            p_start_date: input.startDate || null,
+            p_end_date: input.endDate || null,
+            p_interval_weeks: Math.max(1, input.intervalWeeks || 1),
+            p_start_time: input.startTime,
+            p_end_time: input.endTime,
+            p_instructor_id: input.instructorId || null,
+            p_classroom_id: input.classroomId || null,
+            p_conflict_override_reason: input.conflictOverrideReason || null,
+            p_conflict_override_allowed: overrideAllowed,
+            p_actor_person_id: actor.personId,
+        })
+        : await lms.rpc('mutate_schedule_v1', {
+            ...params,
+            p_scope: input.scope,
+            p_substitute_instructor_id: input.substituteInstructorId || null,
+            p_status: input.status || 'scheduled',
+            p_cancel_reason: input.cancelReason || null,
+            p_notes: input.notes || null,
+            p_conflict_override_reason: input.conflictOverrideReason || null,
+            p_conflict_override_allowed: overrideAllowed,
+            p_actor_person_id: actor.personId,
+        });
     ensureNoError(error, 'Failed to mutate schedule');
     const result = data && typeof data === 'object' ? data as Row : {};
     return {
         kind: String(result.kind || input.kind),
         id: String(result.id || ''),
         conflicts: Array.isArray(result.conflicts) ? result.conflicts as ScheduleConflict[] : [],
+    };
+}
+
+export async function deleteScheduleForAcademy(
+    academyId: string,
+    input: DeleteScheduleInput,
+    actor: LmsRoleContext,
+): Promise<{ kind: string; id: string; scope: string; removedOccurrences: number; preservedOccurrences: number }> {
+    const client = createAdminClient();
+    const lms = client.schema('lms');
+    const { data, error } = await lms.rpc('delete_schedule_v1', {
+        p_academy_id: academyId,
+        p_class_id: input.classId,
+        p_rule_id: input.ruleId || null,
+        p_occurrence_id: input.occurrenceId || null,
+        p_date: input.date,
+        p_scope: input.ruleId ? input.scope : 'single',
+        p_actor_person_id: actor.personId,
+    });
+    ensureNoError(error, 'Failed to delete schedule');
+    const result = data && typeof data === 'object' ? data as Row : {};
+    return {
+        kind: String(result.kind || (input.ruleId ? 'recurring' : 'single')),
+        id: String(result.id || input.ruleId || input.occurrenceId || ''),
+        scope: String(result.scope || input.scope),
+        removedOccurrences: toNumber(result.removedOccurrences),
+        preservedOccurrences: toNumber(result.preservedOccurrences),
     };
 }
 

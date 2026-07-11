@@ -21,6 +21,7 @@ import type {
   CreateLearningAssignmentInput,
   CreateStudentResult,
   CreateScheduleRuleInput,
+  DeleteScheduleInput,
   CreateStaffInput,
   CreateStudentInput,
   DashboardData,
@@ -719,6 +720,10 @@ export async function checkScheduleConflicts(academyId: string, input: ScheduleM
 export async function mutateSchedule(academyId: string, input: ScheduleMutationInput): Promise<void> {
   const path = input.kind === 'recurring' ? '/api/lms/schedule-rules' : '/api/lms/lesson-occurrences';
   await postLmsMutation(path, { academyId, mutation: input });
+}
+
+export async function deleteSchedule(academyId: string, input: DeleteScheduleInput): Promise<void> {
+  await postLmsMutation('/api/lms/schedules/delete', { academyId, input });
 }
 
 export async function updateLessonOccurrence(academyId: string, input: UpdateLessonOccurrenceInput): Promise<void> {

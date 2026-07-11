@@ -397,6 +397,7 @@ export interface ScheduleItem {
   virtual: boolean;
   classId: string;
   className: string;
+  classColor?: string | null;
   ruleId: string | null;
   date: string;
   startTime: string;
@@ -1062,6 +1063,14 @@ export interface ScheduleMutationInput {
   cancelReason?: string | null;
   notes?: string | null;
   conflictOverrideReason?: string | null;
+}
+
+export interface DeleteScheduleInput {
+  classId: string;
+  ruleId?: string | null;
+  occurrenceId?: string | null;
+  date: string;
+  scope: ScheduleEditScope;
 }
 
 export interface UpdateLessonOccurrenceInput {

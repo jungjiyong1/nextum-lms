@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CalendarPlus, Repeat2 } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, Repeat2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,7 +18,7 @@ import { SelectField } from '@/components/ui/select-field';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { checkScheduleConflicts, mutateSchedule } from '../service';
+import { checkScheduleConflicts, deleteSchedule, mutateSchedule } from '../service';
 import type {
   ClassSummary,
   ClassroomSummary,
@@ -31,7 +31,7 @@ import type {
   ScheduleRuleSummary,
   StaffSummary,
 } from '../types';
-import { dateValue } from './schedule-utils';
+import { dateValue, parseDateValue } from './schedule-utils';
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 const statusLabels: Record<LessonOccurrenceStatus, string> = {
@@ -46,6 +46,11 @@ const conflictLabels: Record<ScheduleConflict['kind'], string> = {
   instructor: '강사 시간 중복',
   classroom: '강의실 시간 중복',
 };
+
+function dayOfWeekFromDate(value: string): number {
+  const day = parseDateValue(value).getDay();
+  return Number.isFinite(day) ? (day + 6) % 7 : 0;
+}
 
 export function ScheduleEditorDialog({
   open,
@@ -93,8 +98,11 @@ export function ScheduleEditorDialog({
   const [overrideReason, setOverrideReason] = useState('');
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const initializedKey = useRef<string | null>(null);
   const canOverride = actorRole === 'owner' || actorRole === 'admin';
+  const convertingSingleToRecurring = Boolean(lesson && !lesson.ruleId && entryKind === 'recurring');
 
   useEffect(() => {
     if (!open) {
@@ -118,7 +126,7 @@ export function ScheduleEditorDialog({
     setDate(lesson?.date || dateValue(new Date()));
     setStartDate(linkedRule?.startDate || lesson?.date || dateValue(new Date()));
     setEndDate(linkedRule?.endDate || '');
-    setDayOfWeek(linkedRule?.dayOfWeek ?? 0);
+    setDayOfWeek(linkedRule?.dayOfWeek ?? (lesson?.date ? dayOfWeekFromDate(lesson.date) : 0));
     setIntervalWeeks(String(linkedRule?.intervalWeeks || 1));
     setStatus(lesson?.status || 'scheduled');
     setCancelReason(lesson?.cancelReason || '');
@@ -127,6 +135,7 @@ export function ScheduleEditorDialog({
     setScope(lesson?.ruleId ? 'single' : lesson ? 'single' : 'all');
     setConflicts([]);
     setOverrideReason('');
+    setConfirmingDelete(false);
   }, [classes, initialClassId, lesson, linkedRule, open]);
 
   useEffect(() => {
@@ -150,6 +159,24 @@ export function ScheduleEditorDialog({
     setConflicts([]);
     setOverrideReason('');
   }, [lesson, linkedRule, scope]);
+
+  const changeEntryKind = (nextKind: ScheduleEntryKind) => {
+    setEntryKind(nextKind);
+    setConflicts([]);
+    setOverrideReason('');
+    if (nextKind === 'recurring' && lesson && !lesson.ruleId) {
+      setStartDate(lesson.date);
+      setDayOfWeek(dayOfWeekFromDate(lesson.date));
+      setStartTime(lesson.startTime);
+      setEndTime(lesson.endTime);
+      setInstructorId(lesson.instructorOverrideId || '');
+      setClassroomId(lesson.classroomOverrideId || '');
+    } else if (nextKind === 'single' && lesson) {
+      setDate(lesson.date);
+      setStartTime(lesson.startTime);
+      setEndTime(lesson.endTime);
+    }
+  };
 
   const buildInput = (): ScheduleMutationInput => ({
     kind: entryKind,
@@ -182,6 +209,10 @@ export function ScheduleEditorDialog({
       toast.error('반복 시작일을 입력하세요.');
       return;
     }
+    if (convertingSingleToRecurring && lesson?.status !== 'scheduled') {
+      toast.error('예정 상태의 일회성 수업만 반복 수업으로 전환할 수 있습니다.');
+      return;
+    }
     if (entryKind === 'single' && !date) {
       toast.error('수업 날짜를 입력하세요.');
       return;
@@ -212,7 +243,7 @@ export function ScheduleEditorDialog({
 
       setSaving(true);
       await mutateSchedule(academyId, input);
-      toast.success(lesson ? '시간표를 수정했습니다.' : '시간표를 추가했습니다.');
+      toast.success(convertingSingleToRecurring ? '반복 시간표로 전환했습니다.' : lesson ? '시간표를 수정했습니다.' : '시간표를 추가했습니다.');
       await onSaved();
       onOpenChange(false);
     } catch (error) {
@@ -220,6 +251,36 @@ export function ScheduleEditorDialog({
     } finally {
       setChecking(false);
       setSaving(false);
+    }
+  };
+
+  const deleteDescription = lesson?.ruleId
+    ? scope === 'single'
+      ? '이번 수업만 시간표에서 제외합니다. 반복 규칙과 다른 날짜의 수업은 유지됩니다.'
+      : scope === 'future'
+        ? '이 수업부터 이후 반복 일정을 종료합니다. 이미 출결이 기록된 수업은 보존됩니다.'
+        : '반복 일정 전체를 종료합니다. 이미 출결이 기록된 수업은 보존됩니다.'
+    : '이 일회성 수업을 삭제합니다. 출결이 기록된 수업은 삭제할 수 없습니다.';
+
+  const remove = async () => {
+    if (!lesson) return;
+    setDeleting(true);
+    try {
+      await deleteSchedule(academyId, {
+        classId: lesson.classId,
+        ruleId: lesson.ruleId,
+        occurrenceId: lesson.actualId,
+        date: lesson.date,
+        scope: lesson.ruleId ? scope : 'single',
+      });
+      toast.success(lesson.ruleId && scope === 'single' ? '이번 수업을 시간표에서 제외했습니다.' : '시간표를 삭제했습니다.');
+      await onSaved();
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '시간표를 삭제하지 못했습니다.');
+    } finally {
+      setDeleting(false);
+      setConfirmingDelete(false);
     }
   };
 
@@ -231,8 +292,8 @@ export function ScheduleEditorDialog({
           <DialogDescription>반복 규칙과 실제 수업 회차를 구분해 안전하게 변경합니다.</DialogDescription>
         </DialogHeader>
 
-        {!lesson && (
-          <Tabs value={entryKind} onValueChange={(value) => setEntryKind(value as ScheduleEntryKind)} variant="pills">
+        {!lesson?.ruleId && (
+          <Tabs value={entryKind} onValueChange={(value) => changeEntryKind(value as ScheduleEntryKind)} variant="pills">
             <TabsList className="w-full">
               <TabsTrigger value="recurring" className="flex-1"><Repeat2 className="mr-2 h-4 w-4" />반복 수업</TabsTrigger>
               <TabsTrigger value="single" className="flex-1"><CalendarPlus className="mr-2 h-4 w-4" />일회성 수업</TabsTrigger>
@@ -243,7 +304,10 @@ export function ScheduleEditorDialog({
         {lesson?.ruleId && (
           <div>
             <Label htmlFor="schedule-edit-scope">수정 범위</Label>
-            <SelectField id="schedule-edit-scope" value={scope} onChange={(event) => setScope(event.target.value as ScheduleEditScope)}>
+            <SelectField id="schedule-edit-scope" value={scope} onChange={(event) => {
+              setScope(event.target.value as ScheduleEditScope);
+              setConfirmingDelete(false);
+            }}>
               <option value="single">이번 수업만</option>
               <option value="future">이 수업부터 이후</option>
               <option value="all">반복 일정 전체</option>
@@ -266,7 +330,7 @@ export function ScheduleEditorDialog({
           ) : (
             <div>
               <Label htmlFor="schedule-weekday">요일</Label>
-              <SelectField id="schedule-weekday" value={dayOfWeek} onChange={(event) => setDayOfWeek(Number(event.target.value))}>
+              <SelectField id="schedule-weekday" value={dayOfWeek} onChange={(event) => setDayOfWeek(Number(event.target.value))} disabled={convertingSingleToRecurring}>
                 {dayLabels.map((label, index) => <option key={label} value={index}>{label}요일</option>)}
               </SelectField>
             </div>
@@ -277,7 +341,7 @@ export function ScheduleEditorDialog({
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
               <Label htmlFor="schedule-start-date">시작일</Label>
-              <Input id="schedule-start-date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+              <Input id="schedule-start-date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} disabled={convertingSingleToRecurring} />
             </div>
             <div>
               <Label htmlFor="schedule-end-date">종료일</Label>
@@ -293,6 +357,12 @@ export function ScheduleEditorDialog({
               </SelectField>
             </div>
           </div>
+        )}
+
+        {convertingSingleToRecurring && (
+          <p className="rounded-lg border border-primary/20 bg-primary-soft px-3 py-2 text-sm text-primary">
+            기존 일회성 수업 날짜를 첫 수업일로 유지한 채 반복 규칙을 만듭니다.
+          </p>
         )}
 
         <div className="grid grid-cols-2 gap-3">
@@ -362,11 +432,34 @@ export function ScheduleEditorDialog({
           </div>
         )}
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving || checking}>취소</Button>
-          <Button type="button" onClick={() => void save()} disabled={saving || checking || !classId}>
-            {saving ? '저장 중…' : checking ? '충돌 확인 중…' : lesson ? '시간표 수정' : '시간표 추가'}
-          </Button>
+        {confirmingDelete && (
+          <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">삭제 내용을 확인하세요.</p>
+              <p className="mt-1">{deleteDescription}</p>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className={lesson ? 'gap-2 sm:justify-between sm:space-x-0' : 'gap-2'}>
+          {lesson && (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => confirmingDelete ? void remove() : setConfirmingDelete(true)}
+              disabled={saving || checking || deleting}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {deleting ? '삭제 중…' : confirmingDelete ? '삭제 확정' : '삭제'}
+            </Button>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving || checking || deleting}>취소</Button>
+            <Button type="button" onClick={() => void save()} disabled={saving || checking || deleting || !classId}>
+              {saving ? '저장 중…' : checking ? '충돌 확인 중…' : convertingSingleToRecurring ? '반복으로 전환' : lesson ? '시간표 수정' : '시간표 추가'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

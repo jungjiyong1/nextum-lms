@@ -23,6 +23,7 @@ import { LmsAuthError, type LmsRoleContext } from './auth';
 import { buildPeopleSearchOrFilter, normalizeRosterQuery } from './roster-filters';
 
 type Row = Record<string, any>;
+const SCHEDULE_DELETED_MARKER = '__nextum_schedule_deleted__';
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
 type SchemaClient = ReturnType<LmsAdminClient['schema']>;
 
@@ -98,6 +99,7 @@ function scheduleFromReadModel(
     for (const row of occurrenceRows) {
         const start = normalizeTime(row.start_time);
         if (row.rule_id) actualKeys.add(`${row.class_id}:${row.rule_id}:${row.occurrence_date}`);
+        if (row.cancel_reason === SCHEDULE_DELETED_MARKER) continue;
         items.push({
             id: String(row.id),
             actualId: String(row.id),
@@ -176,9 +178,12 @@ function scheduleFromReadModel(
 export function classOverviewFromReadModel(value: unknown, startDate: string, endDate: string): ClassOperationsOverview {
     const ruleRows = rowsFromJson(value, 'scheduleRules');
     const occurrenceRows = rowsFromJson(value, 'occurrences');
+    const classes = rowsFromJson(value, 'classes') as ClassSummary[];
+    const classColors = new Map(classes.map((row) => [row.id, row.color]));
     return {
-        classes: rowsFromJson(value, 'classes') as ClassSummary[],
-        schedule: scheduleFromReadModel(occurrenceRows, ruleRows, startDate, endDate),
+        classes,
+        schedule: scheduleFromReadModel(occurrenceRows, ruleRows, startDate, endDate)
+            .map((row) => ({ ...row, classColor: classColors.get(row.classId) ?? null })),
         scheduleRules: ruleRows.map((row) => ({
             id: String(row.id),
             classId: String(row.class_id),
@@ -531,7 +536,7 @@ export async function loadSchedule(
         { data: staffData, error: staffError },
     ] = await Promise.all([
         core.from('classes').select('id,name').eq('academy_id', academyId),
-        lms.from('class_profiles').select('class_id,default_instructor_staff_id,default_classroom_id').eq('academy_id', academyId),
+        lms.from('class_profiles').select('class_id,default_instructor_staff_id,default_classroom_id,color').eq('academy_id', academyId),
         lms.from('class_schedule_rules').select('id,class_id,day_of_week,start_time,end_time,start_date,end_date,active,classroom_id,instructor_staff_id,interval_weeks,updated_at').eq('academy_id', academyId).eq('active', true),
         lms.from('lesson_occurrences').select('id,class_id,rule_id,occurrence_date,start_time,end_time,status,classroom_id,substitute_staff_id,instructor_staff_id,cancel_reason,notes,override_scope,updated_at').eq('academy_id', academyId).gte('occurrence_date', startDate).lte('occurrence_date', endDate),
         lms.from('classrooms').select('id,name').eq('academy_id', academyId),
@@ -559,6 +564,7 @@ export async function loadSchedule(
     for (const row of (occurrencesData || []) as Row[]) {
         const start = normalizeTime(row.start_time);
         if (row.rule_id) actualKeys.add(`${row.class_id}:${row.rule_id}:${row.occurrence_date}`);
+        if (row.cancel_reason === SCHEDULE_DELETED_MARKER) continue;
         const profile = profiles.get(row.class_id);
         const instructorId = row.substitute_staff_id || row.instructor_staff_id || profile?.default_instructor_staff_id;
         const classroomId = row.classroom_id || profile?.default_classroom_id;
@@ -568,6 +574,7 @@ export async function loadSchedule(
             virtual: false,
             classId: row.class_id,
             className: classes.get(row.class_id) || 'Unknown class',
+            classColor: profile?.color ?? null,
             ruleId: row.rule_id ?? null,
             date: row.occurrence_date,
             startTime: start,
@@ -612,6 +619,7 @@ export async function loadSchedule(
                     virtual: true,
                     classId: rule.class_id,
                     className: classes.get(rule.class_id) || 'Unknown class',
+                    classColor: profile?.color ?? null,
                     ruleId: rule.id,
                     date,
                     startTime: start,
