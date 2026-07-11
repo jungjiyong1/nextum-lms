@@ -2,6 +2,28 @@ import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/
 import { createExpenseForAcademy } from '@/lib/lms/mutations';
 import type { CreateExpenseInput } from '@/features/lms/types';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
+import { loadExpenseOperationsOverview } from '@/lib/lms/accounting-queries';
+
+const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+export async function GET(request: Request) {
+    try {
+        const params = new URL(request.url).searchParams;
+        const academyId = params.get('academyId') || '';
+        const serviceMonth = params.get('serviceMonth') || '';
+        if (!academyId || !MONTH_PATTERN.test(serviceMonth)) {
+            return Response.json({ success: false, error: 'Invalid expense overview request.' }, { status: 400 });
+        }
+        const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff']);
+        const data = await loadExpenseOperationsOverview(actor, serviceMonth);
+        return Response.json({ success: true, data }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error) {
+        const authResponse = authErrorResponse(error);
+        if (authResponse) return authResponse;
+        console.error('[LMS Expenses] Loading failed:', error);
+        return Response.json({ success: false, error: 'Expense overview loading failed.' }, { status: 500 });
+    }
+}
 
 export async function POST(request: Request) {
     try {

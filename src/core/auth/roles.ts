@@ -78,6 +78,15 @@ export function canAccessAppPage(role: AppRole | null | undefined, page: AppPage
     return pageAccess[page].includes(role);
 }
 
+export function canAccessAppPath(role: AppRole | null | undefined, pathname: string): boolean {
+    const page = appPageFromPath(pathname);
+    if (!canAccessAppPage(role, page)) return false;
+    if (pathname === '/accounting/reports' || pathname.startsWith('/accounting/reports/')) {
+        return role === 'owner' || role === 'admin';
+    }
+    return true;
+}
+
 export function canManageScheduleRules(role: AppRole | null | undefined): boolean {
     return role === 'owner' || role === 'admin' || role === 'staff';
 }

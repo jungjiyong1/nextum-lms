@@ -7,6 +7,7 @@ import type { AppProfile } from '@/core/auth/profile';
 import {
     appPageFromPath,
     appPageHref,
+    canAccessAppPath,
     canAccessAppPage,
     firstAccessibleAppPage,
     getRoleLabel,
@@ -32,6 +33,10 @@ function AppShellContent({
         () => canAccessAppPage(profile?.role, activePage),
         [activePage, profile?.role],
     );
+    const canAccessCurrentPath = useMemo(
+        () => canAccessAppPath(profile?.role, pathname),
+        [pathname, profile?.role],
+    );
     const fallbackPage = useMemo(() => firstAccessibleAppPage(profile?.role), [profile?.role]);
 
     useEffect(() => {
@@ -49,7 +54,7 @@ function AppShellContent({
         void signOut();
     }, [signOut]);
 
-    const mainContent = canAccessCurrentPage
+    const mainContent = canAccessCurrentPath
         ? children
         : (
             <AccessDeniedScreen

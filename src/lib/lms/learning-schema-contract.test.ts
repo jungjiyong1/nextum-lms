@@ -52,7 +52,7 @@ describe('learning evidence database contract', () => {
         expect(schemaSql).toContain('Analysis child skill revision does not match its plan.');
         expect(schemaSql).toContain('create trigger enforce_analysis_plan_scope_context');
         expect(schemaSql).toContain('Plans and their children must be written atomically');
-        expect(schemaSql).toContain('revoke insert, update, delete on table\n  learning.analysis_plans');
+        expect(schemaSql).toMatch(/revoke insert, update, delete on table\r?\n  learning\.analysis_plans/);
         expect(planSql).toContain("case when v_plan_type = 'exam' then v_exam_date else null end");
     });
 

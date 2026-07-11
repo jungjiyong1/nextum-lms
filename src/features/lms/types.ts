@@ -546,6 +546,27 @@ export interface AccountingOperationsOverview {
   staff: StaffSummary[];
 }
 
+export interface StudentPaymentOperationsOverview {
+  billing: BillingRow[];
+  payments: PaymentRow[];
+}
+
+export interface InstructorPayrollOperationsOverview {
+  payroll: InstructorPaymentRow[];
+  payrollEstimates: InstructorPayrollEstimate[];
+  staff: StaffSummary[];
+}
+
+export interface ExpenseOperationsOverview {
+  expenses: ExpenseRow[];
+}
+
+export interface AccountingTaxSettings {
+  payrollIncomeTaxRate: number;
+  payrollLocalTaxRate: number;
+  salesVatRate: number;
+}
+
 export interface BookSummary {
   id: string;
   bookKey: string;

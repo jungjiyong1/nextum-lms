@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Activity,
   AlertTriangle,
@@ -31,6 +32,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   DataTable,
   Table,
   TableBody,
@@ -47,13 +55,15 @@ import { Skeleton, SkeletonPanel } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/state';
 import { StatCard } from '@/components/ui/stat-card';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   addLmsInvalidationListener,
   exportAdminCsv,
   generateMonthlyInvoices,
   getDashboardData,
-  loadAccountingOperationsOverview,
+  loadAccountingTaxSettings,
+  loadExpenseOperationsOverview,
+  loadInstructorPayrollOperationsOverview,
+  loadStudentPaymentOperationsOverview,
   prepareAdminReset,
   recordPayment,
   resetAdminData,
@@ -62,6 +72,7 @@ import {
   createInstructorPayment,
 } from './service';
 import { calculatePayrollDraft } from './payroll';
+import { accountingHref, accountingMonthRange, type AccountingSection } from './accounting-month';
 import type {
   AdminExportType,
   AdminResetTarget,
@@ -79,24 +90,6 @@ import type {
 type LmsPageLoadOptions = { force?: boolean; background?: boolean };
 
 const DEFAULT_CLASS_COLOR = '#059669';
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function currentMonthRange(): { startDate: string; endDate: string } {
-  const month = currentMonth();
-  return serviceMonthRange(month);
-}
-
-function serviceMonthRange(month: string): { startDate: string; endDate: string } {
-  const [year, monthNumber] = month.split('-').map(Number);
-  return {
-    startDate: `${month}-01`,
-    endDate: `${year}-${String(monthNumber).padStart(2, '0')}-${String(new Date(year, monthNumber, 0).getDate()).padStart(2, '0')}`,
-  };
-}
 
 function today(): string {
   const now = new Date();
@@ -565,10 +558,47 @@ export function LearningHomePage() {
   );
 }
 
-export function AccountingOperationsPage() {
+const accountingSectionOptions: Array<{ value: AccountingSection; label: string; adminOnly?: boolean }> = [
+  { value: 'payments', label: '학생 수납' },
+  { value: 'payroll', label: '강사 급여' },
+  { value: 'expenses', label: '지출 관리' },
+  { value: 'reports', label: '세무·내보내기', adminOnly: true },
+];
+
+function AccountingMobileNavigation({
+  current,
+  month,
+  canViewReports,
+}: {
+  current: AccountingSection;
+  month: string;
+  canViewReports: boolean;
+}) {
+  const router = useRouter();
+  return (
+    <div className="md:hidden">
+      <Label>회계 메뉴</Label>
+      <SelectField value={current} onChange={(event) => router.push(accountingHref(event.target.value as AccountingSection, month))}>
+        {accountingSectionOptions
+          .filter((option) => !option.adminOnly || canViewReports)
+          .map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </SelectField>
+    </div>
+  );
+}
+
+export function AccountingOperationsPage({
+  view,
+  initialMonth,
+}: {
+  view: Exclude<AccountingSection, 'reports'>;
+  initialMonth: string;
+}) {
   const academyId = useAcademyId();
-  const [month, setMonth] = useState(currentMonth());
-  const [accountingTab, setAccountingTab] = useState<'payments' | 'payroll' | 'expenses'>('payments');
+  const { profile } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [month, setMonth] = useState(initialMonth);
   const [rows, setRows] = useState<BillingRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
@@ -601,27 +631,44 @@ export function AccountingOperationsPage() {
   const [payrollDeductionAmount, setPayrollDeductionAmount] = useState('');
   const [payrollMethod, setPayrollMethod] = useState('계좌이체');
   const [payrollNotes, setPayrollNotes] = useState('');
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
+  const [payrollDialogOpen, setPayrollDialogOpen] = useState(false);
+  const canViewReports = profile?.role === 'owner' || profile?.role === 'admin';
+
+  useEffect(() => {
+    setMonth(initialMonth);
+    setPaymentDialogOpen(false);
+    setExpenseDialogOpen(false);
+    setPayrollDialogOpen(false);
+  }, [initialMonth]);
 
   const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
     if (options.background) setRefreshing(true);
     else setLoading(true);
     try {
-      const data = await loadAccountingOperationsOverview(academyId, month, { force: options.force });
-      setRows(data.billing);
-      setPayments(data.payments);
-      setExpenses(data.expenses);
-      setPayroll(data.payroll);
-      setPayrollEstimates(data.payrollEstimates || []);
-      setStaff(data.staff);
-      setSelectedStudentId((current) => data.billing.some((row) => row.studentId === current) ? current : data.billing[0]?.studentId || '');
+      if (view === 'payments') {
+        const data = await loadStudentPaymentOperationsOverview(academyId, month, { force: options.force });
+        setRows(data.billing);
+        setPayments(data.payments);
+        setSelectedStudentId((current) => data.billing.some((row) => row.studentId === current) ? current : data.billing[0]?.studentId || '');
+      } else if (view === 'payroll') {
+        const data = await loadInstructorPayrollOperationsOverview(academyId, month, { force: options.force });
+        setPayroll(data.payroll);
+        setPayrollEstimates(data.payrollEstimates || []);
+        setStaff(data.staff);
+      } else {
+        const data = await loadExpenseOperationsOverview(academyId, month, { force: options.force });
+        setExpenses(data.expenses);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '청구 정보를 불러오지 못했습니다.');
     } finally {
       if (options.background) setRefreshing(false);
       else setLoading(false);
     }
-  }, [academyId, month]);
+  }, [academyId, month, view]);
 
   useEffect(() => {
     void load();
@@ -698,6 +745,14 @@ export function AccountingOperationsPage() {
   const selectPaymentTarget = (row: BillingRow) => {
     setSelectedStudentId(row.studentId);
     setPaymentAmount(String(Math.max(0, row.invoicedAmount - row.paidAmount) || row.invoicedAmount || row.expectedAmount));
+    setPaymentDialogOpen(true);
+  };
+
+  const changePaymentTarget = (studentId: string) => {
+    const row = rows.find((item) => item.studentId === studentId);
+    if (!row) return;
+    setSelectedStudentId(row.studentId);
+    setPaymentAmount(String(Math.max(0, row.invoicedAmount - row.paidAmount) || row.invoicedAmount || row.expectedAmount));
   };
 
   const resetPayrollDraft = () => {
@@ -729,12 +784,17 @@ export function AccountingOperationsPage() {
     setPayrollHours(estimate && estimate.completedMinutes > 0 ? String(hoursFromMinutes(estimate.completedMinutes)) : '');
     setPayrollHourlyRate(hourlyRate ? String(hourlyRate) : '');
     setPayrollDeductionAmount(estimate && estimate.paidGrossAmount > 0 ? String(estimate.paidGrossAmount) : '');
+    setPayrollDialogOpen(true);
   };
 
   const changeMonth = (nextMonth: string) => {
     setMonth(nextMonth);
+    setPaymentDialogOpen(false);
+    setExpenseDialogOpen(false);
+    setPayrollDialogOpen(false);
     setPaymentAmount('');
     resetPayrollDraft();
+    router.replace(`${pathname}?month=${encodeURIComponent(nextMonth)}`, { scroll: false });
   };
 
   const submitPayment = async (event: React.FormEvent) => {
@@ -756,6 +816,7 @@ export function AccountingOperationsPage() {
       });
       setPaymentAmount('');
       setPaymentNotes('');
+      setPaymentDialogOpen(false);
       toast.success('입금 기록을 저장했습니다.');
       await load({ force: true });
     } catch (err) {
@@ -780,6 +841,7 @@ export function AccountingOperationsPage() {
       setExpenseAmount('');
       setExpenseRecipient('');
       setExpenseDescription('');
+      setExpenseDialogOpen(false);
       toast.success('지출 기록을 저장했습니다.');
       await load({ force: true });
     } catch (err) {
@@ -814,6 +876,7 @@ export function AccountingOperationsPage() {
         notes,
       });
       resetPayrollDraft();
+      setPayrollDialogOpen(false);
       toast.success('강사 지급 기록을 저장했습니다.');
       await load({ force: true });
     } catch (err) {
@@ -821,21 +884,28 @@ export function AccountingOperationsPage() {
     }
   };
 
+  const pageTitle = view === 'payments' ? '학생 수납' : view === 'payroll' ? '강사 급여' : '지출 관리';
+  const openDirectPayroll = () => {
+    resetPayrollDraft();
+    setPayrollDialogOpen(true);
+  };
+
   return (
     <PageShell
-      title="회계"
+      title={pageTitle}
       icon={CreditCard}
-      action={<Input aria-label="회계 기준 월" type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="w-40" />}
+      action={(
+        <div className="flex flex-wrap items-center gap-2">
+          <Input aria-label="회계 기준 월" type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="w-40" />
+          {view === 'payments' && <Button type="button" onClick={generate}>청구서 생성</Button>}
+          {view === 'payroll' && <Button type="button" onClick={openDirectPayroll}>직접 지급 등록</Button>}
+          {view === 'expenses' && <Button type="button" onClick={() => setExpenseDialogOpen(true)}>지출 등록</Button>}
+        </div>
+      )}
     >
-      <Tabs value={accountingTab} onValueChange={(value) => setAccountingTab(value as typeof accountingTab)} variant="underline">
-        <TabsList className="flex h-auto w-full justify-start overflow-x-auto">
-          <TabsTrigger value="payments"><CreditCard className="mr-2 h-4 w-4" />학생 수납</TabsTrigger>
-          <TabsTrigger value="payroll"><Users className="mr-2 h-4 w-4" />강사 급여</TabsTrigger>
-          <TabsTrigger value="expenses"><ReceiptText className="mr-2 h-4 w-4" />지출</TabsTrigger>
-        </TabsList>
-        <TabsContent value={accountingTab} className="space-y-5">
+      <AccountingMobileNavigation current={view} month={month} canViewReports={canViewReports} />
 
-      {accountingTab === 'payments' && (
+      {view === 'payments' && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="예상 청구" value={currency(studentTotals.expected)} hint="계약·출결 기준" icon={CreditCard} />
           <MetricCard label="발행 청구" value={currency(studentTotals.invoiced)} hint="이번 달 청구서" icon={BookOpen} />
@@ -843,7 +913,7 @@ export function AccountingOperationsPage() {
           <MetricCard label="미수" value={currency(studentTotals.outstanding)} hint="남은 청구액" icon={AlertTriangle} />
         </div>
       )}
-      {accountingTab === 'payroll' && (
+      {view === 'payroll' && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="완료 수업" value={hoursLabel(payrollTotals.completedMinutes)} hint={`${payrollTotals.completedLessonCount}회`} icon={Clock} />
           <MetricCard label="예상 총급여" value={currency(payrollTotals.estimatedGrossAmount)} hint="완료 시간 × 시급" icon={Users} />
@@ -851,7 +921,7 @@ export function AccountingOperationsPage() {
           <MetricCard label="남은 예상액" value={currency(payrollTotals.remainingEstimatedAmount)} hint="예상액 - 지급액" icon={AlertTriangle} />
         </div>
       )}
-      {accountingTab === 'expenses' && (
+      {view === 'expenses' && (
         <div className="grid gap-4 md:grid-cols-3">
           <MetricCard label="지출 합계" value={currency(expenseTotals.total)} hint="이번 달" icon={ReceiptText} />
           <MetricCard label="세무 반영" value={currency(expenseTotals.deductible)} hint="공제 대상 표시" icon={CheckCircle2} />
@@ -860,13 +930,10 @@ export function AccountingOperationsPage() {
       )}
       {loading ? <LoadingBlock /> : (
         <div className="space-y-5">
-          {accountingTab === 'payments' && (
-          <div className="grid gap-5 xl:grid-cols-[1.3fr_0.9fr]">
+          {view === 'payments' && (
+          <div className="space-y-5">
             <Card>
-              <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-                <CardTitle>학생별 청구 상태</CardTitle>
-                <Button onClick={generate}>청구서 생성</Button>
-              </CardHeader>
+              <CardHeader><CardTitle>학생별 청구 상태</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <DataTable>
                     <Table>
@@ -892,7 +959,7 @@ export function AccountingOperationsPage() {
                         <TableCell className="px-4 py-3"><StatusBadge status={row.status} /></TableCell>
                         <TableCell className="px-4 py-3">
                           <Button type="button" size="sm" variant="outline" onClick={() => selectPaymentTarget(row)}>
-                            입금
+                            수납 처리
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -904,13 +971,16 @@ export function AccountingOperationsPage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader><CardTitle>입금 기록</CardTitle></CardHeader>
-              <CardContent>
+            <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>수납 처리</DialogTitle>
+                  <DialogDescription>선택한 학생의 납부 금액과 결제 정보를 기록합니다.</DialogDescription>
+                </DialogHeader>
                 <form onSubmit={submitPayment} className="space-y-3">
                   <div>
                     <Label>학생</Label>
-                    <SelectField value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}>
+                    <SelectField value={selectedStudentId} onChange={(event) => changePaymentTarget(event.target.value)}>
                       {rows.map((row) => (
                         <option key={row.studentId} value={row.studentId}>{row.studentName}</option>
                       ))}
@@ -922,18 +992,24 @@ export function AccountingOperationsPage() {
                   </div>
                   <div><Label>결제수단</Label><Input value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} /></div>
                   <div><Label>메모</Label><Input value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} /></div>
-                  <Button type="submit" className="w-full" disabled={!selectedBillingRow}>입금 저장</Button>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)}>취소</Button>
+                    <Button type="submit" disabled={!selectedBillingRow}>입금 저장</Button>
+                  </div>
                 </form>
-              </CardContent>
-            </Card>
+              </DialogContent>
+            </Dialog>
           </div>
           )}
 
-          <div className="grid gap-5 xl:grid-cols-[1.3fr_0.9fr]">
-            {accountingTab === 'expenses' && (
-            <Card>
-              <CardHeader><CardTitle>지출 기록</CardTitle></CardHeader>
-              <CardContent>
+          <div className="space-y-5">
+            {view === 'expenses' && (
+            <Dialog open={expenseDialogOpen} onOpenChange={setExpenseDialogOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>지출 등록</DialogTitle>
+                  <DialogDescription>지출 금액과 증빙·세무 반영 정보를 기록합니다.</DialogDescription>
+                </DialogHeader>
                 <form onSubmit={submitExpense} className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     <div><Label>지출일</Label><Input type="date" value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} /></div>
@@ -955,13 +1031,16 @@ export function AccountingOperationsPage() {
                       증빙 있음
                     </label>
                   </div>
-                  <Button type="submit" className="w-full">지출 저장</Button>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setExpenseDialogOpen(false)}>취소</Button>
+                    <Button type="submit">지출 저장</Button>
+                  </div>
                 </form>
-              </CardContent>
-            </Card>
+              </DialogContent>
+            </Dialog>
             )}
 
-            {accountingTab === 'payroll' && (<>
+            {view === 'payroll' && (<>
             <Card>
               <CardHeader><CardTitle>월 급여 예상</CardTitle></CardHeader>
               <CardContent className="p-0">
@@ -1008,9 +1087,12 @@ export function AccountingOperationsPage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader><CardTitle>강사 지급</CardTitle></CardHeader>
-              <CardContent>
+            <Dialog open={payrollDialogOpen} onOpenChange={setPayrollDialogOpen}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>강사 지급 작성</DialogTitle>
+                  <DialogDescription>완료 수업 예상치를 바탕으로 지급액과 원천징수를 조정합니다.</DialogDescription>
+                </DialogHeader>
                 <form onSubmit={submitPayroll} className="space-y-3">
                   <div>
                     <Label>강사</Label>
@@ -1055,15 +1137,18 @@ export function AccountingOperationsPage() {
                     <div className="flex justify-between"><span className="text-muted-foreground">원천징수</span><span>-{currency(payrollPreview.withholdingTax + payrollPreview.localTax)}</span></div>
                     <div className="flex justify-between text-base"><span>실지급액</span><strong>{currency(payrollPreview.netAmount)}</strong></div>
                   </div>
-                  <Button type="submit" className="w-full" disabled={payrollPreview.grossAmount <= 0 || (!payrollInstructorId && !payrollRecipientName.trim())}>지급 저장</Button>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setPayrollDialogOpen(false)}>취소</Button>
+                    <Button type="submit" disabled={payrollPreview.grossAmount <= 0 || (!payrollInstructorId && !payrollRecipientName.trim())}>지급 저장</Button>
+                  </div>
                 </form>
-              </CardContent>
-            </Card>
+              </DialogContent>
+            </Dialog>
             </>)}
           </div>
 
           <div className="space-y-5">
-            {accountingTab === 'payments' && (
+            {view === 'payments' && (
             <Card>
               <CardHeader><CardTitle>최근 입금</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -1084,7 +1169,7 @@ export function AccountingOperationsPage() {
             </Card>
             )}
 
-            {accountingTab === 'expenses' && (
+            {view === 'expenses' && (
             <Card>
               <CardHeader><CardTitle>최근 지출</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -1105,7 +1190,7 @@ export function AccountingOperationsPage() {
             </Card>
             )}
 
-            {accountingTab === 'payroll' && (
+            {view === 'payroll' && (
             <Card>
               <CardHeader><CardTitle>강사 지급 내역</CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -1128,52 +1213,85 @@ export function AccountingOperationsPage() {
           </div>
         </div>
       )}
-        </TabsContent>
-      </Tabs>
     </PageShell>
   );
 }
 
-const resetTargets: Array<{ value: AdminResetTarget; label: string; description: string }> = [
-  { value: 'schedules', label: '일정/출결', description: '수업 발생 일정과 출결 기록을 삭제합니다.' },
-  { value: 'classes', label: '반/수업', description: '반, 반 프로필, 일정, 출결을 삭제합니다.' },
-  { value: 'students', label: '학생/청구 계약', description: '학생 원장과 청구 계약, 청구서, 납부 기록을 삭제합니다.' },
-  { value: 'instructors', label: '강사/직원', description: '강사와 직원 원장을 삭제합니다.' },
-  { value: 'accounting', label: '회계', description: '청구서, 납부, 지출, 강사 지급 기록을 삭제합니다.' },
-  { value: 'classrooms', label: '강의실', description: '강의실 원장을 삭제합니다.' },
-  { value: 'courses', label: '과목', description: 'LMS 과목 원장을 삭제합니다.' },
-  { value: 'all', label: '전체 LMS 운영 데이터', description: 'LMS 운영 데이터 전체를 삭제합니다. 교재/문제 데이터는 포함하지 않습니다.' },
-];
-
-export function SettingsOperationsPage() {
+export function AccountingReportsPage({ initialMonth }: { initialMonth: string }) {
   const academyId = useAcademyId();
-  const defaultRange = useMemo(() => currentMonthRange(), []);
+  const { profile } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+  const initialRange = useMemo(() => accountingMonthRange(initialMonth), [initialMonth]);
+  const [month, setMonth] = useState(initialMonth);
   const [taxIncomeRate, setTaxIncomeRate] = useState('3');
   const [taxLocalRate, setTaxLocalRate] = useState('0.3');
   const [vatRate, setVatRate] = useState('0');
+  const [loadingTaxSettings, setLoadingTaxSettings] = useState(true);
   const [savingTax, setSavingTax] = useState(false);
   const [exportType, setExportType] = useState<AdminExportType>('tax');
-  const [exportStartDate, setExportStartDate] = useState(defaultRange.startDate);
-  const [exportEndDate, setExportEndDate] = useState(defaultRange.endDate);
+  const [exportStartDate, setExportStartDate] = useState(initialRange.startDate);
+  const [exportEndDate, setExportEndDate] = useState(initialRange.endDate);
   const [includeRevenue, setIncludeRevenue] = useState(true);
   const [includePayroll, setIncludePayroll] = useState(true);
   const [includeExpenses, setIncludeExpenses] = useState(true);
   const [includeProfitLoss, setIncludeProfitLoss] = useState(true);
   const [exporting, setExporting] = useState(false);
-  const [resetTarget, setResetTarget] = useState<AdminResetTarget>('schedules');
-  const [resetConfirm, setResetConfirm] = useState('');
-  const [resetting, setResetting] = useState(false);
   const [pendingAdminAction, setPendingAdminAction] = useState<{
     title: string;
     description: string;
     confirmLabel: string;
     onConfirm: () => Promise<void>;
   } | null>(null);
+  const canViewReports = profile?.role === 'owner' || profile?.role === 'admin';
+
+  useEffect(() => {
+    const range = accountingMonthRange(initialMonth);
+    setMonth(initialMonth);
+    setExportStartDate(range.startDate);
+    setExportEndDate(range.endDate);
+    setPendingAdminAction(null);
+  }, [initialMonth]);
+
+  const loadTaxSettings = useCallback(async (options: LmsPageLoadOptions = {}) => {
+    if (!academyId) return;
+    if (!options.background) setLoadingTaxSettings(true);
+    try {
+      const settings = await loadAccountingTaxSettings(academyId, { force: options.force });
+      setTaxIncomeRate(String(settings.payrollIncomeTaxRate));
+      setTaxLocalRate(String(settings.payrollLocalTaxRate));
+      setVatRate(String(settings.salesVatRate));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '세금 기준을 불러오지 못했습니다.');
+    } finally {
+      if (!options.background) setLoadingTaxSettings(false);
+    }
+  }, [academyId]);
+
+  useEffect(() => {
+    void loadTaxSettings();
+  }, [loadTaxSettings]);
+
+  useEffect(() => {
+    if (!academyId) return undefined;
+    return addLmsInvalidationListener((payload) => {
+      if (payload.academyId && payload.academyId !== academyId) return;
+      const domain = payload.domain || 'lms';
+      if (!['accounting', 'admin', 'lms'].includes(domain)) return;
+      void loadTaxSettings({ force: true, background: true });
+    });
+  }, [academyId, loadTaxSettings]);
 
   if (!academyId) return <MissingAcademy />;
 
-  const selectedResetTarget = resetTargets.find((target) => target.value === resetTarget) || resetTargets[0];
-  const canReset = resetConfirm.trim() === '초기화' && !resetting;
+  const changeMonth = (nextMonth: string) => {
+    const range = accountingMonthRange(nextMonth);
+    setMonth(nextMonth);
+    setExportStartDate(range.startDate);
+    setExportEndDate(range.endDate);
+    setPendingAdminAction(null);
+    router.replace(`${pathname}?month=${encodeURIComponent(nextMonth)}`, { scroll: false });
+  };
 
   const executeTaxSettingsSave = async () => {
     setSavingTax(true);
@@ -1184,6 +1302,7 @@ export function SettingsOperationsPage() {
         sales_vat_rate: vatRate,
       });
       toast.success('세금 기준을 저장했습니다.');
+      await loadTaxSettings({ force: true, background: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '세금 기준 저장에 실패했습니다.');
     } finally {
@@ -1194,8 +1313,8 @@ export function SettingsOperationsPage() {
   const requestTaxSettingsSave = (event: React.FormEvent) => {
     event.preventDefault();
     setPendingAdminAction({
-      title: '세금/급여 기준 저장',
-      description: '세금과 급여 기준은 회계 리포트에 영향을 줍니다. 계속하려면 비밀번호를 입력하세요.',
+      title: '세금·급여 기준 저장',
+      description: '세금과 급여 기준은 회계 내역과 내보내기에 영향을 줍니다. 계속하려면 비밀번호를 입력하세요.',
       confirmLabel: '기준 저장',
       onConfirm: executeTaxSettingsSave,
     });
@@ -1224,11 +1343,140 @@ export function SettingsOperationsPage() {
   const requestExport = () => {
     setPendingAdminAction({
       title: 'CSV 내보내기',
-      description: '회계/급여 CSV에는 민감한 운영 데이터가 포함됩니다. 계속하려면 비밀번호를 입력하세요.',
+      description: '회계·급여 CSV에는 민감한 운영 데이터가 포함됩니다. 계속하려면 비밀번호를 입력하세요.',
       confirmLabel: 'CSV 생성',
       onConfirm: executeExport,
     });
   };
+
+  return (
+    <PageShell
+      title="세무·내보내기"
+      icon={ReceiptText}
+      action={<Input aria-label="회계 기준 월" type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="w-40" />}
+    >
+      <AccountingMobileNavigation current="reports" month={month} canViewReports={canViewReports} />
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>세금·급여 기준</CardTitle></CardHeader>
+          <CardContent>
+            {loadingTaxSettings ? <SkeletonPanel className="h-40" /> : (
+              <form onSubmit={requestTaxSettingsSave} className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <Label>원천세율 (%)</Label>
+                    <Input type="number" step="0.1" min="0" value={taxIncomeRate} onChange={(event) => setTaxIncomeRate(event.target.value)} />
+                  </div>
+                  <div>
+                    <Label>지방세율 (%)</Label>
+                    <Input type="number" step="0.1" min="0" value={taxLocalRate} onChange={(event) => setTaxLocalRate(event.target.value)} />
+                  </div>
+                  <div>
+                    <Label>부가세율 (%)</Label>
+                    <Input type="number" step="0.1" min="0" value={vatRate} onChange={(event) => setVatRate(event.target.value)} />
+                  </div>
+                </div>
+                <Button type="submit" disabled={savingTax}>
+                  {savingTax ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  기준 저장
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>CSV 내보내기</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <Label>유형</Label>
+                <SelectField value={exportType} onChange={(event) => setExportType(event.target.value as AdminExportType)}>
+                  <option value="tax">세무 리포트</option>
+                  <option value="payroll">강사 급여</option>
+                </SelectField>
+              </div>
+              <div>
+                <Label>시작일</Label>
+                <Input type="date" value={exportStartDate} onChange={(event) => setExportStartDate(event.target.value)} />
+              </div>
+              <div>
+                <Label>종료일</Label>
+                <Input type="date" value={exportEndDate} onChange={(event) => setExportEndDate(event.target.value)} />
+              </div>
+            </div>
+            {exportType === 'tax' && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                  <Checkbox checked={includeRevenue} onCheckedChange={(checked) => setIncludeRevenue(checked === true)} />
+                  매출 포함
+                </label>
+                <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                  <Checkbox checked={includePayroll} onCheckedChange={(checked) => setIncludePayroll(checked === true)} />
+                  급여 포함
+                </label>
+                <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                  <Checkbox checked={includeExpenses} onCheckedChange={(checked) => setIncludeExpenses(checked === true)} />
+                  비용 포함
+                </label>
+                <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
+                  <Checkbox checked={includeProfitLoss} onCheckedChange={(checked) => setIncludeProfitLoss(checked === true)} />
+                  손익 요약 포함
+                </label>
+              </div>
+            )}
+            <Button type="button" onClick={requestExport} disabled={exporting || exportStartDate > exportEndDate}>
+              {exporting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              CSV 생성
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <PasswordConfirmDialog
+        open={Boolean(pendingAdminAction)}
+        onOpenChange={(open) => {
+          if (!open) setPendingAdminAction(null);
+        }}
+        title={pendingAdminAction?.title || ''}
+        description={pendingAdminAction?.description || ''}
+        confirmLabel={pendingAdminAction?.confirmLabel || '확인'}
+        onConfirm={async () => {
+          await pendingAdminAction?.onConfirm();
+        }}
+      />
+    </PageShell>
+  );
+}
+
+const resetTargets: Array<{ value: AdminResetTarget; label: string; description: string }> = [
+  { value: 'schedules', label: '일정/출결', description: '수업 발생 일정과 출결 기록을 삭제합니다.' },
+  { value: 'classes', label: '반/수업', description: '반, 반 프로필, 일정, 출결을 삭제합니다.' },
+  { value: 'students', label: '학생/청구 계약', description: '학생 원장과 청구 계약, 청구서, 납부 기록을 삭제합니다.' },
+  { value: 'instructors', label: '강사/직원', description: '강사와 직원 원장을 삭제합니다.' },
+  { value: 'accounting', label: '회계', description: '청구서, 납부, 지출, 강사 지급 기록을 삭제합니다.' },
+  { value: 'classrooms', label: '강의실', description: '강의실 원장을 삭제합니다.' },
+  { value: 'courses', label: '과목', description: 'LMS 과목 원장을 삭제합니다.' },
+  { value: 'all', label: '전체 LMS 운영 데이터', description: 'LMS 운영 데이터 전체를 삭제합니다. 교재/문제 데이터는 포함하지 않습니다.' },
+];
+
+export function SettingsOperationsPage() {
+  const academyId = useAcademyId();
+  const [resetTarget, setResetTarget] = useState<AdminResetTarget>('schedules');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [pendingAdminAction, setPendingAdminAction] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+
+  if (!academyId) return <MissingAcademy />;
+
+  const selectedResetTarget = resetTargets.find((target) => target.value === resetTarget) || resetTargets[0];
+  const canReset = resetConfirm.trim() === '초기화' && !resetting;
 
   const executeReset = async (target: AdminResetTarget, confirmText: string, label: string) => {
     setResetting(true);
@@ -1259,7 +1507,7 @@ export function SettingsOperationsPage() {
 
   return (
     <PageShell title="설정" icon={Settings}>
-      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-5">
           <Card>
             <CardHeader><CardTitle>현재 연결</CardTitle></CardHeader>
@@ -1283,81 +1531,9 @@ export function SettingsOperationsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>세금/급여 기준</CardTitle></CardHeader>
-            <CardContent>
-              <form onSubmit={requestTaxSettingsSave} className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <Label>원천세율 (%)</Label>
-                    <Input type="number" step="0.1" min="0" value={taxIncomeRate} onChange={(event) => setTaxIncomeRate(event.target.value)} />
-                  </div>
-                  <div>
-                    <Label>지방세율 (%)</Label>
-                    <Input type="number" step="0.1" min="0" value={taxLocalRate} onChange={(event) => setTaxLocalRate(event.target.value)} />
-                  </div>
-                  <div>
-                    <Label>부가세율 (%)</Label>
-                    <Input type="number" step="0.1" min="0" value={vatRate} onChange={(event) => setVatRate(event.target.value)} />
-                  </div>
-                </div>
-                <Button type="submit" disabled={savingTax}>
-                  {savingTax ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  기준 저장
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
         </div>
 
         <div className="space-y-5">
-          <Card>
-            <CardHeader><CardTitle>CSV 내보내기</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div>
-                  <Label>유형</Label>
-                  <SelectField value={exportType} onChange={(event) => setExportType(event.target.value as AdminExportType)}>
-                    <option value="tax">세무 리포트</option>
-                    <option value="payroll">강사 급여</option>
-                  </SelectField>
-                </div>
-                <div>
-                  <Label>시작일</Label>
-                  <Input type="date" value={exportStartDate} onChange={(event) => setExportStartDate(event.target.value)} />
-                </div>
-                <div>
-                  <Label>종료일</Label>
-                  <Input type="date" value={exportEndDate} onChange={(event) => setExportEndDate(event.target.value)} />
-                </div>
-              </div>
-              {exportType === 'tax' && (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
-                    <Checkbox checked={includeRevenue} onCheckedChange={(checked) => setIncludeRevenue(checked === true)} />
-                    매출 포함
-                  </label>
-                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
-                    <Checkbox checked={includePayroll} onCheckedChange={(checked) => setIncludePayroll(checked === true)} />
-                    급여 포함
-                  </label>
-                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
-                    <Checkbox checked={includeExpenses} onCheckedChange={(checked) => setIncludeExpenses(checked === true)} />
-                    비용 포함
-                  </label>
-                  <label className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm">
-                    <Checkbox checked={includeProfitLoss} onCheckedChange={(checked) => setIncludeProfitLoss(checked === true)} />
-                    손익 요약 포함
-                  </label>
-                </div>
-              )}
-              <Button type="button" onClick={requestExport} disabled={exporting}>
-                {exporting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                CSV 생성
-              </Button>
-            </CardContent>
-          </Card>
-
           <Card className="border-destructive/30">
             <CardHeader><CardTitle>운영 데이터 초기화</CardTitle></CardHeader>
             <CardContent className="space-y-4">

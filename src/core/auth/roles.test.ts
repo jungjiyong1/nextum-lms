@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     appPageFromPath,
+    canAccessAppPath,
     canManageScheduleRules,
     canAccessAppPage,
     firstAccessibleAppPage,
@@ -59,6 +60,15 @@ describe('LMS app roles', () => {
         expect(appPageFromPath('/students/123')).toBe('students');
         expect(appPageFromPath('/learning/exams')).toBe('learning');
         expect(appPageFromPath('/settings')).toBe('settings');
+    });
+
+    it('limits tax reports to owners and administrators while keeping operations available to staff', () => {
+        expect(canAccessAppPath('owner', '/accounting/reports')).toBe(true);
+        expect(canAccessAppPath('admin', '/accounting/reports?month=2026-07')).toBe(true);
+        expect(canAccessAppPath('staff', '/accounting/reports')).toBe(false);
+        expect(canAccessAppPath('staff', '/accounting/payments')).toBe(true);
+        expect(canAccessAppPath('staff', '/accounting/payroll')).toBe(true);
+        expect(canAccessAppPath('staff', '/accounting/expenses')).toBe(true);
     });
 
     it('returns Korean labels for visible roles', () => {

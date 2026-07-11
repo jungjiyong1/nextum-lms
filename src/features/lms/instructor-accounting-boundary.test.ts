@@ -14,6 +14,10 @@ const accountingQuery = readFileSync(resolve(
     process.cwd(),
     'src/lib/lms/accounting-queries.ts',
 ), 'utf8');
+const accountingRoute = readFileSync(resolve(
+    process.cwd(),
+    'src/app-routes/AccountingRoute.tsx',
+), 'utf8');
 
 describe('instructor and accounting workflow boundary', () => {
     it('keeps payroll workflows out of the instructor screen', () => {
@@ -24,9 +28,10 @@ describe('instructor and accounting workflow boundary', () => {
 
     it('keeps payroll processing in the accounting screen', () => {
         expect(accountingPage).toContain('createInstructorPayment');
-        expect(accountingPage).toContain('value="payments"');
-        expect(accountingPage).toContain('value="payroll"');
-        expect(accountingPage).toContain('value="expenses"');
+        expect(accountingRoute).toContain('view="payments"');
+        expect(accountingRoute).toContain('view="payroll"');
+        expect(accountingRoute).toContain('view="expenses"');
+        expect(accountingPage).not.toContain('TabsList');
         expect(accountingPage).toContain('월 급여 예상');
         expect(accountingPage).toContain('추가금');
         expect(accountingPage).toContain('차감·기지급');

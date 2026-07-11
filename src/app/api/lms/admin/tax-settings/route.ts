@@ -4,6 +4,24 @@ import { recordAdminAction } from '@/lib/lms/audit';
 import { updateTaxSettingsForAcademy } from '@/lib/lms/admin-operations';
 import { assertCsrfToken } from '@/lib/lms/csrf-server';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
+import { loadAccountingTaxSettings } from '@/lib/lms/accounting-queries';
+
+export async function GET(request: Request) {
+    try {
+        const academyId = new URL(request.url).searchParams.get('academyId') || '';
+        if (!academyId) {
+            return Response.json({ success: false, error: 'Invalid tax settings request.' }, { status: 400 });
+        }
+        const admin = await assertLmsRoleForAcademy(academyId, ['owner', 'admin']);
+        const data = await loadAccountingTaxSettings(admin);
+        return Response.json({ success: true, data }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error) {
+        const authResponse = authErrorResponse(error);
+        if (authResponse) return authResponse;
+        console.error('[LMS Admin Tax Settings] Loading failed:', error);
+        return Response.json({ success: false, error: 'Tax settings loading failed.' }, { status: 500 });
+    }
+}
 
 export async function POST(request: Request) {
     try {

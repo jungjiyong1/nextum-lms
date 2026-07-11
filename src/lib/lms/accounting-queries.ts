@@ -5,11 +5,15 @@ import { buildInstructorPayrollEstimates } from '@/features/lms/payroll';
 import { COMPLETED_PAYMENT_STATUS } from '@/features/lms/status';
 import type {
     AccountingOperationsOverview,
+    AccountingTaxSettings,
     BillingClassRuleType,
     BillingRow,
+    ExpenseOperationsOverview,
     ExpenseRow,
+    InstructorPayrollOperationsOverview,
     InstructorPaymentRow,
     PaymentRow,
+    StudentPaymentOperationsOverview,
 } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { loadSchedule } from './class-queries';
@@ -354,6 +358,86 @@ async function loadInstructorPaymentRows(
             notes: row.notes ?? null,
         };
     });
+}
+
+export async function loadStudentPaymentOperationsOverview(
+    context: LmsRoleContext,
+    serviceMonth: string,
+): Promise<StudentPaymentOperationsOverview> {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const range = monthRange(serviceMonth);
+    const [billing, payments] = await Promise.all([
+        loadBillingRows(core, lms, context.academyId, serviceMonth),
+        loadPaymentRows(core, lms, context.academyId, range.start, range.end),
+    ]);
+    return { billing, payments };
+}
+
+export async function loadExpenseOperationsOverview(
+    context: LmsRoleContext,
+    serviceMonth: string,
+): Promise<ExpenseOperationsOverview> {
+    const client = createAdminClient();
+    const range = monthRange(serviceMonth);
+    const expenses = await loadExpenseRows(
+        client.schema('lms'),
+        context.academyId,
+        range.start,
+        range.end,
+    );
+    return { expenses };
+}
+
+export async function loadInstructorPayrollOperationsOverview(
+    context: LmsRoleContext,
+    serviceMonth: string,
+): Promise<InstructorPayrollOperationsOverview> {
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const range = monthRange(serviceMonth);
+    const [payroll, staff, schedule] = await Promise.all([
+        loadInstructorPaymentRows(core, lms, context.academyId, serviceMonth),
+        loadStaffSummariesForAcademy(context.academyId),
+        loadSchedule(core, lms, context.academyId, range.start, range.end),
+    ]);
+    const payrollEstimates = buildInstructorPayrollEstimates({ schedule, staff, payments: payroll });
+    return { payroll, payrollEstimates, staff };
+}
+
+const DEFAULT_ACCOUNTING_TAX_SETTINGS: AccountingTaxSettings = {
+    payrollIncomeTaxRate: 3,
+    payrollLocalTaxRate: 0.3,
+    salesVatRate: 0,
+};
+
+export async function loadAccountingTaxSettings(
+    context: LmsRoleContext,
+): Promise<AccountingTaxSettings> {
+    const { data, error } = await createAdminClient()
+        .schema('lms')
+        .from('settings')
+        .select('key,value')
+        .eq('academy_id', context.academyId)
+        .in('key', [
+            'tax_payroll_income_tax_rate',
+            'tax_payroll_local_tax_rate',
+            'tax_sales_vat_rate',
+        ]);
+    ensureNoError(error, 'Failed to load accounting tax settings');
+
+    const values = new Map(((data || []) as Row[]).map((row) => [String(row.key), row.value]));
+    const settingNumber = (key: string, fallback: number) => {
+        const value = Number(values.get(key));
+        return Number.isFinite(value) && value >= 0 ? value : fallback;
+    };
+    return {
+        payrollIncomeTaxRate: settingNumber('tax_payroll_income_tax_rate', DEFAULT_ACCOUNTING_TAX_SETTINGS.payrollIncomeTaxRate),
+        payrollLocalTaxRate: settingNumber('tax_payroll_local_tax_rate', DEFAULT_ACCOUNTING_TAX_SETTINGS.payrollLocalTaxRate),
+        salesVatRate: settingNumber('tax_sales_vat_rate', DEFAULT_ACCOUNTING_TAX_SETTINGS.salesVatRate),
+    };
 }
 
 export async function loadAccountingOperationsOverview(

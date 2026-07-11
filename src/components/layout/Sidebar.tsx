@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
     BarChart3,
     Calculator,
@@ -18,6 +18,7 @@ import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import type { Profile } from '../../contexts/AuthContext';
 import { appPageHref, canAccessAppPage, getRoleLabel, type AppPage, type AppRole } from '../../core/auth/roles';
+import { normalizeAccountingMonth } from '@/features/lms/accounting-month';
 
 interface SidebarProps {
     activePage: string;
@@ -92,9 +93,14 @@ const navItems: NavItem[] = [
     {
         id: 'accounting',
         label: '회계',
-        href: appPageHref.accounting,
+        href: '/accounting/payments',
         icon: Calculator,
-        children: [{ id: 'accounting-overview', label: '청구/입금', href: appPageHref.accounting }],
+        children: [
+            { id: 'accounting-payments', label: '학생 수납', href: '/accounting/payments', exact: true },
+            { id: 'accounting-payroll', label: '강사 급여', href: '/accounting/payroll', exact: true },
+            { id: 'accounting-expenses', label: '지출 관리', href: '/accounting/expenses', exact: true },
+            { id: 'accounting-reports', label: '세무·내보내기', href: '/accounting/reports', exact: true, roles: ['owner', 'admin'] },
+        ],
     },
     {
         id: 'settings',
@@ -107,6 +113,7 @@ const navItems: NavItem[] = [
 
 export function Sidebar({ activePage, onSignOut, userProfile, academyName }: SidebarProps) {
     const pathname = usePathname();
+    const searchParams = useSearchParams();
     const [collapsed, setCollapsed] = React.useState(false);
     const [compactViewport, setCompactViewport] = React.useState(false);
     const [expandedSections, setExpandedSections] = React.useState<Set<string>>(new Set([activePage]));
@@ -118,6 +125,10 @@ export function Sidebar({ activePage, onSignOut, userProfile, academyName }: Sid
             children: item.children?.filter((child) => !child.roles || (role && child.roles.includes(role))),
         }));
     const visuallyCollapsed = collapsed || compactViewport;
+    const accountingMonth = normalizeAccountingMonth(searchParams.get('month'));
+    const navigationHref = React.useCallback((href: string) => (
+        href.startsWith('/accounting/') ? `${href}?month=${encodeURIComponent(accountingMonth)}` : href
+    ), [accountingMonth]);
 
     React.useEffect(() => {
         setExpandedSections(new Set([activePage]));
@@ -174,7 +185,7 @@ export function Sidebar({ activePage, onSignOut, userProfile, academyName }: Sid
                     return (
                         <div key={item.id}>
                             <Link
-                                href={item.href}
+                                href={navigationHref(item.href)}
                                 className={cn(
                                     'flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-primary-soft/50 hover:text-foreground',
                                     active && 'bg-primary-soft text-primary-strong',
@@ -212,7 +223,7 @@ export function Sidebar({ activePage, onSignOut, userProfile, academyName }: Sid
                                         return (
                                             <Link
                                                 key={child.id}
-                                                href={child.href}
+                                                href={navigationHref(child.href)}
                                                 className={cn(
                                                     'flex min-h-8 items-center rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground',
                                                     childActive && 'bg-muted text-foreground',

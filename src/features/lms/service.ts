@@ -3,6 +3,7 @@ import { supabase } from '@/core/supabaseClient';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type {
   AccountingOperationsOverview,
+  AccountingTaxSettings,
   BatchAttendanceInput,
   AssignmentManagementData,
   AdminCsvExport,
@@ -25,6 +26,8 @@ import type {
   CreateStaffInput,
   CreateStudentInput,
   DashboardData,
+  ExpenseOperationsOverview,
+  InstructorPayrollOperationsOverview,
   RecordAttendanceInput,
   RecordPaymentInput,
   StaffDetail,
@@ -47,6 +50,7 @@ import type {
   StudentOperationsOverview,
   StudentStatus,
   StudentSignupInvitation,
+  StudentPaymentOperationsOverview,
   LearningAssignmentDetail,
   UpdateBookInput,
   UpdateClassInput,
@@ -999,6 +1003,41 @@ export async function loadAccountingOperationsOverview(
 ): Promise<AccountingOperationsOverview> {
   const params = new URLSearchParams({ academyId, serviceMonth });
   return getLmsJson<AccountingOperationsOverview>(`/api/lms/accounting?${params.toString()}`, { policy: 'operational', ...options });
+}
+
+export async function loadStudentPaymentOperationsOverview(
+  academyId: string,
+  serviceMonth: string,
+  options: LmsRequestOptions = {},
+): Promise<StudentPaymentOperationsOverview> {
+  const params = new URLSearchParams({ academyId, serviceMonth });
+  return getLmsJson<StudentPaymentOperationsOverview>(`/api/lms/payments?${params.toString()}`, { policy: 'operational', ...options });
+}
+
+export async function loadInstructorPayrollOperationsOverview(
+  academyId: string,
+  serviceMonth: string,
+  options: LmsRequestOptions = {},
+): Promise<InstructorPayrollOperationsOverview> {
+  const params = new URLSearchParams({ academyId, serviceMonth });
+  return getLmsJson<InstructorPayrollOperationsOverview>(`/api/lms/payroll?${params.toString()}`, { policy: 'operational', ...options });
+}
+
+export async function loadExpenseOperationsOverview(
+  academyId: string,
+  serviceMonth: string,
+  options: LmsRequestOptions = {},
+): Promise<ExpenseOperationsOverview> {
+  const params = new URLSearchParams({ academyId, serviceMonth });
+  return getLmsJson<ExpenseOperationsOverview>(`/api/lms/expenses?${params.toString()}`, { policy: 'operational', ...options });
+}
+
+export async function loadAccountingTaxSettings(
+  academyId: string,
+  options: LmsRequestOptions = {},
+): Promise<AccountingTaxSettings> {
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<AccountingTaxSettings>(`/api/lms/admin/tax-settings?${params.toString()}`, { policy: 'operational', ...options });
 }
 
 export async function updateTaxSettings(academyId: string, settings: Record<string, unknown>): Promise<void> {
