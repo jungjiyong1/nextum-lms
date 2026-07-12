@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CalendarPlus, Repeat2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ import type {
   ScheduleEntryKind,
   ScheduleItem,
   ScheduleMutationInput,
+  ScheduleParticipant,
   ScheduleRuleSummary,
   StaffSummary,
 } from '../types';
@@ -39,6 +41,51 @@ import {
   specialLessonStatuses,
   type LessonSpecialStatusSelection,
 } from './schedule-utils';
+import {
+  buildScheduleInstructorMutationFields,
+  scheduleDurationMinutes,
+  suggestedScheduleInstructorIds,
+  type ScheduleParticipantDraft,
+} from './schedule-participants';
+
+const participantKindLabels: Record<ScheduleParticipant['participationKind'], string> = {
+  regular: '정규',
+  substitute: '대강',
+  makeup: '보강',
+  assistant: '보조',
+};
+
+function participantDraft(
+  instructorId: string,
+  durationMinutes: number,
+  participant?: ScheduleParticipant,
+): ScheduleParticipantDraft {
+  const payableMinutes = participant?.payableMinutes ?? durationMinutes;
+  return {
+    instructorId,
+    participationKind: participant?.participationKind || 'regular',
+    payableMinutes: String(payableMinutes),
+    payableMinutesCustomized: participant ? payableMinutes !== durationMinutes : false,
+    replacesInstructorId: participant?.replacesInstructorId || '',
+  };
+}
+
+function participantDraftsFromRows(
+  participants: ScheduleParticipant[] | undefined,
+  durationMinutes: number,
+  fallback?: Pick<ScheduleParticipant, 'instructorId' | 'participationKind' | 'replacesInstructorId'> | null,
+): ScheduleParticipantDraft[] {
+  if (participants?.length) {
+    return participants.map((participant) => participantDraft(participant.instructorId, durationMinutes, participant));
+  }
+  return fallback?.instructorId
+    ? [participantDraft(fallback.instructorId, durationMinutes, {
+      ...fallback,
+      instructorName: null,
+      payableMinutes: durationMinutes,
+    })]
+    : [];
+}
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 const conflictLabels: Record<ScheduleConflict['kind'], string> = {
@@ -88,9 +135,8 @@ export function ScheduleEditorDialog({
   const [intervalWeeks, setIntervalWeeks] = useState('1');
   const [startTime, setStartTime] = useState('16:00');
   const [endTime, setEndTime] = useState('18:00');
-  const [instructorId, setInstructorId] = useState('');
+  const [participantDrafts, setParticipantDrafts] = useState<ScheduleParticipantDraft[]>([]);
   const [classroomId, setClassroomId] = useState('');
-  const [substituteInstructorId, setSubstituteInstructorId] = useState('');
   const [specialStatus, setSpecialStatus] = useState<LessonSpecialStatusSelection>('');
   const [cancelReason, setCancelReason] = useState('');
   const [notes, setNotes] = useState('');
@@ -103,6 +149,9 @@ export function ScheduleEditorDialog({
   const initializedKey = useRef<string | null>(null);
   const canOverride = actorRole === 'owner' || actorRole === 'admin';
   const convertingSingleToRecurring = Boolean(lesson && !lesson.ruleId && entryKind === 'recurring');
+  const durationMinutes = scheduleDurationMinutes(startTime, endTime);
+  const selectedInstructorIds = participantDrafts.map((participant) => participant.instructorId);
+  const visibleStaff = staff.filter((row) => row.status === 'active' || selectedInstructorIds.includes(row.id));
 
   useEffect(() => {
     if (!open) {
@@ -114,15 +163,38 @@ export function ScheduleEditorDialog({
     initializedKey.current = nextKey;
     const initialClass = classes.find((row) => row.id === (lesson?.classId || initialClassId)) || classes[0] || null;
     setClassId(initialClass?.id || '');
-    setInstructorId(lesson
-      ? lesson.instructorOverrideId || linkedRule?.instructorId || ''
-      : linkedRule?.instructorId || '');
+    const initialStartTime = lesson?.startTime || linkedRule?.startTime || '16:00';
+    const initialEndTime = lesson?.endTime || linkedRule?.endTime || '18:00';
+    const initialDuration = scheduleDurationMinutes(initialStartTime, initialEndTime);
+    const fallbackInstructorId = lesson
+      ? lesson.substituteInstructorId || lesson.instructorOverrideId || lesson.instructorId || linkedRule?.instructorId || initialClass?.defaultInstructorId
+      : linkedRule?.instructorId || suggestedScheduleInstructorIds(initialClass?.id || '', classes, staff)[0];
+    const fallbackParticipant = fallbackInstructorId
+      ? {
+        instructorId: fallbackInstructorId,
+        participationKind: lesson?.substituteInstructorId ? 'substitute' as const : 'regular' as const,
+        replacesInstructorId: lesson?.substituteInstructorId
+          ? lesson.instructorOverrideId || linkedRule?.instructorId || initialClass?.defaultInstructorId || null
+          : null,
+      }
+      : null;
+    const initialParticipants = lesson?.instructors?.length
+      ? lesson.instructors
+      : linkedRule?.instructors?.length
+        ? linkedRule.instructors
+        : undefined;
+    const initialDrafts = participantDraftsFromRows(initialParticipants, initialDuration, fallbackParticipant);
+    if (!lesson && !linkedRule && initialDrafts.length === 0) {
+      setParticipantDrafts(suggestedScheduleInstructorIds(initialClass?.id || '', classes, staff)
+        .map((instructorId) => participantDraft(instructorId, initialDuration)));
+    } else {
+      setParticipantDrafts(initialDrafts);
+    }
     setClassroomId(lesson
       ? lesson.classroomOverrideId || linkedRule?.classroomId || ''
       : linkedRule?.classroomId || '');
-    setSubstituteInstructorId(lesson?.substituteInstructorId || '');
-    setStartTime(lesson?.startTime || linkedRule?.startTime || '16:00');
-    setEndTime(lesson?.endTime || linkedRule?.endTime || '18:00');
+    setStartTime(initialStartTime);
+    setEndTime(initialEndTime);
     setDate(lesson?.date || dateValue(new Date()));
     setStartDate(linkedRule?.startDate || lesson?.date || dateValue(new Date()));
     setEndDate(linkedRule?.endDate || '');
@@ -136,7 +208,7 @@ export function ScheduleEditorDialog({
     setConflicts([]);
     setOverrideReason('');
     setConfirmingDelete(false);
-  }, [classes, initialClassId, lesson, linkedRule, open]);
+  }, [classes, initialClassId, lesson, linkedRule, open, staff]);
 
   useEffect(() => {
     if (!lesson?.ruleId) return;
@@ -145,6 +217,18 @@ export function ScheduleEditorDialog({
       setDate(lesson.date);
       setStartTime(lesson.startTime);
       setEndTime(lesson.endTime);
+      const lessonDuration = scheduleDurationMinutes(lesson.startTime, lesson.endTime);
+      const fallbackInstructorId = lesson.substituteInstructorId
+        || lesson.instructorOverrideId
+        || lesson.instructorId
+        || linkedRule?.instructorId;
+      setParticipantDrafts(participantDraftsFromRows(lesson.instructors, lessonDuration, fallbackInstructorId ? {
+        instructorId: fallbackInstructorId,
+        participationKind: lesson.substituteInstructorId ? 'substitute' : 'regular',
+        replacesInstructorId: lesson.substituteInstructorId
+          ? lesson.instructorOverrideId || linkedRule?.instructorId || null
+          : null,
+      } : null));
     } else if (linkedRule) {
       setEntryKind('recurring');
       setDayOfWeek(linkedRule.dayOfWeek);
@@ -153,7 +237,12 @@ export function ScheduleEditorDialog({
       setIntervalWeeks(String(linkedRule.intervalWeeks || 1));
       setStartTime(linkedRule.startTime);
       setEndTime(linkedRule.endTime);
-      setInstructorId(linkedRule.instructorId || '');
+      const ruleDuration = scheduleDurationMinutes(linkedRule.startTime, linkedRule.endTime);
+      setParticipantDrafts(participantDraftsFromRows(linkedRule.instructors, ruleDuration, linkedRule.instructorId ? {
+        instructorId: linkedRule.instructorId,
+        participationKind: 'regular',
+        replacesInstructorId: null,
+      } : null));
       setClassroomId(linkedRule.classroomId || '');
     }
     setConflicts([]);
@@ -169,7 +258,6 @@ export function ScheduleEditorDialog({
       setDayOfWeek(dayOfWeekFromDate(lesson.date));
       setStartTime(lesson.startTime);
       setEndTime(lesson.endTime);
-      setInstructorId(lesson.instructorOverrideId || '');
       setClassroomId(lesson.classroomOverrideId || '');
     } else if (nextKind === 'single' && lesson) {
       setDate(lesson.date);
@@ -178,8 +266,81 @@ export function ScheduleEditorDialog({
     }
   };
 
+  useEffect(() => {
+    setParticipantDrafts((current) => {
+      let changed = false;
+      const next = current.map((participant) => {
+        if (participant.payableMinutesCustomized || participant.payableMinutes === String(durationMinutes)) {
+          return participant;
+        }
+        changed = true;
+        return { ...participant, payableMinutes: String(durationMinutes) };
+      });
+      return changed ? next : current;
+    });
+  }, [durationMinutes]);
+
+  const changeClass = (nextClassId: string) => {
+    setClassId(nextClassId);
+    if (!lesson) {
+      setParticipantDrafts(suggestedScheduleInstructorIds(nextClassId, classes, staff)
+        .map((instructorId) => participantDraft(instructorId, durationMinutes)));
+    }
+  };
+
+  const toggleInstructor = (instructorId: string, checked: boolean) => {
+    setParticipantDrafts((current) => {
+      if (checked) {
+        return current.some((participant) => participant.instructorId === instructorId)
+          ? current
+          : [...current, participantDraft(instructorId, durationMinutes)];
+      }
+      return current.filter((participant) => participant.instructorId !== instructorId);
+    });
+  };
+
+  const updateParticipant = (instructorId: string, patch: Partial<ScheduleParticipantDraft>) => {
+    setParticipantDrafts((current) => current.map((participant) => (
+      participant.instructorId === instructorId ? { ...participant, ...patch } : participant
+    )));
+  };
+
+  const changeSpecialStatus = (nextStatus: LessonSpecialStatusSelection) => {
+    setSpecialStatus(nextStatus);
+    setParticipantDrafts((current) => current.map((participant) => {
+      const payablePatch = specialStatus === 'cancelled' && nextStatus !== 'cancelled'
+        ? { payableMinutes: String(durationMinutes), payableMinutesCustomized: false }
+        : {};
+      if (nextStatus === 'substitute') {
+        return participant.participationKind === 'makeup'
+          ? { ...participant, ...payablePatch, participationKind: 'regular' }
+          : { ...participant, ...payablePatch };
+      }
+      if (nextStatus === 'makeup') {
+        return {
+          ...participant,
+          ...payablePatch,
+          participationKind: participant.participationKind === 'assistant' ? 'assistant' : 'makeup',
+          replacesInstructorId: '',
+        };
+      }
+      return {
+        ...participant,
+        ...payablePatch,
+        participationKind: participant.participationKind === 'assistant' ? 'assistant' : 'regular',
+        replacesInstructorId: '',
+      };
+    }));
+  };
+
   const buildInput = (): ScheduleMutationInput => {
     const status = resolveLessonOccurrenceStatus(specialStatus);
+    const instructorFields = buildScheduleInstructorMutationFields(
+      participantDrafts,
+      specialStatus,
+      durationMinutes,
+      entryKind,
+    );
     return {
       kind: entryKind,
       scope: entryKind === 'single' ? 'single' : scope === 'single' ? 'all' : scope,
@@ -193,9 +354,8 @@ export function ScheduleEditorDialog({
       intervalWeeks: Math.max(1, Number(intervalWeeks) || 1),
       startTime,
       endTime,
-      instructorId: instructorId || null,
+      ...instructorFields,
       classroomId: classroomId || null,
-      substituteInstructorId: entryKind === 'single' && specialStatus === 'substitute' ? substituteInstructorId || null : null,
       status: entryKind === 'single' ? status : 'normal',
       cancelReason: specialStatus === 'cancelled' ? cancelReason || null : null,
       notes: entryKind === 'single' ? notes || null : null,
@@ -206,6 +366,10 @@ export function ScheduleEditorDialog({
   const save = async () => {
     if (!classId || !startTime || !endTime || startTime >= endTime) {
       toast.error('반과 올바른 시작·종료 시간을 입력하세요.');
+      return;
+    }
+    if (participantDrafts.length === 0) {
+      toast.error('수업에 참여할 강사를 한 명 이상 선택하세요.');
       return;
     }
     if (entryKind === 'recurring' && !startDate) {
@@ -224,9 +388,31 @@ export function ScheduleEditorDialog({
       toast.error('수업 취소 사유를 입력하세요.');
       return;
     }
-    if (entryKind === 'single' && specialStatus === 'substitute' && !substituteInstructorId) {
-      toast.error('대강 강사를 선택하세요.');
-      return;
+    if (entryKind === 'single' && specialStatus !== 'cancelled') {
+      const invalidPayableMinutes = participantDrafts.some((participant) => {
+        const payableMinutes = Number(participant.payableMinutes);
+        return participant.payableMinutes.trim() === ''
+          || !Number.isInteger(payableMinutes)
+          || payableMinutes < 0
+          || payableMinutes > durationMinutes;
+      });
+      if (invalidPayableMinutes) {
+        toast.error(`강사별 지급 시간은 0분부터 수업 시간 ${durationMinutes}분 사이로 입력하세요.`);
+        return;
+      }
+    }
+    if (entryKind === 'single' && specialStatus === 'substitute') {
+      const substituteParticipants = participantDrafts.filter((participant) => participant.participationKind === 'substitute');
+      if (substituteParticipants.length === 0) {
+        toast.error('실제 대강한 강사의 참여 역할을 대강으로 선택하세요.');
+        return;
+      }
+      if (substituteParticipants.some((participant) => (
+        !participant.replacesInstructorId || participant.replacesInstructorId === participant.instructorId
+      ))) {
+        toast.error('대강 강사마다 원래 담당 강사를 선택하세요.');
+        return;
+      }
     }
 
     const input = buildInput();
@@ -321,7 +507,7 @@ export function ScheduleEditorDialog({
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="schedule-class">반</Label>
-            <SelectField id="schedule-class" value={classId} onChange={(event) => setClassId(event.target.value)} disabled={Boolean(lesson)}>
+            <SelectField id="schedule-class" value={classId} onChange={(event) => changeClass(event.target.value)} disabled={Boolean(lesson)}>
               {classes.filter((row) => row.status === 'active' || row.active).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </SelectField>
           </div>
@@ -373,39 +559,134 @@ export function ScheduleEditorDialog({
           <div><Label htmlFor="schedule-end-time">종료 시간</Label><Input id="schedule-end-time" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} /></div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="schedule-instructor">담당 강사</Label>
-            <SelectField id="schedule-instructor" value={instructorId} onChange={(event) => setInstructorId(event.target.value)}>
-              <option value="">반 기본값</option>
-              {staff.filter((row) => row.status === 'active').map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-            </SelectField>
+        <div className="space-y-2">
+          <Label>참여 강사</Label>
+          <div role="group" aria-label="참여 강사 선택" className="grid gap-2 rounded-xl border bg-muted/20 p-3 sm:grid-cols-2">
+            {visibleStaff.map((row) => {
+              const checkboxId = `schedule-instructor-${row.id}`;
+              const checked = selectedInstructorIds.includes(row.id);
+              return (
+                <label
+                  key={row.id}
+                  htmlFor={checkboxId}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm"
+                >
+                  <Checkbox
+                    id={checkboxId}
+                    checked={checked}
+                    onCheckedChange={(value) => toggleInstructor(row.id, value === true)}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{row.name}</span>
+                  {row.status !== 'active' && <span className="text-xs text-muted-foreground">비활성</span>}
+                </label>
+              );
+            })}
+            {visibleStaff.length === 0 && (
+              <p className="text-sm text-muted-foreground">선택할 수 있는 활성 강사가 없습니다.</p>
+            )}
           </div>
-          <div>
-            <Label htmlFor="schedule-classroom">강의실</Label>
-            <SelectField id="schedule-classroom" value={classroomId} onChange={(event) => setClassroomId(event.target.value)}>
-              <option value="">반 기본값</option>
-              {classrooms.filter((row) => row.active).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-            </SelectField>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            {selectedInstructorIds.length > 0
+              ? `${selectedInstructorIds.length}명 선택됨`
+              : '반 담당 강사가 한 명이면 자동 선택되며, 여러 명이면 실제 참여 강사를 선택해야 합니다.'}
+          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="schedule-classroom">강의실</Label>
+          <SelectField id="schedule-classroom" value={classroomId} onChange={(event) => setClassroomId(event.target.value)}>
+            <option value="">반 기본값</option>
+            {classrooms.filter((row) => row.active).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+          </SelectField>
         </div>
 
         {entryKind === 'single' && (
           <div className="space-y-3">
             <div>
               <Label htmlFor="schedule-special-status">특이사항</Label>
-              <SelectField id="schedule-special-status" value={specialStatus} onChange={(event) => setSpecialStatus(event.target.value as LessonSpecialStatusSelection)}>
+              <SelectField id="schedule-special-status" value={specialStatus} onChange={(event) => changeSpecialStatus(event.target.value as LessonSpecialStatusSelection)}>
                 <option value="">없음</option>
                 {specialLessonStatuses.map((value) => <option key={value} value={value}>{specialLessonStatusLabels[value]}</option>)}
               </SelectField>
             </div>
-            {specialStatus === 'substitute' && (
-              <div>
-                <Label htmlFor="schedule-substitute">대강 강사</Label>
-                <SelectField id="schedule-substitute" value={substituteInstructorId} onChange={(event) => setSubstituteInstructorId(event.target.value)}>
-                  <option value="">강사 선택</option>
-                  {staff.filter((row) => row.status === 'active').map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                </SelectField>
+            {participantDrafts.length > 0 && (
+              <div className="space-y-2">
+                <div>
+                  <p className="text-sm font-medium">회차별 강사 참여</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    실제 참여 시간만 지급됩니다. 대강은 실제 수업한 강사의 역할과 원래 담당 강사를 지정하고,
+                    참여하지 않은 원 담당 강사는 위 선택에서 해제하세요.
+                  </p>
+                </div>
+                {participantDrafts.map((participant) => {
+                  const instructor = staff.find((row) => row.id === participant.instructorId);
+                  const kindOptions: ScheduleParticipant['participationKind'][] = specialStatus === 'substitute'
+                    ? ['regular', 'substitute', 'assistant']
+                    : specialStatus === 'makeup'
+                      ? ['makeup', 'assistant']
+                      : ['regular', 'assistant'];
+                  const replacementStaff = staff.filter((row) => (
+                    row.id !== participant.instructorId
+                    && (row.status === 'active' || row.id === participant.replacesInstructorId)
+                  ));
+                  return (
+                    <div key={participant.instructorId} className="rounded-xl border bg-card p-3">
+                      <p className="mb-2 text-sm font-medium">{instructor?.name || '선택된 강사'}</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <Label htmlFor={`schedule-participation-kind-${participant.instructorId}`}>참여 역할</Label>
+                          <SelectField
+                            id={`schedule-participation-kind-${participant.instructorId}`}
+                            value={participant.participationKind}
+                            onChange={(event) => {
+                              const participationKind = event.target.value as ScheduleParticipant['participationKind'];
+                              updateParticipant(participant.instructorId, {
+                                participationKind,
+                                replacesInstructorId: participationKind === 'substitute'
+                                  ? participant.replacesInstructorId
+                                  : '',
+                              });
+                            }}
+                          >
+                            {kindOptions.map((kind) => <option key={kind} value={kind}>{participantKindLabels[kind]}</option>)}
+                          </SelectField>
+                        </div>
+                        <div>
+                          <Label htmlFor={`schedule-payable-minutes-${participant.instructorId}`}>지급 시간(분)</Label>
+                          <Input
+                            id={`schedule-payable-minutes-${participant.instructorId}`}
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            max={durationMinutes}
+                            step={1}
+                            value={specialStatus === 'cancelled' ? '0' : participant.payableMinutes}
+                            disabled={specialStatus === 'cancelled'}
+                            onChange={(event) => updateParticipant(participant.instructorId, {
+                              payableMinutes: event.target.value,
+                              payableMinutesCustomized: true,
+                            })}
+                          />
+                        </div>
+                      </div>
+                      {specialStatus === 'substitute' && participant.participationKind === 'substitute' && (
+                        <div className="mt-3">
+                          <Label htmlFor={`schedule-replaces-instructor-${participant.instructorId}`}>원래 담당 강사</Label>
+                          <SelectField
+                            id={`schedule-replaces-instructor-${participant.instructorId}`}
+                            value={participant.replacesInstructorId}
+                            onChange={(event) => updateParticipant(participant.instructorId, {
+                              replacesInstructorId: event.target.value,
+                            })}
+                          >
+                            <option value="">강사 선택</option>
+                            {replacementStaff.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+                          </SelectField>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {specialStatus === 'cancelled' && <div><Label htmlFor="schedule-cancel-reason">취소 사유</Label><Input id="schedule-cancel-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} /></div>}

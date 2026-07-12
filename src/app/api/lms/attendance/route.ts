@@ -1,5 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
-import { assertAssignedClassAccess } from '@/lib/lms/class-access';
+import { assertOccurrenceStatusAccess } from '@/lib/lms/class-access';
 import { recordAttendanceBatchForAcademy, recordAttendanceForAcademy } from '@/lib/lms/mutations';
 import type { BatchAttendanceInput, RecordAttendanceInput } from '@/features/lms/types';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
 
         const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
         const target = body.batch || body.input;
-        await assertAssignedClassAccess(actor, target!);
+        await assertOccurrenceStatusAccess(actor, target!);
         if (body.batch) {
             const data = await recordAttendanceBatchForAcademy(body.academyId, body.batch, actor);
             return mutationSuccess(data, { request });

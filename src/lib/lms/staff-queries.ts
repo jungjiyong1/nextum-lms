@@ -604,7 +604,7 @@ async function loadStaffPayroll(
 ): Promise<{ rows: InstructorPaymentRow[]; summary: StaffPayrollSummary | null }> {
     const { data, error } = await lms
         .from('instructor_payments')
-        .select('id,instructor_id,recipient_name,service_month,payment_date,gross_amount,withholding_type,withholding_rate,withholding_tax,local_tax,net_amount,hours_worked,hourly_rate,payment_method,status,notes')
+        .select('id,instructor_id,recipient_name,service_month,payment_date,gross_amount,base_amount,additional_amount,deduction_amount,withholding_type,withholding_rate,withholding_tax,local_tax,net_amount,hours_worked,hourly_rate,payment_method,status,notes')
         .eq('academy_id', academyId)
         .eq('instructor_id', staffId)
         .eq('service_month', serviceMonth)
@@ -626,6 +626,9 @@ async function loadStaffPayroll(
         serviceMonth: row.service_month,
         paymentDate: row.payment_date,
         grossAmount: toNumber(row.gross_amount),
+        baseAmount: toNumber(row.base_amount ?? row.gross_amount),
+        additionalAmount: toNumber(row.additional_amount),
+        deductionAmount: toNumber(row.deduction_amount),
         withholdingType: row.withholding_type,
         withholdingRate: toNumber(row.withholding_rate),
         withholdingTax: toNumber(row.withholding_tax),

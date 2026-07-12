@@ -3,7 +3,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-    BarChart3,
     Calculator,
     ChevronDown,
     ClipboardList,
@@ -64,16 +63,6 @@ const navItems: NavItem[] = [
             { id: 'classrooms-overview', label: '반 운영', href: appPageHref.classrooms, exact: true },
             { id: 'classrooms-schedule', label: '시간표', href: '/classrooms/schedule', exact: true },
             { id: 'classrooms-attendance', label: '출결', href: '/classrooms/attendance', exact: true },
-        ],
-    },
-    {
-        id: 'learning',
-        label: '학습 분석',
-        href: appPageHref.learning,
-        icon: BarChart3,
-        children: [
-            { id: 'learning-overview', label: '반 학습', href: appPageHref.learning, exact: true },
-            { id: 'learning-exams', label: '시험 대비', href: '/learning/exams', exact: true },
         ],
     },
     {

@@ -7,13 +7,15 @@ import { RouteScroll } from './RouteScroll';
 export function LearningRoute({
   initialTab = 'class-learning',
   initialPlanId = null,
+  initialClassId = null,
 }: {
   initialTab?: LearningAnalysisTab;
   initialPlanId?: string | null;
+  initialClassId?: string | null;
 }) {
   return (
     <RouteScroll>
-      <LearningAnalysisClient initialTab={initialTab} initialPlanId={initialPlanId} />
+      <LearningAnalysisClient initialTab={initialTab} initialPlanId={initialPlanId} initialClassId={initialClassId} />
     </RouteScroll>
   );
 }

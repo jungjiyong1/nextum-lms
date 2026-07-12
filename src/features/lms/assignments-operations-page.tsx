@@ -387,6 +387,7 @@ function AssignmentComposer({
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(
         () => new Set(initialDraft?.studentIds ?? []),
     );
+    const [directContext, setDirectContext] = useState('');
     const [excludedStudentIds, setExcludedStudentIds] = useState<Set<string>>(new Set());
     const [studentSearch, setStudentSearch] = useState('');
     const [unitCatalogs, setUnitCatalogs] = useState<Map<string, UnitProblemCatalogState>>(() => new Map());
@@ -407,6 +408,24 @@ function AssignmentComposer({
     }, [data.students, initialDraft]);
 
     const selectedBook = data.books.find((book) => book.id === bookId) || null;
+    const directStudents = useMemo(
+        () => data.students.filter((student) => selectedStudentIds.has(student.id) && !excludedStudentIds.has(student.id)),
+        [data.students, excludedStudentIds, selectedStudentIds],
+    );
+    const directClassOptions = useMemo(() => data.classes.filter((classRow) => (
+        classRow.active
+        && directStudents.length > 0
+        && directStudents.every((student) => student.classIds.includes(classRow.id))
+    )), [data.classes, directStudents]);
+
+    useEffect(() => {
+        if (directStudents.length === 0) {
+            setDirectContext('');
+            return;
+        }
+        if (directContext && (directContext === 'personal' || directClassOptions.some((row) => row.id === directContext))) return;
+        setDirectContext(directClassOptions.length === 1 ? directClassOptions[0].id : '');
+    }, [directClassOptions, directContext, directStudents.length]);
     const loadUnitProblems = useCallback(async (unitId: string, cursor: string | null = null) => {
         if (!academyId || !bookId) return;
         const key = unitCatalogKey(bookId, unitId);
@@ -723,6 +742,10 @@ function AssignmentComposer({
             toast.error('배정할 문제 범위를 선택하세요.');
             return;
         }
+        if ((initialDraft?.studentIds.length || selectedStudentIds.size) > 0 && !directContext) {
+            toast.error('개별 과제의 수강 반을 선택하거나 개인 과제로 지정하세요.');
+            return;
+        }
 
         await onSubmit({
             title: title.trim(),
@@ -739,6 +762,8 @@ function AssignmentComposer({
             excludedProblemIds: [...excludedProblemIds],
             classIds: initialDraft ? [] : [...selectedClassIds],
             studentIds: initialDraft ? initialDraft.studentIds : [...selectedStudentIds],
+            directClassId: directContext && directContext !== 'personal' ? directContext : null,
+            personal: directContext === 'personal',
             excludedStudentIds: initialDraft ? [] : [...excludedStudentIds],
             learningAnalysisActions: initialDraft?.actions.map((action) => ({
                 actionId: action.id,
@@ -1036,6 +1061,25 @@ function AssignmentComposer({
                                 </div>
                             </div>
                         </div>
+                        {directStudents.length > 0 && (
+                            <div className="rounded-lg border bg-card p-3">
+                                <div className="mb-2 text-sm font-semibold">개별 과제 학습 맥락</div>
+                                <Select value={directContext} onValueChange={setDirectContext}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="수강 반 또는 개인 과제를 선택하세요" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {directClassOptions.map((classRow) => (
+                                            <SelectItem key={classRow.id} value={classRow.id}>{classRow.name}</SelectItem>
+                                        ))}
+                                        <SelectItem value="personal">개인 과제 · 반 진도에 포함하지 않음</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                    선택한 학생 모두가 재원 중인 반만 표시됩니다. 개인 과제는 학생 상세의 개인 학습에만 기록됩니다.
+                                </p>
+                            </div>
+                        )}
                         <div className="rounded-lg bg-muted p-3 text-sm">
                             <div className="font-semibold text-foreground">배포 후 대상 스냅샷</div>
                             <p className="mt-1 text-xs text-muted-foreground">

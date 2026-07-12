@@ -1,5 +1,5 @@
-import { ClassroomsRoute } from '@/app-routes/ClassroomsRoute';
+import { ClassDirectoryRoute } from '@/app-routes/ClassDirectoryRoute';
 
 export default function Page() {
-    return <ClassroomsRoute />;
+    return <ClassDirectoryRoute />;
 }

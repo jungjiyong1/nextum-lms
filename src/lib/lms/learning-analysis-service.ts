@@ -11,6 +11,7 @@ import { loadAssignedClassIdsForContext } from './class-queries';
 import {
     buildLearningAnalysisData,
     isUuid,
+    LearningAnalysisValidationError,
     normalizeCreateLearningPlanInput,
     toCreatePlanContract,
     toSeoulDate,
@@ -230,19 +231,38 @@ async function loadStudents(core: SchemaClient, classIds: string[]) {
     });
 }
 
-async function loadActivePlans(
+function normalizePlanStatus(value: unknown): AnalysisPlanRow['status'] {
+    return value === 'draft' || value === 'completed' || value === 'archived' ? value : 'active';
+}
+
+function normalizePathRole(value: unknown, track: AnalysisPlanRow['trackKind']): AnalysisPlanRow['pathRole'] {
+    if (value === 'primary' || value === 'supplemental') return value;
+    return track === 'current' ? 'primary' : 'supplemental';
+}
+
+function normalizePathPurpose(
+    value: unknown,
+    planType: AnalysisPlanRow['planType'],
+    track: AnalysisPlanRow['trackKind'],
+): AnalysisPlanRow['pathPurpose'] {
+    if (value === 'current' || value === 'advance' || value === 'review' || value === 'exam' || value === 'other') {
+        return value;
+    }
+    if (planType === 'exam') return 'exam';
+    if (track === 'maintenance') return 'review';
+    return track === 'advance' ? 'advance' : track === 'current' ? 'current' : 'other';
+}
+
+async function loadPlans(
     learning: SchemaClient,
     academyId: string,
     classIds: string[],
-    asOfDate: string,
 ): Promise<AnalysisPlanRow[]> {
     if (classIds.length === 0) return [];
     const rows = await loadRowsForChunks(classIds, (ids, from, to) => learning
         .from('analysis_plans')
-        .select('id,class_id,plan_type,name,target_challenge_band,maintenance_interval_days,exam_date,recheck_interval_days,taxonomy_revision_id,metadata')
+        .select('id,class_id,plan_type,name,status,path_role,path_purpose,target_challenge_band,maintenance_interval_days,exam_date,recheck_interval_days,taxonomy_revision_id,metadata')
         .eq('academy_id', academyId)
-        .eq('status', 'active')
-        .or(`ends_on.is.null,ends_on.gte.${asOfDate}`)
         .in('class_id', ids)
         .order('id')
         .range(from, to), '학습 계획을 불러오지 못했습니다');
@@ -252,12 +272,16 @@ async function loadActivePlans(
             || typeof row.taxonomy_revision_id !== 'string'
             || (row.plan_type !== 'study_track' && row.plan_type !== 'exam')) return [];
         const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata as Row : {};
+        const normalizedTrack = row.plan_type === 'study_track' ? trackKind(metadata.track_kind) : null;
         return [{
             id: String(row.id),
-            classroomId: String(row.class_id),
+            classId: String(row.class_id),
             name: String(row.name),
             planType: row.plan_type,
-            trackKind: row.plan_type === 'study_track' ? trackKind(metadata.track_kind) : null,
+            trackKind: normalizedTrack,
+            pathRole: normalizePathRole(row.path_role, normalizedTrack),
+            pathPurpose: normalizePathPurpose(row.path_purpose, row.plan_type, normalizedTrack),
+            status: normalizePlanStatus(row.status),
             targetBand,
             maintenanceIntervalDays: maintenanceInterval(row.maintenance_interval_days),
             examDate: typeof row.exam_date === 'string' ? row.exam_date : null,
@@ -473,6 +497,7 @@ async function loadAssignedActionMarkers(
 export async function loadLearningAnalysisData(
     context: LmsRoleContext,
     selectedExamPlanId: string | null,
+    selectedClassId: string | null = null,
 ): Promise<LearningAnalysisData> {
     const asOfDate = toSeoulDate(new Date());
     const client = createAdminClient();
@@ -481,16 +506,22 @@ export async function loadLearningAnalysisData(
     const learning = client.schema('learning');
     const reporting = client.schema('reporting');
 
-    const [classes, revisionId, materials] = await Promise.all([
+    const [accessibleClasses, revisionId, materials] = await Promise.all([
         loadAccessibleClasses(core, context),
         loadLatestPublishedRevision(content),
         loadCatalogMaterials(content, context.academyId),
     ]);
+    const classes = selectedClassId
+        ? accessibleClasses.filter((row) => String(row.id) === selectedClassId)
+        : accessibleClasses;
+    if (selectedClassId && classes.length === 0) {
+        throw new LmsAuthError('선택한 반의 학습 경로에 접근할 수 없습니다.', 403);
+    }
     const classIds = classes.map((row) => String(row.id));
     const [catalogSkills, students, plans] = await Promise.all([
         loadCatalogSkills(content, context.academyId, revisionId),
         loadStudents(core, classIds),
-        loadActivePlans(learning, context.academyId, classIds, asOfDate),
+        loadPlans(learning, context.academyId, classIds),
     ]);
     const historicalRevisionIds = uniqueStrings(plans.map((plan) => plan.taxonomyRevisionId))
         .filter((planRevisionId) => planRevisionId !== revisionId);
@@ -514,7 +545,7 @@ export async function loadLearningAnalysisData(
     return buildLearningAnalysisData({
         asOfDate,
         selectedExamPlanId,
-        classrooms: classes.map((row) => ({ id: String(row.id), name: String(row.name) })),
+        classes: classes.map((row) => ({ id: String(row.id), name: String(row.name) })),
         students,
         skills,
         catalogSkillIds: catalogSkills.map((skill) => skill.id),
@@ -533,11 +564,11 @@ export async function loadLearningAnalysisData(
 async function assertClassAccess(
     core: SchemaClient,
     context: LmsRoleContext,
-    classroomId: string,
+    classId: string,
 ): Promise<void> {
     if (requiresAssignedClassScope(context.role)) {
         const assigned = await loadAssignedClassIdsForContext(context);
-        if (!assigned?.has(classroomId)) {
+        if (!assigned?.has(classId)) {
             throw new LmsAuthError('담당 반의 학습 계획만 만들 수 있습니다.', 403);
         }
     }
@@ -545,7 +576,7 @@ async function assertClassAccess(
         .from('classes')
         .select('id')
         .eq('academy_id', context.academyId)
-        .eq('id', classroomId)
+        .eq('id', classId)
         .eq('active', true)
         .maybeSingle();
     ensureNoError(error, '반 접근 권한을 확인하지 못했습니다');
@@ -600,14 +631,91 @@ export async function createLearningAnalysisPlan(
     const core = client.schema('core');
     const content = client.schema('content');
     await Promise.all([
-        assertClassAccess(core, context, normalized.classroomId),
+        assertClassAccess(core, context, normalized.classId),
         assertPlanReferences(content, context.academyId, normalized.scopeSkillIds, normalized.materialBookIds),
     ]);
-    const { data, error } = await client.schema('learning').rpc('create_analysis_plan_v1', {
+    const { data, error } = await client.schema('learning').rpc('create_analysis_path_v2', {
         p_actor_auth_user_id: context.userId,
         p_academy_id: context.academyId,
         p_input: toCreatePlanContract(normalized),
     });
     ensureNoError(error, '학습 계획을 저장하지 못했습니다');
     return { planId: parseCreatedPlanId(data) };
+}
+
+export async function startLearningAnalysisPath(
+    context: LmsRoleContext,
+    planId: string,
+): Promise<{ planId: string }> {
+    if (!isUuid(planId)) throw new LearningAnalysisValidationError('학습 경로 정보가 올바르지 않습니다.');
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const learning = client.schema('learning');
+    const { data: plan, error: planError } = await learning
+        .from('analysis_plans')
+        .select('id,class_id,path_role,status')
+        .eq('academy_id', context.academyId)
+        .eq('id', planId)
+        .maybeSingle();
+    ensureNoError(planError, '학습 경로를 확인하지 못했습니다');
+    const row = plan as Row | null;
+    if (!row?.id || row.path_role !== 'primary' || row.status !== 'draft') {
+        throw new LearningAnalysisValidationError('준비 중인 대표 학습 경로만 시작할 수 있습니다.');
+    }
+    await assertClassAccess(core, context, String(row.class_id));
+    const { data, error } = await learning.rpc('start_analysis_path_v2', {
+        p_academy_id: context.academyId,
+        p_plan_id: planId,
+    });
+    ensureNoError(error, '다음 학습 경로를 시작하지 못했습니다');
+    const result = Array.isArray(data) ? data[0] : data;
+    const startedId = result && typeof result === 'object' ? String((result as Row).id || '') : '';
+    if (startedId !== planId) throw new Error('학습 경로 전환 결과가 올바르지 않습니다.');
+    return { planId };
+}
+
+export async function changeLearningAnalysisPathStatus(
+    context: LmsRoleContext,
+    planId: string,
+    action: 'complete' | 'archive',
+): Promise<{ planId: string; status: 'completed' | 'archived' }> {
+    if (!isUuid(planId)) throw new LearningAnalysisValidationError('학습 경로 정보가 올바르지 않습니다.');
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const learning = client.schema('learning');
+    const { data: plan, error: planError } = await learning
+        .from('analysis_plans')
+        .select('id,class_id,status')
+        .eq('academy_id', context.academyId)
+        .eq('id', planId)
+        .maybeSingle();
+    ensureNoError(planError, '학습 경로를 확인하지 못했습니다');
+    const row = plan as Row | null;
+    if (!row?.id) throw new LearningAnalysisValidationError('학습 경로를 찾을 수 없습니다.');
+    await assertClassAccess(core, context, String(row.class_id));
+
+    const today = toSeoulDate(new Date());
+    const nextStatus = action === 'complete' ? 'completed' as const : 'archived' as const;
+    if (action === 'complete' && row.status !== 'active') {
+        throw new LearningAnalysisValidationError('진행 중인 학습 경로만 완료할 수 있습니다.');
+    }
+    if (action === 'archive' && row.status !== 'completed' && row.status !== 'draft') {
+        throw new LearningAnalysisValidationError('완료 또는 준비 중인 학습 경로만 보관할 수 있습니다.');
+    }
+    const update = action === 'complete'
+        ? { status: nextStatus, completed_at: new Date().toISOString(), ends_on: today, updated_at: new Date().toISOString() }
+        : { status: nextStatus, ends_on: today, updated_at: new Date().toISOString() };
+    const { data: updated, error } = await learning
+        .from('analysis_plans')
+        .update(update)
+        .eq('academy_id', context.academyId)
+        .eq('id', planId)
+        .eq('status', String(row.status))
+        .select('id')
+        .maybeSingle();
+    ensureNoError(error, '학습 경로 상태를 변경하지 못했습니다');
+    if (!(updated as Row | null)?.id) {
+        throw new LearningAnalysisValidationError('학습 경로 상태가 이미 변경되었습니다. 새로고침 후 다시 시도해 주세요.');
+    }
+    return { planId, status: nextStatus };
 }

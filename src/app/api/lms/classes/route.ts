@@ -1,4 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertDurableClassOperatorAccess } from '@/lib/lms/class-access';
 import { createClassForAcademy, updateClassForAcademy } from '@/lib/lms/mutations';
 import type { CreateClassInput, UpdateClassInput } from '@/features/lms/types';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
@@ -11,10 +12,12 @@ export async function POST(request: Request) {
             return mutationError('INVALID_CLASS_REQUEST', 'Invalid class request.', { request });
         }
 
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
         if (body.classId) {
+            const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+            await assertDurableClassOperatorAccess(actor, { classId: body.classId });
             await updateClassForAcademy(body.academyId, body.classId, body.input as UpdateClassInput);
         } else {
+            await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
             await createClassForAcademy(body.academyId, body.input as CreateClassInput);
         }
 

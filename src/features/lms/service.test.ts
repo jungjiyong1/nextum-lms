@@ -11,11 +11,18 @@ import {
   getDashboardData,
   loadClassMemberCandidates,
   loadStaffOperationsOverview,
+  loadStudentAiConversationDetail,
+  loadStudentAiConversationSummaries,
+  loadStudentAssignmentLearningDetail,
+  loadStudentLearningClassContext,
   loadStudentLearningMetrics,
+  loadStudentLearningTypeEvidence,
+  loadStudentLearningUnitDetail,
   loadStudentOperationsOverview,
   mutateSchedule,
   normalizeInvalidationPayload,
   recordAttendanceBatch,
+  upsertInstructorPayRate,
 } from './service';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -139,6 +146,25 @@ describe('LMS service cache policy', () => {
     expect(calls[5]?.body).toMatchObject({ academyId: 'academy-1', batch: { records: [{ status: 'present' }] } });
   });
 
+  it('saves effective-dated instructor rates through the accounting endpoint', async () => {
+    await upsertInstructorPayRate('academy-1', {
+      instructorId: 'staff-1',
+      effectiveFrom: '2026-07-01',
+      hourlyRate: 32000,
+    });
+
+    const [input, init] = fetchMock.mock.calls[0] || [];
+    expect(String(input)).toBe('/api/lms/instructor-pay-rates');
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      academyId: 'academy-1',
+      input: {
+        instructorId: 'staff-1',
+        effectiveFrom: '2026-07-01',
+        hourlyRate: 32000,
+      },
+    });
+  });
+
   it('expires volatile learning data after thirty seconds', async () => {
     await loadStudentLearningMetrics('academy-1', ['student-1']);
     vi.advanceTimersByTime(29_000);
@@ -191,6 +217,30 @@ describe('LMS service cache policy', () => {
     const getCalls = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method !== 'POST');
     expect((getCalls[0]?.[1] as RequestInit | undefined)?.signal).toBe(firstController.signal);
     expect((getCalls[1]?.[1] as RequestInit | undefined)?.signal).toBe(secondController.signal);
+  });
+
+  it('keeps student learning drill-down and AI transcript reads on separate lazy endpoints', async () => {
+    const controller = new AbortController();
+    await loadStudentLearningClassContext('academy-1', 'student-1', 'class-1', { signal: controller.signal });
+    await loadStudentLearningUnitDetail('academy-1', 'student-1', 'class-1', 'unit-1', { signal: controller.signal });
+    await loadStudentLearningTypeEvidence('academy-1', 'student-1', 'class-1', 'type-1', 'unit-1', { signal: controller.signal });
+    await loadStudentAssignmentLearningDetail('academy-1', 'student-1', 'assignment-1', { signal: controller.signal });
+    await loadStudentAiConversationSummaries('academy-1', 'student-1', 'assignment-1', { signal: controller.signal });
+    await loadStudentAiConversationDetail('academy-1', 'student-1', 'conversation-1', { signal: controller.signal });
+
+    const calls = fetchMock.mock.calls.map(([input, init]) => ({
+      url: String(input),
+      signal: (init as RequestInit | undefined)?.signal,
+    }));
+    expect(calls.map((call) => call.url)).toEqual([
+      '/api/lms/students/learning-context?academyId=academy-1&studentId=student-1&classId=class-1',
+      '/api/lms/students/learning-context/unit?academyId=academy-1&studentId=student-1&classId=class-1&unitId=unit-1',
+      '/api/lms/students/learning-context/evidence?academyId=academy-1&studentId=student-1&classId=class-1&typeId=type-1&unitId=unit-1',
+      '/api/lms/students/assignment-learning?academyId=academy-1&studentId=student-1&assignmentId=assignment-1',
+      '/api/lms/students/ai-conversations?academyId=academy-1&studentId=student-1&assignmentId=assignment-1',
+      '/api/lms/students/ai-conversations/conversation-1?academyId=academy-1&studentId=student-1',
+    ]);
+    expect(calls.every((call) => call.signal === controller.signal)).toBe(true);
   });
 
   it('keeps roster requests live even without an AbortSignal', async () => {

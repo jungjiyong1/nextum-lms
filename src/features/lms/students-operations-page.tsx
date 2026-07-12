@@ -3,22 +3,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     BarChart3,
-    BookOpen,
     CalendarDays,
-    CheckCircle2,
-    ChevronDown,
-    ChevronUp,
     Copy,
     CreditCard,
     GraduationCap,
     KeyRound,
-    MessageSquare,
     Pencil,
     Plus,
     RefreshCw,
     Search,
     ShieldAlert,
-    Target,
     Trash2,
     UserRound,
 } from 'lucide-react';
@@ -62,12 +56,12 @@ import {
     hardDeleteStudent,
     issueStudentInvitation,
     loadStudentDetail,
-    loadStudentLearningMetrics,
     loadStudentOperationsOverview,
     previewHardDeleteStudent,
     updateStudent,
 } from './service';
 import { LatestAbortController } from './latest-abort-controller';
+import { StudentLearningView } from './student-learning-view';
 import { useDebouncedValue } from './use-debounced-value';
 import type {
     BillingMode,
@@ -76,18 +70,15 @@ import type {
     StudentDetail,
     StudentDetailSection,
     StudentHardDeletePreview,
-    StudentLearningMetric,
-    StudentLearningPeriod,
     StudentOperationsPermissions,
     StudentStatus,
     StudentSummary,
 } from './types';
 
 type StudentFilterStatus = 'operations' | 'all' | StudentStatus;
-type StudentSortMode = 'risk' | 'recent' | 'name';
 type FormMode = 'create' | 'edit' | null;
 type StudentPageLoadOptions = { force?: boolean; background?: boolean; append?: boolean };
-type StudentDetailLoadOptions = StudentPageLoadOptions & { replace?: boolean; period?: StudentLearningPeriod; assignmentId?: string | null };
+type StudentDetailLoadOptions = StudentPageLoadOptions & { replace?: boolean };
 
 const emptyPermissions: StudentOperationsPermissions = {
     canCreate: false,
@@ -122,24 +113,13 @@ function mergeStudentDetail(current: StudentDetail | null, next: StudentDetail):
     const nextLoaded = (section: StudentDetailSection) => next.loadedSections.includes('full') || next.loadedSections.includes(section);
 
     return {
-        summary: {
-            ...current.summary,
-            ...next.summary,
-            weakTypeCount: next.summary.learningMetricsLoaded ? next.summary.weakTypeCount : current.summary.weakTypeCount,
-            avgTypeScore: next.summary.learningMetricsLoaded ? next.summary.avgTypeScore : current.summary.avgTypeScore,
-            lastLearningAt: next.summary.learningMetricsLoaded ? next.summary.lastLearningAt : current.summary.lastLearningAt,
-            learningMetricsLoaded: current.summary.learningMetricsLoaded || next.summary.learningMetricsLoaded,
-        },
+        summary: { ...current.summary, ...next.summary },
         permissions: next.permissions,
         loadedSections,
         signupInvitation: next.signupInvitation,
         hasGradeAppAccount: next.hasGradeAppAccount,
         gradeAppAccount: next.gradeAppAccount,
-        learningAnalytics: nextLoaded('learning') ? next.learningAnalytics : current.learningAnalytics,
-        weakTypes: nextLoaded('learning') ? next.weakTypes : current.weakTypes,
-        recentAttempts: nextLoaded('learning') ? next.recentAttempts : current.recentAttempts,
-        aiConversations: nextLoaded('learning') ? next.aiConversations : current.aiConversations,
-        reports: nextLoaded('learning') ? next.reports : current.reports,
+        learningOverview: nextLoaded('learning') ? next.learningOverview : current.learningOverview,
         attendanceSummary: nextLoaded('attendance') ? next.attendanceSummary : current.attendanceSummary,
         recentAttendance: nextLoaded('attendance') ? next.recentAttendance : current.recentAttendance,
         billing: nextLoaded('billing') ? next.billing : current.billing,
@@ -246,34 +226,13 @@ function EmptyDetail({ canCreate, onCreate }: { canCreate: boolean; onCreate: ()
     );
 }
 
-function summarizeRisk(student: StudentSummary): string {
-    const weakCount = student.weakTypeCount || 0;
-    if (weakCount > 0) return `${weakCount}개 취약`;
-    if (student.avgTypeScore !== null && student.avgTypeScore !== undefined) return `${student.avgTypeScore}점`;
-    return '데이터 없음';
-}
-
-function sortStudents(students: StudentSummary[], sortMode: StudentSortMode): StudentSummary[] {
-    return [...students].sort((a, b) => {
-        if (sortMode === 'name') return a.name.localeCompare(b.name, 'ko');
-        if (sortMode === 'recent') {
-            return String(b.lastLearningAt || '').localeCompare(String(a.lastLearningAt || ''));
-        }
-        return (b.weakTypeCount || 0) - (a.weakTypeCount || 0)
-            || (a.avgTypeScore ?? 101) - (b.avgTypeScore ?? 101)
-            || a.name.localeCompare(b.name, 'ko');
-    });
-}
-
 function StudentList({
     students,
     selectedStudentId,
-    metricsLoading,
     onSelect,
 }: {
     students: StudentSummary[];
     selectedStudentId: string;
-    metricsLoading: boolean;
     onSelect: (student: StudentSummary) => void;
 }) {
     return (
@@ -291,21 +250,12 @@ function StudentList({
                             <StudentStatusBadge status={student.status} />
                         </div>
                         <p className="mt-1 truncate text-xs text-muted-foreground">{student.classNames.join(', ') || '배정 반 없음'}</p>
-                        <p className="mt-1 text-xs text-muted-foreground/80">{student.phone || '-'} · 보호자 {student.parentPhone || '-'}</p>
-                    </div>
-                    <div className="shrink-0 text-right text-xs">
-                        {metricsLoading && !student.learningMetricsLoaded ? (
-                            <div className="space-y-1">
-                                <Skeleton className="ml-auto h-4 w-16" />
-                                <Skeleton className="ml-auto h-3 w-20" />
-                            </div>
-                        ) : (
-                            <>
-                                <p className={cn('font-medium', (student.weakTypeCount || 0) > 0 ? 'text-destructive' : 'text-muted-foreground')}>
-                                    {summarizeRisk(student)}
-                                </p>
-                                <p className="mt-1 text-muted-foreground/80">{shortDate(student.lastLearningAt)}</p>
-                            </>
+                        {(student.phone || student.parentPhone) && (
+                            <p className="mt-1 text-xs text-muted-foreground/80">
+                                {[student.phone ? `학생 ${student.phone}` : null, student.parentPhone ? `보호자 ${student.parentPhone}` : null]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                            </p>
                         )}
                     </div>
                 </SelectableCard>
@@ -317,317 +267,9 @@ function StudentList({
     );
 }
 
-function percentText(value: number | null | undefined): string {
-    return value === null || value === undefined ? '-' : `${Math.round(value)}%`;
+function LearningTab({ academyId, detail }: { academyId: string; detail: StudentDetail }) {
+    return <StudentLearningView academyId={academyId} studentId={detail.summary.id} overview={detail.learningOverview} />;
 }
-
-function learningStatusLabel(status: string): string {
-    if (status === 'weak') return '취약';
-    if (status === 'watch') return '주의';
-    if (status === 'ok') return '양호';
-    return '표본 부족';
-}
-
-function learningStatusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' {
-    if (status === 'weak') return 'danger';
-    if (status === 'watch') return 'warning';
-    if (status === 'ok') return 'success';
-    return 'neutral';
-}
-
-function assignmentProgressLabel(status: string): string {
-    if (status === 'completed') return '완료';
-    if (status === 'in_progress') return '진행중';
-    return '미시작';
-}
-
-function assignmentProgressTone(status: string): 'neutral' | 'success' | 'warning' {
-    if (status === 'completed') return 'success';
-    if (status === 'in_progress') return 'warning';
-    return 'neutral';
-}
-
-function PercentBar({ value, status }: { value: number | null | undefined; status?: string }) {
-    const width = Math.max(0, Math.min(100, value ?? 0));
-    const tone = learningStatusTone(status || 'ok');
-    const color = tone === 'danger' ? 'bg-destructive' : tone === 'warning' ? 'bg-warning-foreground' : 'bg-primary';
-    return (
-        <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className={cn('h-full rounded-full transition-[width]', color)} style={{ width: `${width}%` }} />
-        </div>
-    );
-}
-
-function MetricTile({ label, value, icon: Icon }: { label: string; value: string; icon: React.ElementType }) {
-    return (
-        <div className="rounded-lg border bg-card p-3">
-            <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <Icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <p className="mt-2 text-xl font-semibold text-foreground">{value}</p>
-        </div>
-    );
-}
-
-function LearningTab({
-    detail,
-    period,
-    selectedAssignmentId,
-    onPeriodChange,
-    onAssignmentChange,
-}: {
-    detail: StudentDetail;
-    period: StudentLearningPeriod;
-    selectedAssignmentId: string | null;
-    onPeriodChange: (period: StudentLearningPeriod) => void;
-    onAssignmentChange: (assignmentId: string | null) => void;
-}) {
-    const analytics = detail.learningAnalytics;
-    const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
-    const overview = analytics?.overview;
-    const units = analytics?.units || [];
-    const assignments = analytics?.assignments || [];
-
-    const toggleUnit = (unitKey: string) => {
-        setExpandedUnitIds((current) => {
-            const next = new Set(current);
-            if (next.has(unitKey)) next.delete(unitKey);
-            else next.add(unitKey);
-            return next;
-        });
-    };
-
-    return (
-        <div className="grid min-w-0 gap-4">
-            <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                    <p className="text-sm font-medium text-foreground">학습분석</p>
-                    <p className="mt-1 text-xs text-muted-foreground">기간과 과제를 바꾸면 단원, 유형, 채점, AI 대화가 같은 기준으로 갱신됩니다.</p>
-                </div>
-                <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,140px)_minmax(0,320px)]">
-                    <Select value={period} onValueChange={(value) => onPeriodChange(value as StudentLearningPeriod)}>
-                        <SelectTrigger className="min-w-0">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="30d">최근 30일</SelectItem>
-                            <SelectItem value="90d">최근 90일</SelectItem>
-                            <SelectItem value="180d">최근 180일</SelectItem>
-                            <SelectItem value="all">전체 누적</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <Select value={selectedAssignmentId || 'all'} onValueChange={(value) => onAssignmentChange(value === 'all' ? null : value)}>
-                        <SelectTrigger className="min-w-0">
-                            <SelectValue placeholder="전체 학습" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">전체 학습</SelectItem>
-                            {assignments.map((assignment) => (
-                                <SelectItem key={assignment.id} value={assignment.id}>{assignment.title}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            </div>
-
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <MetricTile label="풀이 문항" value={`${overview?.attemptedProblemCount ?? 0}개`} icon={Target} />
-                <MetricTile label="정답률" value={percentText(overview?.correctRate)} icon={BarChart3} />
-                <MetricTile label="취약/주의" value={`${(overview?.weakTypeCount ?? 0) + (overview?.watchTypeCount ?? 0)}개`} icon={ShieldAlert} />
-                <MetricTile label="완료 과제" value={`${overview?.completedAssignmentCount ?? 0}/${overview?.assignmentCount ?? 0}`} icon={CheckCircle2} />
-                <MetricTile label="AI 대화" value={`${overview?.aiConversationCount ?? detail.aiConversations.length}건`} icon={MessageSquare} />
-            </div>
-
-            <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)]">
-                <div className="min-w-0 rounded-lg border bg-card">
-                    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-                        <div>
-                            <p className="text-sm font-medium text-foreground">단원별 이해도</p>
-                            <p className="mt-1 text-xs text-muted-foreground">단원을 펼치면 하위 유형별 정답률과 표본을 볼 수 있습니다.</p>
-                        </div>
-                        <BookOpen className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="divide-y">
-                        {units.map((unit) => {
-                            const unitKey = unit.unitId || 'none';
-                            const expanded = expandedUnitIds.has(unitKey);
-                            return (
-                                <div key={unitKey} className="p-4">
-                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <p className="truncate font-medium text-foreground">{unit.unitName}</p>
-                                                <StatusBadge tone={learningStatusTone(unit.status)} label={learningStatusLabel(unit.status)} />
-                                                {unit.bookTitle && <StatusBadge tone="neutral" label={unit.bookTitle} />}
-                                            </div>
-                                            <div className="mt-3 max-w-xl">
-                                                <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                                                    <span>정답률</span>
-                                                    <span>{percentText(unit.score)} · 표본 {unit.sampleCount}</span>
-                                                </div>
-                                                <PercentBar value={unit.score} status={unit.status} />
-                                            </div>
-                                            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                                                {unit.types.slice(0, 3).map((type) => (
-                                                    <div key={`${unitKey}-${type.typeId || type.typeName}`} className="rounded-md bg-muted p-2">
-                                                        <div className="flex items-center justify-between gap-2 text-xs">
-                                                            <span className="truncate text-muted-foreground">{type.typeName}</span>
-                                                            <span className="font-medium text-foreground">{percentText(type.score)}</span>
-                                                        </div>
-                                                        <div className="mt-1"><PercentBar value={type.score} status={type.status} /></div>
-                                                    </div>
-                                                ))}
-                                                {unit.types.length === 0 && <p className="text-xs text-muted-foreground">아직 풀이한 유형이 없습니다.</p>}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2 md:flex-col md:items-end">
-                                            <p className="text-xs text-muted-foreground">최근 {shortDate(unit.lastAttemptedAt)}</p>
-                                            <Button type="button" variant="ghost" size="sm" onClick={() => toggleUnit(unitKey)}>
-                                                {expanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
-                                                유형 보기
-                                            </Button>
-                                        </div>
-                                    </div>
-                                    {expanded && (
-                                        <div className="mt-4 grid gap-2">
-                                            {unit.types.map((type) => (
-                                                <div key={`${unitKey}-detail-${type.typeId || type.typeName}`} className="grid gap-2 rounded-md border bg-background p-3 md:grid-cols-[1fr_120px_90px] md:items-center">
-                                                    <div className="min-w-0">
-                                                        <p className="truncate text-sm font-medium text-foreground">{type.typeName}</p>
-                                                        <p className="mt-1 text-xs text-muted-foreground">표본 {type.sampleCount} · 정답 {type.correctCount} · 최근 {shortDate(type.lastAttemptedAt)}</p>
-                                                    </div>
-                                                    <PercentBar value={type.score} status={type.status} />
-                                                    <div className="text-right">
-                                                        <StatusBadge tone={learningStatusTone(type.status)} label={learningStatusLabel(type.status)} />
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {units.length === 0 && <EmptyState title="분석할 풀이 데이터가 없습니다." description="기간이나 과제 필터를 바꾸면 다른 데이터가 보일 수 있습니다." className="border-0 py-10" />}
-                    </div>
-                </div>
-
-                <div className="grid min-w-0 gap-4">
-                    <div className="min-w-0 rounded-lg border bg-card">
-                        <div className="border-b px-4 py-3 text-sm font-medium">과제 진행</div>
-                        <div className="divide-y">
-                            {assignments.slice(0, 6).map((assignment) => (
-                                <SelectableCard
-                                    key={assignment.id}
-                                    className={cn(
-                                        'rounded-none border-0 px-4 py-3',
-                                    )}
-                                    selected={selectedAssignmentId === assignment.id}
-                                    onClick={() => onAssignmentChange(selectedAssignmentId === assignment.id ? null : assignment.id)}
-                                >
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0">
-                                            <p className="truncate font-medium text-foreground">{assignment.title}</p>
-                                            <p className="mt-1 text-xs text-muted-foreground">{assignment.bookTitle || '외부 학습지'} · {shortDate(assignment.dueAt)}</p>
-                                        </div>
-                                        <StatusBadge tone={assignmentProgressTone(assignment.progressStatus)} label={assignmentProgressLabel(assignment.progressStatus)} />
-                                    </div>
-                                    <div>
-                                        <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                                            <span>{assignment.attemptedProblemCount}/{assignment.requiredProblemCount || assignment.attemptedProblemCount}문항</span>
-                                            <span>{percentText(assignment.correctRate)}</span>
-                                        </div>
-                                        <PercentBar value={assignment.correctRate} status={assignment.correctRate !== null && assignment.correctRate < 50 ? 'weak' : assignment.correctRate !== null && assignment.correctRate < 75 ? 'watch' : 'ok'} />
-                                    </div>
-                                </SelectableCard>
-                            ))}
-                            {assignments.length === 0 && <EmptyState title="연결된 과제가 없습니다." className="border-0 py-8" />}
-                        </div>
-                    </div>
-
-                    <div className="min-w-0 rounded-lg border bg-card">
-                        <div className="border-b px-4 py-3 text-sm font-medium">최근 채점</div>
-                        <div className="divide-y">
-                            {detail.recentAttempts.map((row) => (
-                                <div key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                                    <div className="min-w-0">
-                                        <p className="truncate font-medium text-foreground">{row.label}</p>
-                                        <p className="text-xs text-muted-foreground">{row.unitName || '단원 미지정'} · {row.typeName || '유형 미지정'} · {shortDate(row.createdAt)}</p>
-                                    </div>
-                                    <StatusBadge tone={row.correct ? 'success' : 'danger'} label={row.correct ? '정답' : '오답'} />
-                                </div>
-                            ))}
-                            {detail.recentAttempts.length === 0 && <EmptyState title="최근 채점 데이터가 없습니다." className="border-0 py-8" />}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-                <div className="min-w-0 rounded-lg border bg-card">
-                    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-                        <div>
-                            <p className="text-sm font-medium text-foreground">AI 대화</p>
-                            <p className="mt-1 text-xs text-muted-foreground">선택한 과제 기준의 대화 내용을 바로 확인합니다.</p>
-                        </div>
-                        <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="divide-y">
-                        {detail.aiConversations.map((conversation) => (
-                            <div key={conversation.id} className="space-y-3 px-4 py-4">
-                                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                                    <div className="min-w-0">
-                                        <p className="truncate font-medium text-foreground">{conversation.title || '제목 없는 대화'}</p>
-                                        <p className="mt-1 text-xs text-muted-foreground">
-                                            {conversation.assignmentTitle || '과제 연결 없음'} · {conversation.sourceApp || '-'} · {shortDate(conversation.updatedAt)}
-                                        </p>
-                                    </div>
-                                    <StatusBadge status={conversation.status} />
-                                </div>
-                                <div className="grid gap-2">
-                                    {(conversation.messages || []).map((message) => (
-                                        <div
-                                            key={message.id}
-                                            className={cn(
-                                                'rounded-lg p-3 text-sm',
-                                                message.role === 'assistant' ? 'bg-muted text-foreground' : 'bg-primary-soft text-foreground',
-                                            )}
-                                        >
-                                            <div className="mb-1 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                                                <span>{message.role === 'assistant' ? 'AI' : '학생'}</span>
-                                                <span>{shortDate(message.createdAt)}</span>
-                                            </div>
-                                            <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
-                                        </div>
-                                    ))}
-                                    {(conversation.messages || []).length === 0 && <p className="text-xs text-muted-foreground">표시할 메시지가 없습니다.</p>}
-                                </div>
-                            </div>
-                        ))}
-                        {detail.aiConversations.length === 0 && <EmptyState title="AI 대화 데이터가 없습니다." className="border-0 py-10" />}
-                    </div>
-                </div>
-
-                <div className="min-w-0 rounded-lg border bg-card">
-                    <div className="border-b px-4 py-3 text-sm font-medium">리포트 소재</div>
-                    <div className="divide-y">
-                        {detail.reports.map((row) => (
-                            <div key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                                <div className="min-w-0">
-                                    <p className="truncate font-medium text-foreground">{row.title || row.reportType}</p>
-                                    <p className="text-xs text-muted-foreground">{row.reportType} · {shortDate(row.generatedAt)}</p>
-                                </div>
-                                <StudentStatusBadge status={row.status} />
-                            </div>
-                        ))}
-                        {detail.reports.length === 0 && <EmptyState title="저장된 리포트가 없습니다." className="border-0 py-8" />}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 function ProfileTab({
     student,
     canEdit,
@@ -1129,18 +771,14 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
     const nextCursorRef = useRef<string | null>(null);
     const [hasExternalUpdate, setHasExternalUpdate] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
-    const [metricsLoading, setMetricsLoading] = useState(false);
     const [sectionLoading, setSectionLoading] = useState<Partial<Record<StudentDetailSection, boolean>>>({});
     const [error, setError] = useState('');
     const [selectedStudentId, setSelectedStudentId] = useState('');
     const [detail, setDetail] = useState<StudentDetail | null>(null);
     const [activeTab, setActiveTab] = useState('learning');
-    const [learningPeriod, setLearningPeriod] = useState<StudentLearningPeriod>('90d');
-    const [selectedLearningAssignmentId, setSelectedLearningAssignmentId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [classFilter, setClassFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState<StudentFilterStatus>('operations');
-    const [sortMode, setSortMode] = useState<StudentSortMode>('risk');
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const requestedRosterFilters = useMemo(() => ({
         q: searchQuery.trim().replace(/\s+/gu, ' ').toLocaleLowerCase('ko-KR'),
@@ -1154,6 +792,8 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
         && rosterFilters.status === requestedRosterFilters.status;
     const rosterRequestSequence = useRef(0);
     const rosterAbortController = useMemo(() => new LatestAbortController(), []);
+    const detailRequestSequence = useRef(0);
+    const detailAbortController = useMemo(() => new LatestAbortController(), []);
     const [formMode, setFormMode] = useState<FormMode>(null);
     const [submitting, setSubmitting] = useState(false);
     const [archiveOpen, setArchiveOpen] = useState(false);
@@ -1202,7 +842,6 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
             setSearchQuery(params.get('q') || '');
             setClassFilter(params.get('classId') || 'all');
             setStatusFilter((params.get('status') as StudentFilterStatus | null) || 'operations');
-            setSortMode((params.get('sort') as StudentSortMode | null) || 'risk');
             setFiltersHydrated(true);
         };
         readRequestedStudent();
@@ -1220,11 +859,10 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
         setOrDelete('q', rosterFilters.q, '');
         setOrDelete('classId', rosterFilters.classId, 'all');
         setOrDelete('status', rosterFilters.status, 'operations');
-        setOrDelete('sort', sortMode, 'risk');
         setOrDelete('studentId', selectedStudentId, '');
         const search = params.toString();
         window.history.replaceState(null, '', search ? `${window.location.pathname}?${search}` : window.location.pathname);
-    }, [rosterFilters, rosterFiltersReady, selectedStudentId, sortMode]);
+    }, [rosterFilters, rosterFiltersReady, selectedStudentId]);
 
     useEffect(() => {
         if (!filtersHydrated) return;
@@ -1237,36 +875,9 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
     useEffect(() => () => {
         rosterAbortController.abort();
         rosterRequestSequence.current += 1;
-    }, [rosterAbortController]);
-
-    const mergeLearningMetrics = useCallback((metrics: StudentLearningMetric[]) => {
-        if (metrics.length === 0) return;
-        const metricsByStudent = new Map(metrics.map((row) => [row.studentId, row]));
-        setStudents((current) => current.map((student) => {
-            const metric = metricsByStudent.get(student.id);
-            if (!metric) return student;
-            return {
-                ...student,
-                weakTypeCount: metric.weakTypeCount,
-                avgTypeScore: metric.avgTypeScore,
-                lastLearningAt: metric.lastLearningAt,
-                learningMetricsLoaded: true,
-            };
-        }));
-    }, []);
-
-    const loadMetrics = useCallback(async (studentIds: string[], options: StudentPageLoadOptions = {}) => {
-        if (!academyId || studentIds.length === 0) return;
-        if (!options.background) setMetricsLoading(true);
-        try {
-            const metrics = await loadStudentLearningMetrics(academyId, studentIds, { force: options.force });
-            mergeLearningMetrics(metrics);
-        } catch (err) {
-            console.warn('[Students] Failed to load learning metrics:', err);
-        } finally {
-            if (!options.background) setMetricsLoading(false);
-        }
-    }, [academyId, mergeLearningMetrics]);
+        detailAbortController.abort();
+        detailRequestSequence.current += 1;
+    }, [detailAbortController, rosterAbortController]);
 
     const load = useCallback(async (options: StudentPageLoadOptions = {}) => {
         if (!academyId || !rosterFiltersReady) return;
@@ -1302,7 +913,6 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
             nextCursorRef.current = data.nextCursor;
             setHasMore(data.hasMore);
             setHasExternalUpdate(false);
-            void loadMetrics(data.students.map((student) => student.id), options);
         } catch (err) {
             if (controller.signal.aborted || rosterRequestSequence.current !== requestSequence) return;
             const message = err instanceof Error ? err.message : '학생 정보를 불러오지 못했습니다.';
@@ -1316,7 +926,7 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                 else setLoading(false);
             }
         }
-    }, [academyId, loadMetrics, rosterAbortController, rosterFilters, rosterFiltersReady]);
+    }, [academyId, rosterAbortController, rosterFilters, rosterFiltersReady]);
 
     const loadDetail = useCallback(async (
         studentId: string,
@@ -1324,9 +934,14 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
         options: StudentDetailLoadOptions = {},
     ) => {
         if (!academyId || !studentId) {
+            detailAbortController.abort();
+            detailRequestSequence.current += 1;
             setDetail(null);
             return;
         }
+        const controller = detailAbortController.start();
+        const requestSequence = detailRequestSequence.current + 1;
+        detailRequestSequence.current = requestSequence;
         if (!options.background) {
             if (options.replace) setDetailLoading(true);
             else setSectionLoading((current) => ({ ...current, [section]: true }));
@@ -1334,22 +949,24 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
         try {
             const data = await loadStudentDetail(academyId, studentId, section, {
                 force: options.force,
-                period: section === 'learning' || section === 'full' ? options.period || '90d' : undefined,
-                assignmentId: section === 'learning' || section === 'full' ? options.assignmentId || null : undefined,
+                signal: controller.signal,
             });
+            if (controller.signal.aborted || detailRequestSequence.current !== requestSequence) return;
             setDetail((current) => options.replace ? data : mergeStudentDetail(current, data));
             if (data.hardDeletePreview) setHardDeletePreview(data.hardDeletePreview);
         } catch (err) {
+            if (controller.signal.aborted || detailRequestSequence.current !== requestSequence) return;
             const message = err instanceof Error ? err.message : '학생 상세 정보를 불러오지 못했습니다.';
             toast.error(message);
             if (options.replace) setDetail(null);
         } finally {
-            if (!options.background) {
+            detailAbortController.clear(controller);
+            if (!options.background && detailRequestSequence.current === requestSequence) {
                 if (options.replace) setDetailLoading(false);
                 else setSectionLoading((current) => ({ ...current, [section]: false }));
             }
         }
-    }, [academyId]);
+    }, [academyId, detailAbortController]);
 
     useEffect(() => {
         if (rosterFiltersReady) void load();
@@ -1381,12 +998,10 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                 void loadDetail(selectedStudentId, section, {
                     force: true,
                     background: true,
-                    period: learningPeriod,
-                    assignmentId: selectedLearningAssignmentId,
                 });
             }
         });
-    }, [academyId, activeTab, formMode, learningPeriod, load, loadDetail, selectedLearningAssignmentId, selectedStudentId, submitting]);
+    }, [academyId, activeTab, formMode, load, loadDetail, selectedStudentId, submitting]);
 
     useEffect(() => {
         if (!selectedStudentId) {
@@ -1395,42 +1010,18 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
             return;
         }
         setActiveTab('learning');
-        setLearningPeriod('90d');
-        setSelectedLearningAssignmentId(null);
         setSectionLoading({});
         setHardDeletePreview(null);
         resetStudentForm();
-        void loadDetail(selectedStudentId, 'learning', { replace: true, period: '90d', assignmentId: null });
+        void loadDetail(selectedStudentId, 'learning', { replace: true });
     }, [loadDetail, resetStudentForm, selectedStudentId]);
 
     const handleTabChange = useCallback((tab: string) => {
         setActiveTab(tab);
         const section = DETAIL_SECTION_BY_TAB[tab];
         if (!section || section === 'management' || !selectedStudentId || hasLoadedSection(detail, section)) return;
-        void loadDetail(selectedStudentId, section, { period: learningPeriod, assignmentId: selectedLearningAssignmentId });
-    }, [detail, learningPeriod, loadDetail, selectedLearningAssignmentId, selectedStudentId]);
-
-    const changeLearningPeriod = useCallback((nextPeriod: StudentLearningPeriod) => {
-        setLearningPeriod(nextPeriod);
-        if (selectedStudentId) {
-            void loadDetail(selectedStudentId, 'learning', {
-                force: true,
-                period: nextPeriod,
-                assignmentId: selectedLearningAssignmentId,
-            });
-        }
-    }, [loadDetail, selectedLearningAssignmentId, selectedStudentId]);
-
-    const changeLearningAssignment = useCallback((assignmentId: string | null) => {
-        setSelectedLearningAssignmentId(assignmentId);
-        if (selectedStudentId) {
-            void loadDetail(selectedStudentId, 'learning', {
-                force: true,
-                period: learningPeriod,
-                assignmentId,
-            });
-        }
-    }, [learningPeriod, loadDetail, selectedStudentId]);
+        void loadDetail(selectedStudentId, section);
+    }, [detail, loadDetail, selectedStudentId]);
 
     const filteredStudents = useMemo(() => {
         const query = requestedRosterFilters.q;
@@ -1448,8 +1039,8 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                     : student.status === statusFilter;
             return matchesQuery && matchesClass && matchesStatus;
         });
-        return sortStudents(filtered, sortMode);
-    }, [classFilter, requestedRosterFilters.q, sortMode, statusFilter, students]);
+        return filtered.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    }, [classFilter, requestedRosterFilters.q, statusFilter, students]);
 
     const selectedStudent = useMemo(
         () => students.find((student) => student.id === selectedStudentId) || null,
@@ -1588,8 +1179,6 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                 await loadDetail(editingStudentId, 'learning', {
                     replace: true,
                     force: true,
-                    period: learningPeriod,
-                    assignmentId: selectedLearningAssignmentId,
                 });
             }
         } catch (err) {
@@ -1728,7 +1317,7 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                     <Input className="pl-9" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="이름, 학생/보호자 연락처 검색" />
                                 </div>
-                                <div className="grid gap-2 sm:grid-cols-3">
+                                <div className="grid gap-2 sm:grid-cols-2">
                                     <Select value={classFilter} onValueChange={setClassFilter}>
                                         <SelectTrigger>
                                             <SelectValue />
@@ -1752,16 +1341,6 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                                             <SelectItem value="dropped">퇴원/보관</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <Select value={sortMode} onValueChange={(value) => setSortMode(value as StudentSortMode)}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="risk">위험도순</SelectItem>
-                                            <SelectItem value="recent">최근 학습순</SelectItem>
-                                            <SelectItem value="name">이름순</SelectItem>
-                                        </SelectContent>
-                                    </Select>
                                 </div>
                             </div>
                         </CardHeader>
@@ -1769,7 +1348,6 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                             <StudentList
                                 students={filteredStudents}
                                 selectedStudentId={selectedStudentId}
-                                metricsLoading={metricsLoading}
                                 onSelect={(student) => setSelectedStudentId(student.id)}
                             />
                             {hasMore && (
@@ -1841,11 +1419,8 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                                             <StudentTabSkeleton />
                                         ) : (
                                             <LearningTab
+                                                academyId={academyId}
                                                 detail={detail}
-                                                period={learningPeriod}
-                                                selectedAssignmentId={selectedLearningAssignmentId}
-                                                onPeriodChange={changeLearningPeriod}
-                                                onAssignmentChange={changeLearningAssignment}
                                             />
                                         )}
                                     </TabsContent>

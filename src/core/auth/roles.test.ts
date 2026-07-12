@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
     appPageFromPath,
     canAccessAppPath,
+    canCreateClass,
+    canManageGlobalClassResources,
     canManageScheduleRules,
+    canOperateAssignedClass,
     canAccessAppPage,
     firstAccessibleAppPage,
     getRoleLabel,
@@ -53,6 +56,11 @@ describe('LMS app roles', () => {
         expect(requiresAssignedClassScope('teacher')).toBe(true);
         expect(requiresAssignedClassScope('instructor')).toBe(true);
         expect(requiresAssignedClassScope('staff')).toBe(false);
+        expect(canManageGlobalClassResources('staff')).toBe(true);
+        expect(canManageGlobalClassResources('teacher')).toBe(false);
+        expect(canCreateClass('instructor')).toBe(false);
+        expect(canOperateAssignedClass('teacher')).toBe(true);
+        expect(canOperateAssignedClass('student')).toBe(false);
     });
 
     it('maps paths to app pages', () => {

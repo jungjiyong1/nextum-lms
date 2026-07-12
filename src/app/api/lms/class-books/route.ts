@@ -1,4 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertDurableClassOperatorAccess } from '@/lib/lms/class-access';
 import { setClassBookForAcademy } from '@/lib/lms/mutations';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
 
@@ -15,7 +16,8 @@ export async function POST(request: Request) {
             return mutationError('INVALID_CLASS_BOOK_REQUEST', 'Invalid class book request.', { request });
         }
 
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        await assertDurableClassOperatorAccess(actor, { classId: body.classId });
         await setClassBookForAcademy(body.academyId, body.classId, body.bookId, body.active ?? true);
 
         return mutationSuccess(null, { request });

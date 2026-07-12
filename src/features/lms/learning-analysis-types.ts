@@ -4,6 +4,10 @@ export type StudyTrackKind = 'current' | 'advance' | 'maintenance';
 
 export type AnalysisPlanKind = StudyTrackKind | 'exam';
 
+export type LearningPathRole = 'primary' | 'supplemental';
+export type LearningPathPurpose = 'current' | 'advance' | 'review' | 'exam' | 'other';
+export type LearningPathStatus = 'draft' | 'active' | 'completed' | 'archived';
+
 export type LearningAnalysisTab = 'class-learning' | 'exam-preparation';
 
 export type LearningEvidenceStatus =
@@ -19,7 +23,7 @@ export type LearningEvidenceOutcome =
   | 'unknown'
   | 'blank';
 
-export interface LearningAnalysisClassroomOption {
+export interface LearningAnalysisClassOption {
   id: string;
   name: string;
 }
@@ -27,7 +31,7 @@ export interface LearningAnalysisClassroomOption {
 export interface LearningAnalysisStudentOption {
   id: string;
   name: string;
-  classroomIds: string[];
+  classIds: string[];
 }
 
 export interface LearningAnalysisSkillOption {
@@ -65,18 +69,28 @@ export interface LearningEvidenceEvent {
   evidenceKindLabel?: string | null;
 }
 
-export interface LearningTrackSummary {
+export interface LearningPathSummary {
   id: string;
-  kind: StudyTrackKind;
-  classroomId: string;
-  classroomName: string;
+  kind: AnalysisPlanKind;
+  role: LearningPathRole;
+  purpose: LearningPathPurpose;
+  status: LearningPathStatus;
+  classId: string;
+  className: string;
   name: string;
   targetBand: ChallengeBand;
-  maintenanceIntervalDays: 7 | 14 | 21 | 30;
+  maintenanceIntervalDays: 7 | 14 | 21 | 30 | null;
   scopeSkillCount: number;
   materialCount: number;
   dueStudentCount: number;
   actionCount: number;
+  units: Array<{
+    name: string;
+    skillCount: number;
+    needsCheckCount: number;
+    supportCandidateCount: number;
+    contentGapCount: number;
+  }>;
   lastEvidenceAt?: string | null;
 }
 
@@ -84,7 +98,7 @@ export interface LearningActionQueueItem {
   id: string;
   studentId: string;
   studentName: string;
-  classroomName: string;
+  className: string;
   skillId: string;
   skillName: string;
   status: Extract<LearningEvidenceStatus, 'needs_check' | 'support_candidate'>;
@@ -96,8 +110,8 @@ export interface LearningActionQueueItem {
 
 export interface ExamPlanSummary {
   id: string;
-  classroomId: string;
-  classroomName: string;
+  classId: string;
+  className: string;
   name: string;
   examDate: string;
   targetBand: ChallengeBand;
@@ -114,7 +128,7 @@ export interface StudentExamEvidenceSummary {
 }
 
 export interface LearningAnalysisCatalog {
-  classrooms: LearningAnalysisClassroomOption[];
+  classes: LearningAnalysisClassOption[];
   students: LearningAnalysisStudentOption[];
   skills: LearningAnalysisSkillOption[];
   materials: LearningAnalysisMaterialOption[];
@@ -122,7 +136,7 @@ export interface LearningAnalysisCatalog {
 
 export interface LearningAnalysisData {
   catalog: LearningAnalysisCatalog;
-  tracks: LearningTrackSummary[];
+  paths: LearningPathSummary[];
   actionQueue: LearningActionQueueItem[];
   examPlans: ExamPlanSummary[];
   examStudents: StudentExamEvidenceSummary[];
@@ -130,7 +144,8 @@ export interface LearningAnalysisData {
 
 export interface CreateLearningPlanInput {
   kind: AnalysisPlanKind;
-  classroomId: string;
+  role: LearningPathRole;
+  classId: string;
   name: string;
   targetBand: ChallengeBand;
   examDate: string | null;
@@ -139,6 +154,7 @@ export interface CreateLearningPlanInput {
   materialBookIds: string[];
   studentOverrides: Array<{
     studentId: string;
+    included: boolean;
     targetBand: ChallengeBand;
   }>;
 }
@@ -154,5 +170,7 @@ export interface LearningAnalysisViewProps {
   onRetry?: () => void;
   onSelectedExamPlanChange: (planId: string) => void;
   onSubmitPlan: (input: CreateLearningPlanInput) => void | Promise<void>;
+  onStartPath?: (pathId: string) => void | Promise<void>;
+  onChangePathStatus?: (pathId: string, action: 'complete' | 'archive') => void | Promise<void>;
   onCreateAssignmentDraft?: (actionIds: string[]) => void | Promise<void>;
 }

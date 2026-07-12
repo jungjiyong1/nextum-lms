@@ -3,6 +3,7 @@ import 'server-only';
 import { requiresAssignedClassScope } from '@/core/auth/roles';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { LmsAuthError, type LmsRoleContext } from './auth';
+import { toSeoulDate } from './seoul-date';
 
 type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
@@ -15,8 +16,30 @@ export interface AssignedClassAccessInput {
     instructorId?: string | null;
 }
 
-function forbidden(): never {
-    throw new LmsAuthError('Only assigned classes can be changed by this role.', 403);
+export type ClassOperationAccess = 'manager' | 'durable_operator' | 'occurrence_participant' | 'none';
+
+export interface ClassAccessFacts {
+    classActive: boolean;
+    ruleMatchesClass: boolean;
+    occurrenceMatchesClass: boolean;
+    durableAssignment: boolean;
+    defaultInstructor: boolean;
+    occurrenceParticipant: boolean;
+}
+
+function forbidden(message = 'Only assigned classes can be changed by this role.'): never {
+    throw new LmsAuthError(message, 403);
+}
+
+export function resolveClassOperationAccess(
+    role: LmsRoleContext['role'],
+    facts: ClassAccessFacts,
+): ClassOperationAccess {
+    if (!requiresAssignedClassScope(role)) return 'manager';
+    if (!facts.classActive || !facts.ruleMatchesClass || !facts.occurrenceMatchesClass) return 'none';
+    if (facts.durableAssignment || facts.defaultInstructor) return 'durable_operator';
+    if (facts.occurrenceParticipant) return 'occurrence_participant';
+    return 'none';
 }
 
 async function loadActiveStaffId(core: SchemaClient, context: LmsRoleContext): Promise<string> {
@@ -35,29 +58,45 @@ async function loadActiveStaffId(core: SchemaClient, context: LmsRoleContext): P
     return staffId;
 }
 
-export async function assertAssignedClassAccess(
+export async function loadClassOperationAccess(
     context: LmsRoleContext,
     input: AssignedClassAccessInput,
-): Promise<void> {
-    if (!requiresAssignedClassScope(context.role)) return;
+): Promise<ClassOperationAccess> {
+    if (!requiresAssignedClassScope(context.role)) return 'manager';
 
     const classId = input.classId;
-    if (!classId) forbidden();
+    if (!classId) return 'none';
 
     const client = createAdminClient();
     const core = client.schema('core');
     const lms = client.schema('lms');
     const staffId = await loadActiveStaffId(core, context);
-    const currentDate = new Date().toISOString().slice(0, 10);
+    const currentDate = toSeoulDate(new Date());
 
-    if (input.instructorId && input.instructorId !== staffId) forbidden();
-
-    const [classResult, profileResult, ruleResult, occurrenceResult, assignedRuleResult] = await Promise.all([
+    const [
+        classResult,
+        classAssignmentResult,
+        profileResult,
+        ruleResult,
+        occurrenceResult,
+        occurrenceParticipantResult,
+    ] = await Promise.all([
         core
             .from('classes')
             .select('id,active')
             .eq('academy_id', context.academyId)
             .eq('id', classId)
+            .maybeSingle(),
+        lms
+            .from('class_instructors')
+            .select('class_id')
+            .eq('academy_id', context.academyId)
+            .eq('class_id', classId)
+            .eq('instructor_staff_id', staffId)
+            .eq('active', true)
+            .lte('started_on', currentDate)
+            .or(`ended_on.is.null,ended_on.gte.${currentDate}`)
+            .limit(1)
             .maybeSingle(),
         lms
             .from('class_profiles')
@@ -68,7 +107,7 @@ export async function assertAssignedClassAccess(
         input.ruleId
             ? lms
                 .from('class_schedule_rules')
-                .select('id,class_id,instructor_staff_id,active,start_date,end_date')
+                .select('id,class_id')
                 .eq('academy_id', context.academyId)
                 .eq('id', input.ruleId)
                 .maybeSingle()
@@ -76,62 +115,88 @@ export async function assertAssignedClassAccess(
         input.occurrenceId
             ? lms
                 .from('lesson_occurrences')
-                .select('id,class_id,rule_id,instructor_staff_id,substitute_staff_id')
+                .select('id,class_id,instructor_staff_id,substitute_staff_id')
                 .eq('academy_id', context.academyId)
                 .eq('id', input.occurrenceId)
                 .maybeSingle()
             : Promise.resolve({ data: null, error: null }),
-        lms
-            .from('class_schedule_rules')
-            .select('id')
-            .eq('academy_id', context.academyId)
-            .eq('class_id', classId)
-            .eq('instructor_staff_id', staffId)
-            .eq('active', true)
-            .lte('start_date', currentDate)
-            .or(`end_date.is.null,end_date.gte.${currentDate}`)
-            .limit(1)
-            .maybeSingle(),
+        input.occurrenceId
+            ? lms
+                .from('lesson_occurrence_instructors')
+                .select('occurrence_id')
+                .eq('academy_id', context.academyId)
+                .eq('occurrence_id', input.occurrenceId)
+                .eq('instructor_staff_id', staffId)
+                .limit(1)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
     ]);
 
-    for (const result of [classResult, profileResult, ruleResult, occurrenceResult, assignedRuleResult]) {
+    for (const result of [
+        classResult,
+        classAssignmentResult,
+        profileResult,
+        ruleResult,
+        occurrenceResult,
+        occurrenceParticipantResult,
+    ]) {
         if (result.error) throw result.error;
     }
 
     const classRow = classResult.data as Row | null;
+    const classAssignment = classAssignmentResult.data as Row | null;
     const profile = profileResult.data as Row | null;
     const rule = ruleResult.data as Row | null;
     const occurrence = occurrenceResult.data as Row | null;
-    const assignedRule = assignedRuleResult.data as Row | null;
+    const occurrenceParticipant = occurrenceParticipantResult.data as Row | null;
 
-    if (!classRow?.id || !classRow.active || !profile?.class_id) forbidden();
-    if (rule && rule.class_id !== classId) forbidden();
-    if (occurrence && occurrence.class_id !== classId) forbidden();
-
-    const classDefaultMatches = profile.status === 'active'
-        && profile.default_instructor_staff_id === staffId;
-    const ruleIsCurrent = Boolean(
-        rule
-        && rule.active
-        && String(rule.start_date) <= currentDate
-        && (!rule.end_date || String(rule.end_date) >= currentDate),
-    );
-    const ruleMatches = Boolean(
-        ruleIsCurrent
-        && rule
-        && (rule.instructor_staff_id === staffId || (!rule.instructor_staff_id && classDefaultMatches)),
-    );
-    const occurrenceMatches = Boolean(
-        occurrence && (
-            occurrence.instructor_staff_id === staffId
-            || occurrence.substitute_staff_id === staffId
-            || (!occurrence.instructor_staff_id && classDefaultMatches)
-            || (!occurrence.instructor_staff_id && occurrence.rule_id && ruleMatches)
+    return resolveClassOperationAccess(context.role, {
+        classActive: Boolean(classRow?.id && classRow.active),
+        ruleMatchesClass: !input.ruleId || Boolean(rule?.id && rule.class_id === classId),
+        occurrenceMatchesClass: !input.occurrenceId || Boolean(occurrence?.id && occurrence.class_id === classId),
+        durableAssignment: Boolean(classAssignment?.class_id),
+        defaultInstructor: Boolean(
+            profile?.status === 'active'
+            && profile.default_instructor_staff_id === staffId,
         ),
-    );
-    const anyAssignedRuleMatches = Boolean(assignedRule?.id);
+        occurrenceParticipant: Boolean(
+            input.occurrenceId
+            && occurrence?.id
+            && (
+                occurrenceParticipant?.occurrence_id
+                || occurrence.instructor_staff_id === staffId
+                || occurrence.substitute_staff_id === staffId
+            ),
+        ),
+    });
+}
 
-    if (!classDefaultMatches && !ruleMatches && !occurrenceMatches && !anyAssignedRuleMatches) {
-        forbidden();
+export async function assertDurableClassOperatorAccess(
+    context: LmsRoleContext,
+    input: AssignedClassAccessInput,
+): Promise<void> {
+    const access = await loadClassOperationAccess(context, input);
+    if (access !== 'manager' && access !== 'durable_operator') {
+        forbidden('Only a regularly assigned class instructor can change class structure.');
     }
+}
+
+export async function assertOccurrenceStatusAccess(
+    context: LmsRoleContext,
+    input: AssignedClassAccessInput,
+): Promise<ClassOperationAccess> {
+    const access = await loadClassOperationAccess(context, input);
+    if (access === 'none') forbidden('Only a class operator or this lesson participant can update status, notes, or attendance.');
+    return access;
+}
+
+/**
+ * Backward-compatible name for class-wide operations. Occurrence-only access
+ * must opt in through assertOccurrenceStatusAccess instead.
+ */
+export async function assertAssignedClassAccess(
+    context: LmsRoleContext,
+    input: AssignedClassAccessInput,
+): Promise<void> {
+    await assertDurableClassOperatorAccess(context, input);
 }

@@ -17,14 +17,12 @@ export async function GET(request: Request) {
         const academyId = url.searchParams.get('academyId') || '';
         const studentId = url.searchParams.get('studentId') || '';
         const section = url.searchParams.get('section') || 'full';
-        const period = url.searchParams.get('period') || '90d';
-        const assignmentId = url.searchParams.get('assignmentId') || null;
         if (!academyId || !studentId) {
             return noStoreJson({ success: false, error: 'Invalid student detail request.' }, { status: 400 });
         }
 
         const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
-        const data = await loadStudentDetail(actor, studentId, section, { period, assignmentId });
+        const data = await loadStudentDetail(actor, studentId, section);
 
         return noStoreJson({ success: true, data });
     } catch (error) {

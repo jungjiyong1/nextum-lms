@@ -1,4 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertDurableClassOperatorAccess } from '@/lib/lms/class-access';
 import { loadClassMemberCandidates } from '@/lib/lms/class-queries';
 import { changeClassMembersForAcademy } from '@/lib/lms/mutations';
 import type { ClassMembershipChangeInput } from '@/features/lms/types';
@@ -20,7 +21,8 @@ export async function GET(request: Request) {
         if (!academyId || !classId) {
             return noStoreJson({ success: false, error: 'Invalid class member request.' }, { status: 400 });
         }
-        const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        await assertDurableClassOperatorAccess(actor, { classId });
         const data = await loadClassMemberCandidates(actor, classId, params.get('q'));
         return noStoreJson({ success: true, data });
     } catch (error) {
@@ -41,7 +43,8 @@ export async function POST(request: Request) {
         if (!body.academyId || !body.input?.classId || !body.input.effectiveDate || !body.input.changes?.length) {
             return mutationError('INVALID_CLASS_MEMBER_REQUEST', 'Invalid class member request.', { request });
         }
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        await assertDurableClassOperatorAccess(actor, { classId: body.input.classId });
         const data = await changeClassMembersForAcademy(body.academyId, body.input);
         return mutationSuccess(data, { request });
     } catch (error) {

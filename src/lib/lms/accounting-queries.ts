@@ -318,7 +318,7 @@ async function loadInstructorPaymentRows(
 ): Promise<InstructorPaymentRow[]> {
     const { data, error } = await lms
         .from('instructor_payments')
-        .select('id,instructor_id,recipient_name,service_month,payment_date,gross_amount,withholding_type,withholding_rate,withholding_tax,local_tax,net_amount,hours_worked,hourly_rate,payment_method,status,notes')
+        .select('id,instructor_id,recipient_name,service_month,payment_date,gross_amount,base_amount,additional_amount,deduction_amount,withholding_type,withholding_rate,withholding_tax,local_tax,net_amount,hours_worked,hourly_rate,payment_method,status,notes')
         .eq('academy_id', academyId)
         .eq('service_month', serviceMonth)
         .order('payment_date', { ascending: false })
@@ -346,6 +346,9 @@ async function loadInstructorPaymentRows(
             serviceMonth: row.service_month,
             paymentDate: row.payment_date,
             grossAmount: toNumber(row.gross_amount),
+            baseAmount: toNumber(row.base_amount ?? row.gross_amount),
+            additionalAmount: toNumber(row.additional_amount),
+            deductionAmount: toNumber(row.deduction_amount),
             withholdingType: row.withholding_type,
             withholdingRate: toNumber(row.withholding_rate),
             withholdingTax: toNumber(row.withholding_tax),
@@ -398,13 +401,30 @@ export async function loadInstructorPayrollOperationsOverview(
     const core = client.schema('core');
     const lms = client.schema('lms');
     const range = monthRange(serviceMonth);
-    const [payroll, staff, schedule] = await Promise.all([
+    const [payroll, staff, schedule, ratesResult, taxSettings] = await Promise.all([
         loadInstructorPaymentRows(core, lms, context.academyId, serviceMonth),
         loadStaffSummariesForAcademy(context.academyId),
         loadSchedule(core, lms, context.academyId, range.start, range.end),
+        lms.from('instructor_pay_rates')
+            .select('instructor_id,effective_from,hourly_rate')
+            .eq('academy_id', context.academyId)
+            .eq('active', true)
+            .lte('effective_from', range.end)
+            .order('effective_from', { ascending: false }),
+        loadAccountingTaxSettings(context),
     ]);
-    const payrollEstimates = buildInstructorPayrollEstimates({ schedule, staff, payments: payroll });
-    return { payroll, payrollEstimates, staff };
+    ensureNoError(ratesResult.error, 'Failed to load instructor pay-rate history');
+    const payrollEstimates = buildInstructorPayrollEstimates({
+        schedule,
+        staff,
+        payments: payroll,
+        payRates: ((ratesResult.data || []) as Row[]).map((row) => ({
+            instructorId: String(row.instructor_id),
+            effectiveFrom: String(row.effective_from),
+            hourlyRate: toNumber(row.hourly_rate),
+        })),
+    });
+    return { payroll, payrollEstimates, staff, taxSettings };
 }
 
 const DEFAULT_ACCOUNTING_TAX_SETTINGS: AccountingTaxSettings = {

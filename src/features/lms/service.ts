@@ -10,6 +10,7 @@ import type {
   AdminExportOptions,
   AdminExportType,
   AdminResetTarget,
+  ClassDirectoryPage,
   ClassOperationsDetail,
   ClassOperationsOverview,
   ClassMemberCandidate,
@@ -40,12 +41,16 @@ import type {
   StaffSummary,
   ScheduleConflict,
   ScheduleMutationInput,
-  StudentAiConversationRow,
+  StudentAiConversationDetail,
+  StudentAiConversationSummary,
+  StudentAssignmentLearningDetail,
   StudentDetail,
   StudentDetailSection,
   StudentHardDeletePreview,
+  StudentLearningClassContext,
   StudentLearningMetric,
-  StudentLearningPeriod,
+  StudentLearningTypeEvidence,
+  StudentLearningUnitDetail,
   StudentMutationResult,
   StudentOperationsOverview,
   StudentStatus,
@@ -59,6 +64,7 @@ import type {
   UpdateScheduleRuleInput,
   UpdateStaffInput,
   UpdateStudentInput,
+  UpsertInstructorPayRateInput,
 } from './types';
 
 export type LmsCachePolicy = 'static' | 'operational' | 'volatile' | 'live';
@@ -69,10 +75,7 @@ export interface LmsRequestOptions {
   signal?: AbortSignal;
 }
 
-export interface StudentDetailRequestOptions extends LmsRequestOptions {
-  period?: StudentLearningPeriod;
-  assignmentId?: string | null;
-}
+export type StudentDetailRequestOptions = LmsRequestOptions;
 
 export interface LmsInvalidationPayload {
   version: 2;
@@ -105,6 +108,15 @@ export interface StaffRosterRequestOptions extends CursorRequestOptions {
   q?: string;
   role?: 'all' | StaffRole;
   status?: 'operations' | 'all' | StaffStatus;
+}
+
+export interface ClassDirectoryRequestOptions extends CursorRequestOptions {
+  q?: string;
+  grade?: string;
+  subject?: string;
+  instructor?: string;
+  status?: string;
+  classId?: string | null;
 }
 
 interface LmsCacheInvalidationScope {
@@ -387,7 +399,7 @@ function mutationDomainFromPath(path: string): string {
   if (path.includes('/students')) return 'students';
   if (path.includes('/classes') || path.includes('/schedule') || path.includes('/lesson') || path.includes('/attendance') || path.includes('/class-books') || path.includes('/classrooms')) return 'classes';
   if (path.includes('/assignments') || path.includes('/books')) return 'assignments';
-  if (path.includes('/billing') || path.includes('/payments') || path.includes('/expenses') || path.includes('/payroll') || path.includes('/tax-settings')) return 'accounting';
+  if (path.includes('/billing') || path.includes('/payments') || path.includes('/expenses') || path.includes('/payroll') || path.includes('/instructor-pay-rates') || path.includes('/tax-settings')) return 'accounting';
   if (path.includes('/staff')) return 'staff';
   if (path.includes('/admin/reset')) return 'admin';
   return 'lms';
@@ -680,13 +692,36 @@ export async function loadClassOperationsOverview(
   return getLmsJson<ClassOperationsOverview>(`/api/lms/classes/overview?${params.toString()}`, { policy: 'operational', ...options });
 }
 
+export async function loadClassDirectory(
+  academyId: string,
+  options: ClassDirectoryRequestOptions = {},
+): Promise<ClassDirectoryPage> {
+  const params = new URLSearchParams({
+    academyId,
+    limit: String(options.limit || 60),
+  });
+  if (options.q?.trim()) params.set('q', options.q.trim());
+  if (options.grade) params.set('grade', options.grade);
+  if (options.subject) params.set('subject', options.subject);
+  if (options.instructor) params.set('instructor', options.instructor);
+  if (options.status) params.set('status', options.status);
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.classId) params.set('classId', options.classId);
+  return getLmsJson<ClassDirectoryPage>(
+    `/api/lms/classes/directory?${params.toString()}`,
+    { policy: 'operational', ...options },
+  );
+}
+
 export async function loadClassOperationsDetail(
   academyId: string,
   classId: string,
-  options: LmsRequestOptions = {},
+  options: LmsRequestOptions & { occurrenceId?: string | null } = {},
 ): Promise<ClassOperationsDetail> {
+  const { occurrenceId, ...requestOptions } = options;
   const params = new URLSearchParams({ academyId, classId });
-  return getLmsJson<ClassOperationsDetail>(`/api/lms/classes/detail?${params.toString()}`, { policy: 'operational', ...options });
+  if (occurrenceId) params.set('occurrenceId', occurrenceId);
+  return getLmsJson<ClassOperationsDetail>(`/api/lms/classes/detail?${params.toString()}`, { policy: 'operational', ...requestOptions });
 }
 
 export async function loadClassMemberCandidates(
@@ -790,20 +825,77 @@ export async function loadStudentDetail(
   options: StudentDetailRequestOptions = {},
 ): Promise<StudentDetail> {
   const params = new URLSearchParams({ academyId, studentId, section });
-  if (options.period) params.set('period', options.period);
-  if (options.assignmentId) params.set('assignmentId', options.assignmentId);
   return getLmsJson<StudentDetail>(`/api/lms/students/detail?${params.toString()}`, { policy: 'volatile', ...options });
 }
 
-export async function loadStudentAiConversations(
+export async function loadStudentLearningClassContext(
+  academyId: string,
+  studentId: string,
+  classId: string,
+  options: LmsRequestOptions = {},
+): Promise<StudentLearningClassContext> {
+  const params = new URLSearchParams({ academyId, studentId, classId });
+  return getLmsJson<StudentLearningClassContext>(`/api/lms/students/learning-context?${params.toString()}`, { policy: 'volatile', ...options });
+}
+
+export async function loadStudentLearningUnitDetail(
+  academyId: string,
+  studentId: string,
+  classId: string,
+  unitId: string | null,
+  options: LmsRequestOptions = {},
+): Promise<StudentLearningUnitDetail> {
+  const params = new URLSearchParams({ academyId, studentId, classId, unitId: unitId || 'none' });
+  return getLmsJson<StudentLearningUnitDetail>(`/api/lms/students/learning-context/unit?${params.toString()}`, { policy: 'volatile', ...options });
+}
+
+export async function loadStudentLearningTypeEvidence(
+  academyId: string,
+  studentId: string,
+  classId: string,
+  typeId: string | null,
+  unitId: string | null,
+  options: LmsRequestOptions = {},
+): Promise<StudentLearningTypeEvidence> {
+  const params = new URLSearchParams({
+    academyId,
+    studentId,
+    classId,
+    typeId: typeId || 'none',
+    unitId: unitId || 'none',
+  });
+  return getLmsJson<StudentLearningTypeEvidence>(`/api/lms/students/learning-context/evidence?${params.toString()}`, { policy: 'volatile', ...options });
+}
+
+export async function loadStudentAssignmentLearningDetail(
+  academyId: string,
+  studentId: string,
+  assignmentId: string,
+  options: LmsRequestOptions = {},
+): Promise<StudentAssignmentLearningDetail> {
+  const params = new URLSearchParams({ academyId, studentId, assignmentId });
+  return getLmsJson<StudentAssignmentLearningDetail>(`/api/lms/students/assignment-learning?${params.toString()}`, { policy: 'volatile', ...options });
+}
+
+export async function loadStudentAiConversationSummaries(
   academyId: string,
   studentId: string,
   assignmentId?: string | null,
   options: LmsRequestOptions = {},
-): Promise<StudentAiConversationRow[]> {
+): Promise<StudentAiConversationSummary[]> {
   const params = new URLSearchParams({ academyId, studentId });
   if (assignmentId) params.set('assignmentId', assignmentId);
-  return getLmsJson<StudentAiConversationRow[]>(`/api/lms/students/ai-conversations?${params.toString()}`, { policy: 'volatile', ...options });
+  return getLmsJson<StudentAiConversationSummary[]>(`/api/lms/students/ai-conversations?${params.toString()}`, { policy: 'volatile', ...options });
+}
+
+export async function loadStudentAiConversationDetail(
+  academyId: string,
+  studentId: string,
+  conversationId: string,
+  options: LmsRequestOptions = {},
+): Promise<StudentAiConversationDetail> {
+  const params = new URLSearchParams({ academyId, studentId });
+  return getLmsJson<StudentAiConversationDetail>(`/api/lms/students/ai-conversations/${encodeURIComponent(conversationId)}?${params.toString()}`, { policy: 'volatile', ...options });
 }
 
 export async function archiveStudent(academyId: string, studentId: string): Promise<StudentMutationResult> {
@@ -994,6 +1086,10 @@ export async function createExpense(academyId: string, input: CreateExpenseInput
 
 export async function createInstructorPayment(academyId: string, input: CreateInstructorPaymentInput): Promise<void> {
   await postLmsMutation('/api/lms/payroll', { academyId, input });
+}
+
+export async function upsertInstructorPayRate(academyId: string, input: UpsertInstructorPayRateInput): Promise<void> {
+  await postLmsMutation('/api/lms/instructor-pay-rates', { academyId, input });
 }
 
 export async function loadAccountingOperationsOverview(

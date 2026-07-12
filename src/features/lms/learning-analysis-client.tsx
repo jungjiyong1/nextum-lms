@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { jsonCsrfHeaders } from '@/lib/lms/csrf-client';
@@ -19,6 +19,7 @@ import { LearningAnalysisView } from './learning-analysis-view';
 interface LearningAnalysisClientProps {
   initialTab?: LearningAnalysisTab;
   initialPlanId?: string | null;
+  initialClassId?: string | null;
 }
 
 type ApiEnvelope<T> = {
@@ -54,9 +55,11 @@ async function ensureMutationSuccess(response: Response, fallback: string): Prom
 export function LearningAnalysisClient({
   initialTab = 'class-learning',
   initialPlanId = null,
+  initialClassId = null,
 }: LearningAnalysisClientProps) {
   const { profile } = useAuth();
   const router = useRouter();
+  const routeSearchParams = useSearchParams();
   const academyId = profile?.current_academy_id ?? null;
   const [data, setData] = useState<LearningAnalysisData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,6 +84,7 @@ export function LearningAnalysisClient({
     const controller = new AbortController();
     const params = new URLSearchParams({ academyId });
     if (selectedExamPlanId) params.set('planId', selectedExamPlanId);
+    if (initialClassId) params.set('classId', initialClassId);
 
     setLoading(true);
     setError(null);
@@ -89,7 +93,7 @@ export function LearningAnalysisClient({
       cache: 'no-store',
       signal: controller.signal,
     })
-      .then((response) => readEnvelope<LearningAnalysisData>(response, '학습 분석을 불러오지 못했습니다.'))
+      .then((response) => readEnvelope<LearningAnalysisData>(response, '학습 경로를 불러오지 못했습니다.'))
       .then((nextData) => {
         if (controller.signal.aborted) return;
         setData(nextData);
@@ -100,22 +104,27 @@ export function LearningAnalysisClient({
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
-        setError(reason instanceof Error ? reason.message : '학습 분석을 불러오지 못했습니다.');
+        setError(reason instanceof Error ? reason.message : '학습 경로를 불러오지 못했습니다.');
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
 
     return () => controller.abort();
-  }, [academyId, refreshKey, selectedExamPlanId]);
+  }, [academyId, initialClassId, refreshKey, selectedExamPlanId]);
 
   const selectExamPlan = (planId: string) => {
     setLoading(true);
     setData((current) => current ? { ...current, examStudents: [] } : current);
     setSelectedExamPlanId(planId);
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(routeSearchParams.toString());
     params.set('planId', planId);
-    router.replace(`/learning/exams?${params.toString()}`, { scroll: false });
+    router.replace(
+      initialClassId
+        ? `/classrooms/${encodeURIComponent(initialClassId)}/learning?${params.toString()}`
+        : `/learning/exams?${params.toString()}`,
+      { scroll: false },
+    );
   };
 
   const submitPlan = async (input: CreateLearningPlanInput) => {
@@ -126,7 +135,31 @@ export function LearningAnalysisClient({
       body: JSON.stringify({ academyId, input }),
     });
     await ensureMutationSuccess(response, '학습 계획을 저장하지 못했습니다.');
-    toast.success('학습 계획을 저장했습니다.');
+    toast.success('학습 경로를 저장했습니다.');
+    setRefreshKey((current) => current + 1);
+  };
+
+  const startPath = async (planId: string) => {
+    if (!academyId) throw new Error('현재 계정에 연결된 학원이 없습니다.');
+    const response = await fetch('/api/lms/learning-analysis', {
+      method: 'PATCH',
+      headers: jsonCsrfHeaders(),
+      body: JSON.stringify({ academyId, planId, action: 'start' }),
+    });
+    await ensureMutationSuccess(response, '다음 학습 경로를 시작하지 못했습니다.');
+    toast.success('다음 대표 학습 경로를 시작했습니다.');
+    setRefreshKey((current) => current + 1);
+  };
+
+  const changePathStatus = async (planId: string, action: 'complete' | 'archive') => {
+    if (!academyId) throw new Error('현재 계정에 연결된 학원이 없습니다.');
+    const response = await fetch('/api/lms/learning-analysis', {
+      method: 'PATCH',
+      headers: jsonCsrfHeaders(),
+      body: JSON.stringify({ academyId, planId, action }),
+    });
+    await ensureMutationSuccess(response, '학습 경로 상태를 변경하지 못했습니다.');
+    toast.success(action === 'complete' ? '학습 경로를 완료했습니다.' : '학습 경로를 보관했습니다.');
     setRefreshKey((current) => current + 1);
   };
 
@@ -158,6 +191,8 @@ export function LearningAnalysisClient({
       onRetry={() => setRefreshKey((current) => current + 1)}
       onSelectedExamPlanChange={selectExamPlan}
       onSubmitPlan={submitPlan}
+      onStartPath={startPath}
+      onChangePathStatus={changePathStatus}
       onCreateAssignmentDraft={createAssignmentDraft}
     />
   );

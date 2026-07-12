@@ -70,6 +70,7 @@ import {
   updateTaxSettings,
   createExpense,
   createInstructorPayment,
+  upsertInstructorPayRate,
 } from './service';
 import { calculatePayrollDraft } from './payroll';
 import { accountingHref, accountingMonthRange, type AccountingSection } from './accounting-month';
@@ -604,6 +605,7 @@ export function AccountingOperationsPage({
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [payroll, setPayroll] = useState<InstructorPaymentRow[]>([]);
   const [payrollEstimates, setPayrollEstimates] = useState<InstructorPayrollEstimate[]>([]);
+  const [payrollTaxSettings, setPayrollTaxSettings] = useState({ payrollIncomeTaxRate: 3, payrollLocalTaxRate: 0.3 });
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [, setRefreshing] = useState(false);
@@ -634,6 +636,11 @@ export function AccountingOperationsPage({
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
   const [payrollDialogOpen, setPayrollDialogOpen] = useState(false);
+  const [payRateDialogOpen, setPayRateDialogOpen] = useState(false);
+  const [payRateInstructorId, setPayRateInstructorId] = useState('');
+  const [payRateEffectiveFrom, setPayRateEffectiveFrom] = useState(`${initialMonth}-01`);
+  const [payRateHourlyRate, setPayRateHourlyRate] = useState('');
+  const [payRateSubmitting, setPayRateSubmitting] = useState(false);
   const canViewReports = profile?.role === 'owner' || profile?.role === 'admin';
 
   useEffect(() => {
@@ -641,6 +648,8 @@ export function AccountingOperationsPage({
     setPaymentDialogOpen(false);
     setExpenseDialogOpen(false);
     setPayrollDialogOpen(false);
+    setPayRateDialogOpen(false);
+    setPayRateEffectiveFrom(`${initialMonth}-01`);
   }, [initialMonth]);
 
   const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
@@ -657,6 +666,7 @@ export function AccountingOperationsPage({
         const data = await loadInstructorPayrollOperationsOverview(academyId, month, { force: options.force });
         setPayroll(data.payroll);
         setPayrollEstimates(data.payrollEstimates || []);
+        setPayrollTaxSettings(data.taxSettings || { payrollIncomeTaxRate: 3, payrollLocalTaxRate: 0.3 });
         setStaff(data.staff);
       } else {
         const data = await loadExpenseOperationsOverview(academyId, month, { force: options.force });
@@ -698,10 +708,10 @@ export function AccountingOperationsPage({
   const payrollTotals = useMemo(() => ({
     completedLessonCount: payrollEstimates.reduce((sum, row) => sum + row.completedLessonCount, 0),
     completedMinutes: payrollEstimates.reduce((sum, row) => sum + row.completedMinutes, 0),
-    estimatedGrossAmount: payrollEstimates.reduce((sum, row) => sum + row.estimatedGrossAmount, 0),
-    paidGrossAmount: payroll.filter((row) => row.status === 'paid').reduce((sum, row) => sum + row.grossAmount, 0),
-    remainingEstimatedAmount: payrollEstimates.reduce((sum, row) => sum + row.remainingEstimatedAmount, 0),
-  }), [payroll, payrollEstimates]);
+    estimatedBase: payrollEstimates.reduce((sum, row) => sum + row.estimatedBase, 0),
+    paidBase: payrollEstimates.reduce((sum, row) => sum + row.paidBase, 0),
+    remainingBase: payrollEstimates.reduce((sum, row) => sum + row.remainingBase, 0),
+  }), [payrollEstimates]);
   const payrollStaff = useMemo(() => {
     const estimatedInstructorIds = new Set(payrollEstimates.map((row) => row.instructorId));
     return staff.filter((row) => (
@@ -716,6 +726,8 @@ export function AccountingOperationsPage({
     deductionAmount: Number(payrollDeductionAmount),
     withholdingType: payrollWithholdingType,
     customWithholdingRate: Number(payrollWithholdingRate),
+    incomeTaxRate: payrollTaxSettings.payrollIncomeTaxRate,
+    localTaxRate: payrollTaxSettings.payrollLocalTaxRate,
   }), [
     payrollAdditionalAmount,
     payrollDeductionAmount,
@@ -723,6 +735,7 @@ export function AccountingOperationsPage({
     payrollHours,
     payrollWithholdingRate,
     payrollWithholdingType,
+    payrollTaxSettings,
   ]);
 
   if (!academyId) return <MissingAcademy />;
@@ -781,9 +794,13 @@ export function AccountingOperationsPage({
     const instructor = staff.find((row) => row.id === instructorId);
     const hourlyRate = estimate?.hourlyRate || instructor?.hourlyRate || null;
     setPayrollRecipientName(estimate?.instructorName || instructor?.name || '');
-    setPayrollHours(estimate && estimate.completedMinutes > 0 ? String(hoursFromMinutes(estimate.completedMinutes)) : '');
-    setPayrollHourlyRate(hourlyRate ? String(hourlyRate) : '');
-    setPayrollDeductionAmount(estimate && estimate.paidGrossAmount > 0 ? String(estimate.paidGrossAmount) : '');
+    const effectiveRate = estimate && estimate.completedMinutes > 0
+      ? estimate.estimatedBase / (estimate.completedMinutes / 60)
+      : hourlyRate || 0;
+    const draftRate = Math.round(effectiveRate);
+    setPayrollHours(estimate && draftRate > 0 ? String(estimate.remainingBase / draftRate) : '');
+    setPayrollHourlyRate(draftRate ? String(draftRate) : '');
+    setPayrollDeductionAmount('');
     setPayrollDialogOpen(true);
   };
 
@@ -792,9 +809,47 @@ export function AccountingOperationsPage({
     setPaymentDialogOpen(false);
     setExpenseDialogOpen(false);
     setPayrollDialogOpen(false);
+    setPayRateDialogOpen(false);
+    setPayRateEffectiveFrom(`${nextMonth}-01`);
     setPaymentAmount('');
     resetPayrollDraft();
     router.replace(`${pathname}?month=${encodeURIComponent(nextMonth)}`, { scroll: false });
+  };
+
+  const selectPayRateInstructor = (instructorId: string) => {
+    setPayRateInstructorId(instructorId);
+    const estimate = payrollEstimates.find((row) => row.instructorId === instructorId);
+    const instructor = staff.find((row) => row.id === instructorId);
+    setPayRateHourlyRate(String(estimate?.hourlyRate ?? instructor?.hourlyRate ?? ''));
+  };
+
+  const openPayRateDialog = (instructorId = '') => {
+    setPayRateEffectiveFrom(`${month}-01`);
+    selectPayRateInstructor(instructorId);
+    setPayRateDialogOpen(true);
+  };
+
+  const submitPayRate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!payRateInstructorId) {
+      toast.error('시급을 설정할 강사를 선택하세요.');
+      return;
+    }
+    setPayRateSubmitting(true);
+    try {
+      await upsertInstructorPayRate(academyId, {
+        instructorId: payRateInstructorId,
+        effectiveFrom: payRateEffectiveFrom,
+        hourlyRate: Number(payRateHourlyRate),
+      });
+      setPayRateDialogOpen(false);
+      toast.success('적용 시작일별 시급을 저장했습니다.');
+      await load({ force: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '시급 저장에 실패했습니다.');
+    } finally {
+      setPayRateSubmitting(false);
+    }
   };
 
   const submitPayment = async (event: React.FormEvent) => {
@@ -867,6 +922,9 @@ export function AccountingOperationsPage({
         serviceMonth: month,
         paymentDate: payrollPaymentDate,
         grossAmount: payrollPreview.grossAmount,
+        baseAmount: payrollPreview.baseAmount,
+        additionalAmount: payrollPreview.additionalAmount,
+        deductionAmount: payrollPreview.deductionAmount,
         withholdingType: payrollWithholdingType,
         withholdingRate: payrollWithholdingRate ? Number(payrollWithholdingRate) : undefined,
         hoursWorked: payrollHours ? Number(payrollHours) : null,
@@ -898,7 +956,12 @@ export function AccountingOperationsPage({
         <div className="flex flex-wrap items-center gap-2">
           <Input aria-label="회계 기준 월" type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="w-40" />
           {view === 'payments' && <Button type="button" onClick={generate}>청구서 생성</Button>}
-          {view === 'payroll' && <Button type="button" onClick={openDirectPayroll}>직접 지급 등록</Button>}
+          {view === 'payroll' && (
+            <>
+              <Button type="button" variant="outline" onClick={() => openPayRateDialog()}>시급 설정</Button>
+              <Button type="button" onClick={openDirectPayroll}>직접 지급 등록</Button>
+            </>
+          )}
           {view === 'expenses' && <Button type="button" onClick={() => setExpenseDialogOpen(true)}>지출 등록</Button>}
         </div>
       )}
@@ -916,9 +979,9 @@ export function AccountingOperationsPage({
       {view === 'payroll' && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="완료 수업" value={hoursLabel(payrollTotals.completedMinutes)} hint={`${payrollTotals.completedLessonCount}회`} icon={Clock} />
-          <MetricCard label="예상 총급여" value={currency(payrollTotals.estimatedGrossAmount)} hint="완료 시간 × 시급" icon={Users} />
-          <MetricCard label="지급 총액" value={currency(payrollTotals.paidGrossAmount)} hint="세전 지급 기록" icon={CheckCircle2} />
-          <MetricCard label="남은 예상액" value={currency(payrollTotals.remainingEstimatedAmount)} hint="예상액 - 지급액" icon={AlertTriangle} />
+          <MetricCard label="예상 수업급" value={currency(payrollTotals.estimatedBase)} hint="완료 시간 × 당시 시급" icon={Users} />
+          <MetricCard label="기지급 수업급" value={currency(payrollTotals.paidBase)} hint="지급 기록의 기본 수업급" icon={CheckCircle2} />
+          <MetricCard label="남은 수업급" value={currency(payrollTotals.remainingBase)} hint="예상 수업급 - 기지급 수업급" icon={AlertTriangle} />
         </div>
       )}
       {view === 'expenses' && (
@@ -1051,33 +1114,58 @@ export function AccountingOperationsPage({
                         <TableHead className="px-4 py-3 font-medium">강사</TableHead>
                         <TableHead className="px-4 py-3 font-medium">수업 진행</TableHead>
                         <TableHead className="px-4 py-3 font-medium">시급</TableHead>
-                        <TableHead className="px-4 py-3 font-medium">예상 급여</TableHead>
-                        <TableHead className="px-4 py-3 font-medium">지급</TableHead>
-                        <TableHead className="px-4 py-3 font-medium">남은 예상액</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">예상 수업급</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">기지급 수업급</TableHead>
+                        <TableHead className="px-4 py-3 font-medium">남은 수업급</TableHead>
                         <TableHead className="px-4 py-3 font-medium">처리</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {payrollEstimates.map((row) => (
-                        <TableRow key={row.instructorId}>
+                      {payrollEstimates.map((row) => {
+                        const rateBreakdown = row.rateBreakdown.filter((rate) => rate.hourlyRate > 0);
+                        const hasRate = rateBreakdown.length > 0 || Boolean(row.hourlyRate);
+                        return (
+                          <TableRow key={row.instructorId}>
                           <TableCell className="px-4 py-3 font-medium">{row.instructorName}</TableCell>
                           <TableCell className="px-4 py-3">
                             <div className="font-medium">완료 {row.completedLessonCount}/{row.scheduledLessonCount}회</div>
                             <div className="text-xs text-muted-foreground">{hoursLabel(row.completedMinutes)} / {hoursLabel(row.scheduledMinutes)}</div>
                           </TableCell>
                           <TableCell className="px-4 py-3 tabular-nums">
-                            {row.hourlyRate ? currency(row.hourlyRate) : <span className="text-warning-foreground">시급 미설정</span>}
+                            {rateBreakdown.length > 1 ? (
+                              <div>
+                                <div className="font-medium">혼합 시급</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {rateBreakdown.map((rate) => `${currency(rate.hourlyRate)} · ${hoursLabel(rate.minutes)}`).join(' / ')}
+                                </div>
+                              </div>
+                            ) : rateBreakdown[0] ? currency(rateBreakdown[0].hourlyRate) : row.hourlyRate
+                              ? currency(row.hourlyRate)
+                              : <span className="text-warning-foreground">시급 미설정</span>}
                           </TableCell>
-                          <TableCell className="px-4 py-3 tabular-nums">{row.hourlyRate ? currency(row.estimatedGrossAmount) : '-'}</TableCell>
-                          <TableCell className="px-4 py-3 tabular-nums">{currency(row.paidGrossAmount)}</TableCell>
-                          <TableCell className="px-4 py-3 tabular-nums font-medium">{row.hourlyRate ? currency(row.remainingEstimatedAmount) : '-'}</TableCell>
+                          <TableCell className="px-4 py-3 tabular-nums">{hasRate ? currency(row.estimatedBase) : '-'}</TableCell>
+                          <TableCell className="px-4 py-3 tabular-nums">
+                            <div>{currency(row.paidBase)}</div>
+                            {(row.additionalAmount > 0 || row.deductionAmount > 0) && (
+                              <div className="text-xs text-muted-foreground">
+                                추가 {currency(row.additionalAmount)} · 차감 {currency(row.deductionAmount)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-4 py-3 tabular-nums font-medium">{hasRate ? currency(row.remainingBase) : '-'}</TableCell>
                           <TableCell className="px-4 py-3">
-                            <Button type="button" size="sm" variant="outline" onClick={() => selectPayrollInstructor(row.instructorId)}>
-                              지급 작성
-                            </Button>
+                            <div className="flex flex-wrap gap-2">
+                              <Button type="button" size="sm" variant="ghost" onClick={() => openPayRateDialog(row.instructorId)}>
+                                시급 설정
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" onClick={() => selectPayrollInstructor(row.instructorId)}>
+                                지급 작성
+                              </Button>
+                            </div>
                           </TableCell>
-                        </TableRow>
-                      ))}
+                          </TableRow>
+                        );
+                      })}
                       {payrollEstimates.length === 0 && (
                         <TableRow><TableCell colSpan={7} className="px-4 py-8 text-center text-muted-foreground">이번 달 강사 수업이나 시급 정보가 없습니다.</TableCell></TableRow>
                       )}
@@ -1086,6 +1174,59 @@ export function AccountingOperationsPage({
                 </DataTable>
               </CardContent>
             </Card>
+
+            <Dialog open={payRateDialogOpen} onOpenChange={setPayRateDialogOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>강사 시급 설정</DialogTitle>
+                  <DialogDescription>적용 시작일을 기준으로 이력을 남기며, 이전 수업의 계산은 바뀌지 않습니다.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={submitPayRate} className="space-y-4">
+                  <div>
+                    <Label htmlFor="pay-rate-instructor">강사</Label>
+                    <SelectField
+                      id="pay-rate-instructor"
+                      value={payRateInstructorId}
+                      onChange={(event) => selectPayRateInstructor(event.target.value)}
+                      disabled={payRateSubmitting}
+                    >
+                      <option value="">강사 선택</option>
+                      {payrollStaff.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+                    </SelectField>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <Label htmlFor="pay-rate-effective-from">적용 시작일</Label>
+                      <Input
+                        id="pay-rate-effective-from"
+                        type="date"
+                        required
+                        value={payRateEffectiveFrom}
+                        onChange={(event) => setPayRateEffectiveFrom(event.target.value)}
+                        disabled={payRateSubmitting}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="pay-rate-hourly-rate">시급</Label>
+                      <Input
+                        id="pay-rate-hourly-rate"
+                        type="number"
+                        min="0"
+                        step="1"
+                        required
+                        value={payRateHourlyRate}
+                        onChange={(event) => setPayRateHourlyRate(event.target.value)}
+                        disabled={payRateSubmitting}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setPayRateDialogOpen(false)} disabled={payRateSubmitting}>취소</Button>
+                    <Button type="submit" disabled={payRateSubmitting}>{payRateSubmitting ? '저장 중...' : '시급 저장'}</Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
 
             <Dialog open={payrollDialogOpen} onOpenChange={setPayrollDialogOpen}>
               <DialogContent className="max-w-2xl">
@@ -1113,13 +1254,15 @@ export function AccountingOperationsPage({
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><Label>추가금</Label><Input type="number" min="0" step="1" value={payrollAdditionalAmount} onChange={(event) => setPayrollAdditionalAmount(event.target.value)} placeholder="보너스·교통비 등" /></div>
-                    <div><Label>차감·기지급</Label><Input type="number" min="0" step="1" value={payrollDeductionAmount} onChange={(event) => setPayrollDeductionAmount(event.target.value)} placeholder="기지급액·선지급·조정" /></div>
+                    <div><Label>차감액</Label><Input type="number" min="0" step="1" value={payrollDeductionAmount} onChange={(event) => setPayrollDeductionAmount(event.target.value)} placeholder="조정·공제액" /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <Label>원천징수</Label>
                       <SelectField value={payrollWithholdingType} onChange={(event) => setPayrollWithholdingType(event.target.value as WithholdingType)}>
-                        <option value="freelance_3.3">프리랜서 3.3%</option>
+                        <option value="freelance_3.3">
+                          프리랜서 {payrollTaxSettings.payrollIncomeTaxRate + payrollTaxSettings.payrollLocalTaxRate}%
+                        </option>
                         <option value="none">없음</option>
                         <option value="custom">직접 계산</option>
                       </SelectField>
@@ -1198,7 +1341,10 @@ export function AccountingOperationsPage({
                   <div key={row.id} className="flex items-center justify-between rounded-xl bg-muted/60 p-3">
                     <div>
                       <strong>{row.recipientName || row.instructorName || '-'}</strong>
-                      <div className="text-xs text-muted-foreground">{row.paymentDate} · 원천 {currency(row.withholdingTax + row.localTax)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.paymentDate} · 수업급 {currency(row.baseAmount)} · 추가 {currency(row.additionalAmount)} · 차감 {currency(row.deductionAmount)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">원천 {currency(row.withholdingTax + row.localTax)}</div>
                     </div>
                     <div className="text-right">
                       <div className="font-semibold">{currency(row.netAmount)}</div>

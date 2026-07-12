@@ -91,6 +91,18 @@ export function canManageScheduleRules(role: AppRole | null | undefined): boolea
     return role === 'owner' || role === 'admin' || role === 'staff';
 }
 
+export function canManageGlobalClassResources(role: AppRole | null | undefined): boolean {
+    return canManageScheduleRules(role);
+}
+
+export function canCreateClass(role: AppRole | null | undefined): boolean {
+    return canManageGlobalClassResources(role);
+}
+
+export function canOperateAssignedClass(role: AppRole | null | undefined): boolean {
+    return canManageGlobalClassResources(role) || role === 'teacher' || role === 'instructor';
+}
+
 export function requiresAssignedClassScope(role: AppRole | null | undefined): boolean {
     return role === 'teacher' || role === 'instructor';
 }

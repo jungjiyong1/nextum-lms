@@ -5,27 +5,38 @@ import type {
     AttendanceRow,
     BillingRow,
     PaymentRow,
-    StudentAiConversationRow,
+    StudentAiConversationDetail,
+    StudentAiConversationSummary,
+    StudentAiProblemSummary,
+    StudentAssignmentLearningDetail,
     StudentAssignmentInsight,
     StudentAttendanceSummary,
     StudentDetail,
     StudentDetailSection,
     StudentGradeAppAccount,
     StudentHardDeletePreview,
-    StudentLearningAnalytics,
-    StudentLearningAttemptRow,
+    StudentLearningAttentionStatus,
+    StudentLearningClassContext,
+    StudentLearningClassSummary,
+    StudentLearningEvidenceRow,
     StudentLearningMetric,
-    StudentLearningPeriod,
+    StudentLearningOverview,
+    StudentLearningPathSummary,
     StudentLearningStatus,
+    StudentLearningSubjectSummary,
+    StudentLearningTypeEvidence,
+    StudentLearningTypeSummary,
+    StudentLearningUnitDetail,
+    StudentLearningUnitSummary,
     StudentOperationsOverview,
     StudentOperationsPermissions,
     StudentSignupInvitation,
     StudentSummary,
     StudentTypeInsight,
     StudentUnitInsight,
-    WeakTypeRow,
 } from '@/features/lms/types';
 import { COMPLETED_PAYMENT_STATUS } from '@/features/lms/status';
+import { summarizeRecentFirstAttempts } from '@/features/lms/student-learning-metrics';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { ApiContractError, decodeCursor, encodeCursor, normalizeCursorLimit } from './api-contracts';
 import { loadAssignedClassIdsForContext, loadClassOptionsForContext } from './class-queries';
@@ -54,7 +65,6 @@ const EMPTY_ATTENDANCE_SUMMARY: StudentAttendanceSummary = {
 };
 
 const STUDENT_DETAIL_SECTIONS = new Set<StudentDetailSection>(['learning', 'attendance', 'billing', 'management', 'full']);
-const STUDENT_LEARNING_PERIODS = new Set<StudentLearningPeriod>(['30d', '90d', '180d', 'all']);
 
 function ensureNoError(error: { message?: string } | null, context: string) {
     if (error) {
@@ -84,20 +94,53 @@ function attemptScore(row: Row): number {
     return row.correct ? 1 : 0;
 }
 
-function normalizeLearningPeriod(value?: string | null): StudentLearningPeriod {
-    return STUDENT_LEARNING_PERIODS.has(value as StudentLearningPeriod) ? value as StudentLearningPeriod : '90d';
-}
-
-function periodStartIso(period: StudentLearningPeriod): string | null {
-    if (period === 'all') return null;
-    const days = period === '30d' ? 30 : period === '180d' ? 180 : 90;
-    const start = new Date();
-    start.setDate(start.getDate() - days);
-    return start.toISOString();
-}
-
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
     return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function groupAttemptsByProblem(attempts: Row[]): Map<string, Row[]> {
+    const grouped = new Map<string, Row[]>();
+    for (const attempt of attempts) {
+        const rows = grouped.get(attempt.problem_id) || [];
+        rows.push(attempt);
+        grouped.set(attempt.problem_id, rows);
+    }
+    for (const rows of grouped.values()) {
+        rows.sort((a, b) => Number(a.attempt_no || 0) - Number(b.attempt_no || 0)
+            || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+    }
+    return grouped;
+}
+
+function groupAttemptsByLearningSource(attempts: Row[]): Map<string, Row[]> {
+    const grouped = new Map<string, Row[]>();
+    for (const attempt of attempts) {
+        const sourceId = attempt.assignment_id || attempt.session_id || 'personal';
+        const key = `${sourceId}:${attempt.problem_id}`;
+        grouped.set(key, [...(grouped.get(key) || []), attempt]);
+    }
+    for (const rows of grouped.values()) {
+        rows.sort((a, b) => Number(a.attempt_no || 0) - Number(b.attempt_no || 0)
+            || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+    }
+    return grouped;
+}
+
+function compareAssignments(a: StudentAssignmentInsight, b: StudentAssignmentInsight): number {
+    const rank = (row: StudentAssignmentInsight) => {
+        if (row.progressStatus === 'completed') return 3;
+        if (row.overdue) return 0;
+        if (row.dueSoon) return 1;
+        return 2;
+    };
+    const rankA = rank(a);
+    const rankB = rank(b);
+    if (rankA !== rankB) return rankA - rankB;
+    if (rankA === 3) {
+        return String(b.lastActivityAt || b.dueAt || '').localeCompare(String(a.lastActivityAt || a.dueAt || ''));
+    }
+    return String(a.dueAt || '9999-12-31').localeCompare(String(b.dueAt || '9999-12-31'))
+        || String(b.lastActivityAt || '').localeCompare(String(a.lastActivityAt || ''));
 }
 
 function permissionsForContext(context: LmsRoleContext): StudentOperationsPermissions {
@@ -327,30 +370,6 @@ async function assertCanViewStudent(
     if (!data?.student_id) throw new LmsAuthError('Student access is not allowed for this role.', 403);
 }
 
-async function loadWeakTypes(reporting: SchemaClient, academyId: string, studentId: string): Promise<WeakTypeRow[]> {
-    const { data, error } = await reporting
-        .from('v_student_type_weakness')
-        .select('student_id,student_name,class_id,type_name,sample_count,correct_count,score,status,last_attempted_at')
-        .eq('academy_id', academyId)
-        .eq('student_id', studentId)
-        .order('status', { ascending: true })
-        .order('last_attempted_at', { ascending: false })
-        .limit(12);
-    ensureNoError(error, 'Failed to load student weak types');
-
-    return ((data || []) as Row[]).map((row) => ({
-        studentId: row.student_id,
-        studentName: row.student_name || 'Unknown student',
-        classId: row.class_id ?? null,
-        typeName: row.type_name || 'Unknown type',
-        sampleCount: toNumber(row.sample_count),
-        correctCount: toNumber(row.correct_count),
-        score: row.score === null || row.score === undefined ? null : Number(row.score),
-        status: row.status,
-        lastAttemptedAt: row.last_attempted_at ?? null,
-    }));
-}
-
 interface ProblemMeta {
     id: string;
     bookId: string | null;
@@ -360,34 +379,6 @@ interface ProblemMeta {
     typeId: string | null;
     typeName: string;
     label: string;
-}
-
-interface LearningAnalyticsResult {
-    analytics: StudentLearningAnalytics;
-    recentAttempts: StudentLearningAttemptRow[];
-    aiConversations: StudentAiConversationRow[];
-}
-
-function emptyLearningAnalytics(period: StudentLearningPeriod, assignmentId: string | null): StudentLearningAnalytics {
-    return {
-        period,
-        assignmentId,
-        overview: {
-            attemptedProblemCount: 0,
-            attemptCount: 0,
-            correctAttemptCount: 0,
-            correctRate: null,
-            weakTypeCount: 0,
-            watchTypeCount: 0,
-            unitCount: 0,
-            assignmentCount: 0,
-            completedAssignmentCount: 0,
-            aiConversationCount: 0,
-            lastLearningAt: null,
-        },
-        units: [],
-        assignments: [],
-    };
 }
 
 async function loadProblemMeta(content: SchemaClient, problemIds: string[]): Promise<Map<string, ProblemMeta>> {
@@ -404,23 +395,58 @@ async function loadProblemMeta(content: SchemaClient, problemIds: string[]): Pro
     const bookIds = uniqueStrings(problems.map((row) => row.book_id));
     const unitIds = uniqueStrings(problems.map((row) => row.unit_id));
     const typeIds = uniqueStrings(problems.map((row) => row.problem_type_id || row.type_id));
-    const [bookResult, unitResult, typeResult] = await Promise.all([
+    const [bookResult, unitResult, typeResult, revisionResult] = await Promise.all([
         bookIds.length ? content.from('books').select('id,title').in('id', bookIds) : Promise.resolve({ data: [], error: null }),
         unitIds.length ? content.from('units').select('id,name').in('id', unitIds) : Promise.resolve({ data: [], error: null }),
         typeIds.length ? content.from('problem_types').select('id,name').in('id', typeIds) : Promise.resolve({ data: [], error: null }),
+        content.from('analysis_taxonomy_revisions').select('id').eq('status', 'published').order('revision_number', { ascending: false }).limit(1).maybeSingle(),
     ]);
     ensureNoError(bookResult.error, 'Failed to load student learning books');
     ensureNoError(unitResult.error, 'Failed to load student learning units');
     ensureNoError(typeResult.error, 'Failed to load student learning types');
+    ensureNoError(revisionResult.error, 'Failed to load canonical learning taxonomy');
+
+    const revisionId = (revisionResult.data as Row | null)?.id;
+    const canonicalTags = new Map<string, string>();
+    const canonicalNames = new Map<string, string>();
+    if (typeof revisionId === 'string') {
+        const { data: tagData, error: tagError } = await content
+            .from('problem_analysis_tags')
+            .select('problem_id,analysis_skill_id')
+            .eq('taxonomy_revision_id', revisionId)
+            .eq('review_status', 'approved')
+            .in('problem_id', ids);
+        ensureNoError(tagError, 'Failed to load canonical learning tags');
+        for (const row of (tagData || []) as Row[]) {
+            if (typeof row.problem_id === 'string' && typeof row.analysis_skill_id === 'string') canonicalTags.set(row.problem_id, row.analysis_skill_id);
+        }
+        const skillIds = uniqueStrings([...canonicalTags.values()]);
+        if (skillIds.length > 0) {
+            const { data: skillData, error: skillError } = await content
+                .from('analysis_skills')
+                .select('id,name')
+                .eq('taxonomy_revision_id', revisionId)
+                .eq('active', true)
+                .in('id', skillIds);
+            ensureNoError(skillError, 'Failed to load canonical learning skill names');
+            for (const row of (skillData || []) as Row[]) {
+                if (typeof row.id === 'string' && typeof row.name === 'string') canonicalNames.set(row.id, row.name);
+            }
+            for (const [problemId, skillId] of canonicalTags) {
+                if (!canonicalNames.has(skillId)) canonicalTags.delete(problemId);
+            }
+        }
+    }
 
     const bookNames = new Map(((bookResult.data || []) as Row[]).map((row) => [row.id, row.title]));
     const unitNames = new Map(((unitResult.data || []) as Row[]).map((row) => [row.id, row.name]));
     const typeNames = new Map(((typeResult.data || []) as Row[]).map((row) => [row.id, row.name]));
 
     return new Map(problems.map((problem) => {
-        const typeId = problem.problem_type_id || problem.type_id || null;
+        const localTypeId = problem.problem_type_id || problem.type_id || null;
+        const typeId = canonicalTags.get(problem.id) || localTypeId;
         const unitName = problem.unit_id ? unitNames.get(problem.unit_id) || '단원 미지정' : '단원 미지정';
-        const typeName = typeId ? typeNames.get(typeId) || '유형 미지정' : '유형 미지정';
+        const typeName = typeId ? canonicalNames.get(typeId) || typeNames.get(localTypeId) || '유형 미지정' : '유형 미지정';
         const page = problem.page_printed ? `p.${Number(problem.page_printed)}` : '문항';
         return [problem.id, {
             id: problem.id,
@@ -444,10 +470,9 @@ async function loadAssignmentInsights(
     const [recipientResult, sessionResult, attemptResult] = await Promise.all([
         learning
             .from('assignment_recipients')
-            .select('assignment_id')
+            .select('assignment_id,class_id,source_type,metadata')
             .eq('academy_id', academyId)
             .eq('student_id', studentId)
-            .eq('active', true)
             .limit(500),
         learning
             .from('sessions')
@@ -458,7 +483,7 @@ async function loadAssignmentInsights(
             .limit(1000),
         learning
             .from('attempts')
-            .select('assignment_id,problem_id,correct,created_at')
+            .select('assignment_id,problem_id,correct,unsure,attempt_no,created_at')
             .eq('academy_id', academyId)
             .eq('core_student_id', studentId)
             .not('assignment_id', 'is', null)
@@ -499,6 +524,9 @@ async function loadAssignmentInsights(
     const sessions = (sessionResult.data || []) as Row[];
     const attempts = (attemptResult.data || []) as Row[];
     const items = (itemResult.data || []) as Row[];
+    const recipients = new Map(((recipientResult.data || []) as Row[]).map((row) => [row.assignment_id, row]));
+    const now = new Date();
+    const dueSoonBoundary = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     return assignments.map((assignment) => {
         const assignmentItems = items.filter((row) => row.assignment_id === assignment.id && row.required !== false && row.problem_id);
@@ -507,7 +535,10 @@ async function loadAssignmentInsights(
         const assignmentSessions = sessions.filter((row) => row.assignment_id === assignment.id);
         const attemptedProblemIds = new Set(assignmentAttempts.map((row) => row.problem_id));
         const attemptedProblemCount = attemptedProblemIds.size;
-        const correctAttemptCount = assignmentAttempts.filter((row) => row.correct === true).length;
+        const attemptsByProblem = groupAttemptsByProblem(assignmentAttempts);
+        const firstAttempts = [...attemptsByProblem.values()].map((rows) => rows[0]).filter(Boolean);
+        const correctAttemptCount = firstAttempts.filter((row) => row.correct === true).length;
+        const correctedProblemCount = [...attemptsByProblem.values()].filter((rows) => rows[0]?.correct === false && rows.slice(1).some((row) => row.correct === true)).length;
         const lastActivityAt = [
             ...assignmentAttempts.map((row) => row.created_at),
             ...assignmentSessions.map((row) => row.submitted_at || row.started_at),
@@ -521,11 +552,20 @@ async function loadAssignmentInsights(
             : assignmentAttempts.length > 0 || assignmentSessions.length > 0
                 ? 'in_progress'
                 : 'not_started';
+        const recipient = recipients.get(assignment.id);
+        const dueAt = assignment.due_at ?? null;
+        const dueDate = dueAt ? new Date(dueAt) : null;
+        const incomplete = progressStatus !== 'completed';
+        const overdue = Boolean(incomplete && dueDate && dueDate.getTime() < now.getTime());
+        const dueSoon = Boolean(incomplete && dueDate && !overdue && dueDate.getTime() <= dueSoonBoundary.getTime());
+        const personal = !recipient?.class_id || recipient?.metadata?.personal === true;
 
         return {
             id: assignment.id,
+            classId: personal ? null : recipient.class_id,
+            personal,
             title: assignment.title || '제목 없는 과제',
-            dueAt: assignment.due_at ?? null,
+            dueAt,
             status: assignment.status || 'published',
             active: assignment.active !== false,
             sourceType: assignment.source_type === 'worksheet' ? 'worksheet' : 'content_scope',
@@ -533,12 +573,15 @@ async function loadAssignmentInsights(
             progressStatus,
             requiredProblemCount: requiredProblemIds.length,
             attemptedProblemCount,
-            attemptCount: assignmentAttempts.length,
+            attemptCount: firstAttempts.length,
             correctAttemptCount,
-            correctRate: accuracy(correctAttemptCount, assignmentAttempts.length),
+            correctRate: accuracy(correctAttemptCount, firstAttempts.length),
+            correctedProblemCount,
+            dueSoon,
+            overdue,
             lastActivityAt,
         } satisfies StudentAssignmentInsight;
-    }).sort((a, b) => String(b.lastActivityAt || b.dueAt || '').localeCompare(String(a.lastActivityAt || a.dueAt || '')));
+    }).sort(compareAssignments);
 }
 
 function buildUnitInsights(attempts: Row[], problemMeta: Map<string, ProblemMeta>): StudentUnitInsight[] {
@@ -643,171 +686,465 @@ function buildUnitInsights(attempts: Row[], problemMeta: Map<string, ProblemMeta
     }).sort((a, b) => statusRank[a.status] - statusRank[b.status] || (a.score ?? 101) - (b.score ?? 101) || b.sampleCount - a.sampleCount);
 }
 
-function mapRecentAttempts(attempts: Row[], problemMeta: Map<string, ProblemMeta>, assignmentNames: Map<string, string>): StudentLearningAttemptRow[] {
-    return attempts.slice(0, 12).map((row) => {
-        const meta = problemMeta.get(row.problem_id);
+interface StudentClassDescriptor {
+    classId: string;
+    className: string;
+    grade: string | null;
+    color: string | null;
+    courseTitle: string | null;
+    subjectId: string | null;
+    subjectName: string;
+}
+
+function attentionStatus(sampleCount: number, correctRate: number | null, overdueAssignments: number): StudentLearningAttentionStatus {
+    if (sampleCount >= 5 && correctRate !== null && correctRate < 50) return 'support_needed';
+    if (overdueAssignments > 0 || (sampleCount >= 5 && correctRate !== null && correctRate < 75)) return 'check_needed';
+    if (sampleCount > 0) return 'steady';
+    return 'no_data';
+}
+
+function normalizePathPurpose(value: unknown): StudentLearningPathSummary['purpose'] {
+    return value === 'current' || value === 'advance' || value === 'review' ? value : 'other';
+}
+
+function normalizePathStatus(value: unknown): StudentLearningPathSummary['status'] {
+    if (value === 'active' || value === 'archived' || value === 'completed') return value;
+    return 'draft';
+}
+
+async function loadStudentClassDescriptors(
+    core: SchemaClient,
+    lms: SchemaClient,
+    academyId: string,
+    studentId: string,
+): Promise<StudentClassDescriptor[]> {
+    const { data: enrollmentData, error: enrollmentError } = await core
+        .from('class_students')
+        .select('class_id,classes(id,name,grade,metadata)')
+        .eq('student_id', studentId)
+        .eq('status', 'active');
+    ensureNoError(enrollmentError, 'Failed to load student learning classes');
+    const enrollments = (enrollmentData || []) as Row[];
+    const classIds = uniqueStrings(enrollments.map((row) => row.class_id));
+    if (classIds.length === 0) return [];
+
+    const { data: profileData, error: profileError } = await lms
+        .from('class_profiles')
+        .select('class_id,course_id,subject_id,color,status')
+        .eq('academy_id', academyId)
+        .in('class_id', classIds);
+    ensureNoError(profileError, 'Failed to load student learning class profiles');
+    const profiles = (profileData || []) as Row[];
+    const courseIds = uniqueStrings(profiles.map((row) => row.course_id));
+    const profileSubjectIds = uniqueStrings(profiles.map((row) => row.subject_id));
+    const { data: courseData, error: courseError } = courseIds.length > 0
+        ? await lms.from('courses').select('id,title,subject_id').eq('academy_id', academyId).in('id', courseIds)
+        : { data: [], error: null };
+    ensureNoError(courseError, 'Failed to load student learning courses');
+    const courses = (courseData || []) as Row[];
+    const subjectIds = uniqueStrings([...profileSubjectIds, ...courses.map((row) => row.subject_id)]);
+    const { data: subjectData, error: subjectError } = subjectIds.length > 0
+        ? await lms.from('subjects').select('id,name').eq('academy_id', academyId).in('id', subjectIds)
+        : { data: [], error: null };
+    ensureNoError(subjectError, 'Failed to load student learning subjects');
+
+    const profilesByClass = new Map(profiles.map((row) => [row.class_id, row]));
+    const coursesById = new Map(courses.map((row) => [row.id, row]));
+    const subjectsById = new Map(((subjectData || []) as Row[]).map((row) => [row.id, row.name]));
+
+    return enrollments.map((enrollment) => {
+        const cls = Array.isArray(enrollment.classes) ? enrollment.classes[0] : enrollment.classes;
+        const profile = profilesByClass.get(enrollment.class_id);
+        const course = profile?.course_id ? coursesById.get(profile.course_id) : null;
+        const subjectId = profile?.subject_id || course?.subject_id || null;
+        const courseTitle = course?.title || null;
         return {
-            id: Number(row.id),
-            problemId: row.problem_id,
-            assignmentId: row.assignment_id ?? null,
-            assignmentTitle: row.assignment_id ? assignmentNames.get(row.assignment_id) ?? null : null,
-            unitId: meta?.unitId ?? null,
-            unitName: meta?.unitName ?? null,
-            typeId: meta?.typeId ?? null,
-            typeName: meta?.typeName ?? null,
-            label: meta?.label || row.problem_id,
-            correct: Boolean(row.correct),
-            unsure: Boolean(row.unsure),
-            attemptNo: toNumber(row.attempt_no),
-            durationMs: row.duration_ms === null || row.duration_ms === undefined ? null : toNumber(row.duration_ms),
-            createdAt: row.created_at,
-        };
+            classId: enrollment.class_id,
+            className: cls?.name || '이름 없는 반',
+            grade: cls?.grade ?? null,
+            color: profile?.color ?? null,
+            courseTitle,
+            subjectId,
+            subjectName: subjectId ? subjectsById.get(subjectId) || courseTitle || '과목 미설정' : courseTitle || '과목 미설정',
+        } satisfies StudentClassDescriptor;
     });
 }
 
-async function loadAiConversations(
-    ai: SchemaClient,
+async function loadStudentAttempts(learning: SchemaClient, academyId: string, studentId: string): Promise<Row[]> {
+    const { data, error } = await learning
+        .from('attempts')
+        .select('id,assignment_id,session_id,problem_id,correct,unsure,attempt_no,created_at')
+        .eq('academy_id', academyId)
+        .eq('core_student_id', studentId)
+        .order('created_at', { ascending: false })
+        .limit(5000);
+    ensureNoError(error, 'Failed to load student learning attempts');
+    return (data || []) as Row[];
+}
+
+function recentFirstAttemptStats(attempts: Row[]) {
+    return summarizeRecentFirstAttempts(attempts.map((row) => ({
+        problemId: row.problem_id,
+        correct: row.correct === true,
+        attemptNo: toNumber(row.attempt_no),
+        createdAt: String(row.created_at || ''),
+    })));
+}
+
+async function loadLearningPaths(
+    learning: SchemaClient,
+    academyId: string,
+    classIds: string[],
+    studentId: string,
+): Promise<Map<string, StudentLearningPathSummary[]>> {
+    if (classIds.length === 0) return new Map();
+    const { data, error } = await learning
+        .from('analysis_plans')
+        .select('id,class_id,name,status,plan_type,path_role,path_purpose,metadata')
+        .eq('academy_id', academyId)
+        .eq('plan_type', 'study_track')
+        .in('class_id', classIds)
+        .in('status', ['draft', 'active', 'completed'])
+        .order('created_at', { ascending: false });
+    ensureNoError(error, 'Failed to load student learning paths');
+    const plans = (data || []) as Row[];
+    const planIds = uniqueStrings(plans.map((row) => row.id));
+    const excluded = new Set<string>();
+    if (planIds.length > 0) {
+        const { data: overrideData, error: overrideError } = await learning
+            .from('analysis_plan_student_overrides')
+            .select('plan_id,included')
+            .eq('student_id', studentId)
+            .in('plan_id', planIds);
+        ensureNoError(overrideError, 'Failed to load student learning path overrides');
+        for (const row of (overrideData || []) as Row[]) {
+            if (row.included === false) excluded.add(row.plan_id);
+        }
+    }
+
+    const byClass = new Map<string, StudentLearningPathSummary[]>();
+    for (const row of plans) {
+        if (excluded.has(row.id)) continue;
+        const metadata = row.metadata || {};
+        const path = {
+            id: row.id,
+            name: row.name,
+            purpose: normalizePathPurpose(row.path_purpose || metadata.purpose),
+            role: row.path_role === 'supplemental' || metadata.role === 'secondary' || metadata.is_primary === false ? 'secondary' : 'primary',
+            status: normalizePathStatus(row.status),
+        } satisfies StudentLearningPathSummary;
+        byClass.set(row.class_id, [...(byClass.get(row.class_id) || []), path]);
+    }
+    return byClass;
+}
+
+async function loadStudentLearningOverviewData(
+    core: SchemaClient,
+    lms: SchemaClient,
+    learning: SchemaClient,
+    content: SchemaClient,
+    academyId: string,
+    studentId: string,
+    visibleClassIds: Set<string> | null,
+): Promise<StudentLearningOverview> {
+    const [allClasses, allAssignments, attempts] = await Promise.all([
+        loadStudentClassDescriptors(core, lms, academyId, studentId),
+        loadAssignmentInsights(learning, content, academyId, studentId),
+        loadStudentAttempts(learning, academyId, studentId),
+    ]);
+    const classes = visibleClassIds ? allClasses.filter((row) => visibleClassIds.has(row.classId)) : allClasses;
+    const assignments = visibleClassIds
+        ? allAssignments.filter((row) => Boolean(row.classId && visibleClassIds.has(row.classId)))
+        : allAssignments;
+    const visibleAssignmentIds = new Set(assignments.map((row) => row.id));
+    const visibleAttempts = visibleClassIds
+        ? attempts.filter((row) => Boolean(row.assignment_id && visibleAssignmentIds.has(row.assignment_id)))
+        : attempts;
+    const pathsByClass = await loadLearningPaths(learning, academyId, classes.map((row) => row.classId), studentId);
+    const assignmentById = new Map(assignments.map((row) => [row.id, row]));
+    const attemptsByClass = new Map<string, Row[]>();
+    let unclassifiedAttemptCount = 0;
+    for (const attempt of visibleAttempts) {
+        const assignment = attempt.assignment_id ? assignmentById.get(attempt.assignment_id) : null;
+        if (assignment?.personal) continue;
+        const classId = assignment?.classId || null;
+        if (!classId) {
+            unclassifiedAttemptCount += 1;
+            continue;
+        }
+        attemptsByClass.set(classId, [...(attemptsByClass.get(classId) || []), attempt]);
+    }
+
+    const classSummaries: StudentLearningClassSummary[] = classes.map((row) => {
+        const stats = recentFirstAttemptStats(attemptsByClass.get(row.classId) || []);
+        const classAssignments = assignments.filter((assignment) => assignment.classId === row.classId);
+        const pendingAssignments = classAssignments.filter((assignment) => assignment.active && assignment.progressStatus !== 'completed');
+        const paths = pathsByClass.get(row.classId) || [];
+        return {
+            ...row,
+            pathState: paths.length > 0 ? 'configured' : 'needs_setup',
+            primaryPathName: paths.find((path) => path.role === 'primary' && path.status === 'active')?.name
+                || paths.find((path) => path.role === 'primary')?.name
+                || null,
+            activePathCount: paths.filter((path) => path.status === 'active').length,
+            status: attentionStatus(stats.sampleCount, stats.correctRate, pendingAssignments.filter((assignment) => assignment.overdue).length),
+            ...stats,
+            pendingAssignmentCount: pendingAssignments.length,
+            dueSoonAssignmentCount: pendingAssignments.filter((assignment) => assignment.dueSoon || assignment.overdue).length,
+        } satisfies StudentLearningClassSummary;
+    });
+
+    const grouped = new Map<string, StudentLearningClassSummary[]>();
+    for (const row of classSummaries) {
+        const key = row.subjectId || `unclassified:${row.subjectName}`;
+        grouped.set(key, [...(grouped.get(key) || []), row]);
+    }
+    const subjects: StudentLearningSubjectSummary[] = [...grouped.values()].map((rows) => {
+        const stats = recentFirstAttemptStats(rows.flatMap((row) => attemptsByClass.get(row.classId) || []));
+        const overdueAssignments = rows.reduce((sum, row) => sum + row.dueSoonAssignmentCount, 0);
+        return {
+            subjectId: rows[0]?.subjectId || null,
+            subjectName: rows[0]?.subjectName || '과목 미설정',
+            status: attentionStatus(stats.sampleCount, stats.correctRate, overdueAssignments),
+            sampleCount: stats.sampleCount,
+            correctCount: stats.correctCount,
+            correctRate: stats.correctRate,
+            correctedProblemCount: stats.correctedProblemCount,
+            pendingAssignmentCount: rows.reduce((sum, row) => sum + row.pendingAssignmentCount, 0),
+            dueSoonAssignmentCount: overdueAssignments,
+            classes: rows.sort((a, b) => a.className.localeCompare(b.className, 'ko')),
+        } satisfies StudentLearningSubjectSummary;
+    }).sort((a, b) => a.subjectName.localeCompare(b.subjectName, 'ko'));
+
+    const personalAssignments = assignments.filter((assignment) => assignment.personal);
+    return {
+        subjects,
+        personalAssignments: [
+            ...personalAssignments.filter((assignment) => assignment.active && assignment.progressStatus !== 'completed'),
+            ...personalAssignments.filter((assignment) => assignment.progressStatus === 'completed').slice(0, 3),
+        ],
+        unclassifiedAttemptCount,
+    };
+}
+
+async function assertStudentInClass(core: SchemaClient, studentId: string, classId: string) {
+    const { data, error } = await core
+        .from('class_students')
+        .select('student_id')
+        .eq('student_id', studentId)
+        .eq('class_id', classId)
+        .eq('status', 'active')
+        .maybeSingle();
+    ensureNoError(error, 'Failed to verify student class membership');
+    if (!data?.student_id) throw new LmsAuthError('Student is not enrolled in this class.', 403);
+}
+
+async function loadClassAttempts(
     learning: SchemaClient,
     academyId: string,
     studentId: string,
-    assignmentId: string | null,
-    assignmentNames: Map<string, string>,
-): Promise<StudentAiConversationRow[]> {
+    assignments: StudentAssignmentInsight[],
+    classId: string,
+): Promise<Row[]> {
+    const assignmentIds = assignments.filter((row) => row.classId === classId).map((row) => row.id);
+    if (assignmentIds.length === 0) return [];
+    const attempts = await loadStudentAttempts(learning, academyId, studentId);
+    const assignmentSet = new Set(assignmentIds);
+    return attempts.filter((row) => assignmentSet.has(row.assignment_id));
+}
+
+async function loadPathUnitSeeds(
+    core: SchemaClient,
+    learning: SchemaClient,
+    content: SchemaClient,
+    classId: string,
+    paths: StudentLearningPathSummary[],
+): Promise<Row[]> {
+    const [classBookResult, materialResult] = await Promise.all([
+        core.from('class_books').select('book_id').eq('class_id', classId).eq('active', true),
+        paths.length > 0
+            ? learning.from('analysis_plan_materials').select('book_id').in('plan_id', paths.map((path) => path.id)).eq('material_type', 'book')
+            : Promise.resolve({ data: [], error: null }),
+    ]);
+    ensureNoError(classBookResult.error, 'Failed to load class learning books');
+    ensureNoError(materialResult.error, 'Failed to load learning path books');
+    const bookIds = uniqueStrings([
+        ...((classBookResult.data || []) as Row[]).map((row) => row.book_id),
+        ...((materialResult.data || []) as Row[]).map((row) => row.book_id),
+    ]);
+    if (bookIds.length === 0) return [];
+    const [bookResult, unitResult] = await Promise.all([
+        content.from('books').select('id,title').in('id', bookIds),
+        content.from('units').select('id,book_id,name,sort_order').in('book_id', bookIds).order('sort_order', { ascending: true }),
+    ]);
+    ensureNoError(bookResult.error, 'Failed to load learning path book names');
+    ensureNoError(unitResult.error, 'Failed to load learning path units');
+    const bookNames = new Map(((bookResult.data || []) as Row[]).map((row) => [row.id, row.title]));
+    return ((unitResult.data || []) as Row[]).map((row) => ({ ...row, book_title: bookNames.get(row.book_id) || null }));
+}
+
+function unitSummariesFromAttempts(attempts: Row[], problemMeta: Map<string, ProblemMeta>, seeds: Row[]): StudentLearningUnitSummary[] {
+    const groupedAttempts = groupAttemptsByProblem(attempts);
+    const buckets = new Map<string, StudentLearningUnitSummary>();
+    for (const seed of seeds) {
+        buckets.set(seed.id, {
+            unitId: seed.id,
+            unitName: seed.name || '단원 미지정',
+            bookId: seed.book_id || null,
+            bookTitle: seed.book_title || null,
+            sampleCount: 0,
+            correctCount: 0,
+            correctRate: null,
+            correctedProblemCount: 0,
+            status: 'insufficient',
+            lastAttemptedAt: null,
+        });
+    }
+    for (const [problemId, rows] of groupedAttempts) {
+        const meta = problemMeta.get(problemId);
+        if (!meta || rows.length === 0) continue;
+        const key = meta.unitId || 'none';
+        const bucket = buckets.get(key) || {
+            unitId: meta.unitId,
+            unitName: meta.unitName,
+            bookId: meta.bookId,
+            bookTitle: meta.bookTitle,
+            sampleCount: 0,
+            correctCount: 0,
+            correctRate: null,
+            correctedProblemCount: 0,
+            status: 'insufficient' as const,
+            lastAttemptedAt: null,
+        };
+        bucket.sampleCount += 1;
+        if (rows[0]?.correct === true) bucket.correctCount += 1;
+        if (rows[0]?.correct === false && rows.slice(1).some((row) => row.correct === true)) bucket.correctedProblemCount += 1;
+        const latest = rows.at(-1)?.created_at || null;
+        if (latest && (!bucket.lastAttemptedAt || latest > bucket.lastAttemptedAt)) bucket.lastAttemptedAt = latest;
+        bucket.correctRate = accuracy(bucket.correctCount, bucket.sampleCount);
+        bucket.status = scoreStatus(bucket.sampleCount, bucket.correctRate);
+        buckets.set(key, bucket);
+    }
+    return [...buckets.values()].sort((a, b) => String(a.bookTitle || '').localeCompare(String(b.bookTitle || ''), 'ko')
+        || a.unitName.localeCompare(b.unitName, 'ko'));
+}
+
+async function loadStudentAiConversationSummariesData(
+    ai: SchemaClient,
+    learning: SchemaClient,
+    content: SchemaClient,
+    academyId: string,
+    studentId: string,
+    options: { assignmentId?: string | null; conversationId?: string | null } = {},
+    visibleClassIds: Set<string> | null = null,
+): Promise<StudentAiConversationSummary[]> {
+    const allAssignments = await loadAssignmentInsights(learning, content, academyId, studentId);
+    const assignments = visibleClassIds
+        ? allAssignments.filter((row) => Boolean(row.classId && visibleClassIds.has(row.classId)))
+        : allAssignments;
+    const assignmentById = new Map(assignments.map((row) => [row.id, row]));
     let query = ai
         .from('conversations')
-        .select('id,title,status,source_app,created_at,updated_at,assignment_id,session_id')
+        .select('id,title,status,source_app,created_at,updated_at,assignment_id,session_id,problem_id')
         .eq('academy_id', academyId)
         .or(`student_id.eq.${studentId},core_student_id.eq.${studentId}`)
+        .eq('source_app', 'grade_app')
         .order('updated_at', { ascending: false })
-        .limit(8);
-    if (assignmentId) query = query.eq('assignment_id', assignmentId);
-
+        .limit(options.conversationId ? 1 : 100);
+    if (options.conversationId) query = query.eq('id', options.conversationId);
+    if (options.assignmentId) query = query.eq('assignment_id', options.assignmentId);
     const { data, error } = await query;
-    ensureNoError(error, 'Failed to load student AI conversations');
-
+    ensureNoError(error, 'Failed to load student AI conversation summaries');
     const conversations = (data || []) as Row[];
     if (conversations.length === 0) return [];
 
     const sessionIds = uniqueStrings(conversations.map((row) => row.session_id));
-    const sessionAssignments = new Map<string, string>();
+    const sessionsById = new Map<string, Row>();
     if (sessionIds.length > 0) {
-        const { data: sessions, error: sessionsError } = await learning
+        const { data: sessionData, error: sessionError } = await learning
             .from('sessions')
-            .select('id,assignment_id')
+            .select('id,academy_id,core_student_id,assignment_id')
             .in('id', sessionIds);
-        ensureNoError(sessionsError, 'Failed to load AI conversation sessions');
-        for (const session of (sessions || []) as Row[]) {
-            if (session.assignment_id) sessionAssignments.set(session.id, session.assignment_id);
+        ensureNoError(sessionError, 'Failed to resolve AI conversation sessions');
+        for (const row of (sessionData || []) as Row[]) {
+            if (row.academy_id === academyId && row.core_student_id === studentId) sessionsById.set(row.id, row);
         }
     }
-
-    const conversationIds = conversations.map((row) => row.id);
-    const { data: messages, error: messageError } = await ai
-        .from('messages')
-        .select('id,conversation_id,role,content,created_at')
-        .in('conversation_id', conversationIds)
-        .in('role', ['user', 'assistant'])
-        .order('created_at', { ascending: true })
-        .limit(200);
-    ensureNoError(messageError, 'Failed to load student AI messages');
-
-    const messagesByConversation = new Map<string, Row[]>();
-    for (const message of (messages || []) as Row[]) {
-        messagesByConversation.set(message.conversation_id, [...(messagesByConversation.get(message.conversation_id) || []), message]);
+    const problemIds = uniqueStrings(conversations.map((row) => row.problem_id));
+    const attemptKeys = new Set<string>();
+    if (sessionIds.length > 0 && problemIds.length > 0) {
+        const { data: attemptData, error: attemptError } = await learning
+            .from('attempts')
+            .select('session_id,problem_id,core_student_id')
+            .eq('core_student_id', studentId)
+            .in('session_id', sessionIds)
+            .in('problem_id', problemIds);
+        ensureNoError(attemptError, 'Failed to verify AI conversation attempts');
+        for (const row of (attemptData || []) as Row[]) attemptKeys.add(`${row.session_id}:${row.problem_id}`);
     }
 
+    const { data: messageData, error: messageError } = await ai
+        .from('messages')
+        .select('id,conversation_id')
+        .in('conversation_id', conversations.map((row) => row.id))
+        .in('role', ['user', 'assistant'])
+        .limit(5000);
+    ensureNoError(messageError, 'Failed to count student AI messages');
+    const messageCounts = new Map<string, number>();
+    for (const row of (messageData || []) as Row[]) messageCounts.set(row.conversation_id, (messageCounts.get(row.conversation_id) || 0) + 1);
+    const problemMeta = await loadProblemMeta(content, problemIds);
+
     return conversations.map((row) => {
-        const linkedAssignmentId = row.assignment_id || (row.session_id ? sessionAssignments.get(row.session_id) : null) || null;
-        const rows = messagesByConversation.get(row.id) || [];
+        const session = row.session_id ? sessionsById.get(row.session_id) : null;
+        const sessionAssignmentId = typeof session?.assignment_id === 'string' ? session.assignment_id : null;
+        const assignmentId = row.assignment_id || sessionAssignmentId;
+        const assignment = assignmentId ? assignmentById.get(assignmentId) : null;
+        const problem = row.problem_id ? problemMeta.get(row.problem_id) : null;
+        const messageCount = messageCounts.get(row.id) || 0;
+        const canonical = Boolean(
+            session
+            && assignment
+            && problem
+            && sessionAssignmentId === assignment.id
+            && (row.assignment_id == null || row.assignment_id === sessionAssignmentId)
+            && attemptKeys.has(`${row.session_id}:${row.problem_id}`),
+        );
         return {
             id: row.id,
-            assignmentId: linkedAssignmentId,
-            assignmentTitle: linkedAssignmentId ? assignmentNames.get(linkedAssignmentId) ?? null : null,
+            assignmentId: canonical ? assignment?.id || null : null,
+            assignmentTitle: canonical ? assignment?.title || null : null,
+            problemId: problem?.id || null,
+            problemLabel: problem?.label || null,
+            unitName: problem?.unitName || null,
+            typeName: problem?.typeName || null,
+            linkStatus: canonical ? 'linked' : 'needs_review',
             title: row.title ?? null,
             status: row.status,
             sourceApp: row.source_app ?? null,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
-            messageCount: rows.length,
-            messages: rows.map((message) => ({
-                id: message.id,
-                conversationId: message.conversation_id,
-                role: message.role === 'assistant' ? 'assistant' : 'user',
-                content: message.content,
-                createdAt: message.created_at,
-            })),
-        } satisfies StudentAiConversationRow;
-    }).filter((row) => !assignmentId || row.assignmentId === assignmentId);
+            messageCount,
+        } satisfies StudentAiConversationSummary;
+    }).filter((row) => row.messageCount > 0)
+        .filter((row) => visibleClassIds === null || row.linkStatus === 'linked')
+        .filter((row) => !options.assignmentId || row.assignmentId === options.assignmentId);
 }
 
-async function loadLearningAnalytics(
-    content: SchemaClient,
-    learning: SchemaClient,
-    ai: SchemaClient,
-    academyId: string,
-    studentId: string,
-    options: { period?: string | null; assignmentId?: string | null } = {},
-): Promise<LearningAnalyticsResult> {
-    const period = normalizeLearningPeriod(options.period);
-    const assignmentId = options.assignmentId || null;
-    const startIso = periodStartIso(period);
-    const assignmentInsights = await loadAssignmentInsights(learning, content, academyId, studentId);
-    const assignmentNames = new Map(assignmentInsights.map((assignment) => [assignment.id, assignment.title]));
-
-    let attemptQuery = learning
-        .from('attempts')
-        .select('id,assignment_id,session_id,problem_id,correct,unsure,attempt_no,duration_ms,created_at')
-        .eq('academy_id', academyId)
-        .eq('core_student_id', studentId)
-        .order('created_at', { ascending: false })
-        .limit(500);
-    if (startIso) attemptQuery = attemptQuery.gte('created_at', startIso);
-    if (assignmentId) attemptQuery = attemptQuery.eq('assignment_id', assignmentId);
-
-    const { data: attemptData, error: attemptError } = await attemptQuery;
-    ensureNoError(attemptError, 'Failed to load student learning attempts');
-    const attempts = (attemptData || []) as Row[];
-
-    let seedProblemIds: string[] = [];
-    if (assignmentId) {
-        const { data: itemData, error: itemError } = await learning
-            .from('assignment_items')
-            .select('problem_id')
-            .eq('assignment_id', assignmentId)
-            .not('problem_id', 'is', null)
-            .limit(500);
-        ensureNoError(itemError, 'Failed to load selected assignment items');
-        seedProblemIds = uniqueStrings(((itemData || []) as Row[]).map((row) => row.problem_id));
+function groupAiProblems(conversations: StudentAiConversationSummary[]): StudentAiProblemSummary[] {
+    const grouped = new Map<string, StudentAiConversationSummary[]>();
+    for (const conversation of conversations) {
+        const key = conversation.problemId || `unlinked:${conversation.id}`;
+        grouped.set(key, [...(grouped.get(key) || []), conversation]);
     }
-
-    const problemMeta = await loadProblemMeta(content, uniqueStrings([...attempts.map((row) => row.problem_id), ...seedProblemIds]));
-    const units = buildUnitInsights(attempts, problemMeta);
-    const recentAttempts = mapRecentAttempts(attempts, problemMeta, assignmentNames);
-    const aiConversations = await loadAiConversations(ai, learning, academyId, studentId, assignmentId, assignmentNames);
-    const correctAttemptCount = attempts.filter((row) => row.correct === true).length;
-    const weakTypeCount = units.reduce((sum, unit) => sum + unit.types.filter((type) => type.status === 'weak').length, 0);
-    const watchTypeCount = units.reduce((sum, unit) => sum + unit.types.filter((type) => type.status === 'watch').length, 0);
-    const filteredAssignments = assignmentId
-        ? assignmentInsights.filter((assignment) => assignment.id === assignmentId)
-        : assignmentInsights;
-    const analytics = emptyLearningAnalytics(period, assignmentId);
-    analytics.assignments = assignmentInsights;
-    analytics.units = units;
-    analytics.overview = {
-        attemptedProblemCount: new Set(attempts.map((row) => row.problem_id)).size,
-        attemptCount: attempts.length,
-        correctAttemptCount,
-        correctRate: accuracy(correctAttemptCount, attempts.length),
-        weakTypeCount,
-        watchTypeCount,
-        unitCount: units.length,
-        assignmentCount: filteredAssignments.length,
-        completedAssignmentCount: filteredAssignments.filter((assignment) => assignment.progressStatus === 'completed').length,
-        aiConversationCount: aiConversations.length,
-        lastLearningAt: attempts[0]?.created_at || filteredAssignments[0]?.lastActivityAt || null,
-    };
-
-    return { analytics, recentAttempts, aiConversations };
+    return [...grouped.entries()].map(([key, rows]) => ({
+        problemId: key.startsWith('unlinked:') ? null : key,
+        problemLabel: rows[0]?.problemLabel || '연결 확인 필요',
+        unitName: rows[0]?.unitName || null,
+        typeName: rows[0]?.typeName || null,
+        conversationCount: rows.length,
+        lastConversationAt: rows.map((row) => row.updatedAt).sort().at(-1) || '',
+        conversations: rows,
+    })).sort((a, b) => b.lastConversationAt.localeCompare(a.lastConversationAt));
 }
 
 async function loadAttendance(
@@ -951,25 +1288,6 @@ async function loadBillingForStudent(
     };
 }
 
-async function loadReports(learning: SchemaClient, academyId: string, studentId: string) {
-    const { data, error } = await learning
-        .from('reports')
-        .select('id,report_type,title,status,generated_at')
-        .eq('academy_id', academyId)
-        .eq('core_student_id', studentId)
-        .order('generated_at', { ascending: false })
-        .limit(8);
-    ensureNoError(error, 'Failed to load student reports');
-
-    return ((data || []) as Row[]).map((row) => ({
-        id: row.id,
-        reportType: row.report_type,
-        title: row.title ?? null,
-        status: row.status,
-        generatedAt: row.generated_at,
-    }));
-}
-
 function parseHardDeletePreview(value: unknown): StudentHardDeletePreview {
     const payload = value && typeof value === 'object' ? value as Row : {};
     const blockers = Array.isArray(payload.blockers) ? payload.blockers : [];
@@ -1099,15 +1417,11 @@ function blankStudentDetail(
         signupInvitation: null,
         hasGradeAppAccount: false,
         gradeAppAccount: null,
-        learningAnalytics: null,
-        weakTypes: [],
-        recentAttempts: [],
+        learningOverview: null,
         attendanceSummary: { ...EMPTY_ATTENDANCE_SUMMARY },
         recentAttendance: [],
         billing: null,
         recentPayments: [],
-        aiConversations: [],
-        reports: [],
         hardDeletePreview: null,
     };
 }
@@ -1140,7 +1454,6 @@ export async function loadStudentDetail(
     context: LmsRoleContext,
     studentId: string,
     section: StudentDetailSection | string = 'full',
-    options: { period?: string | null; assignmentId?: string | null } = {},
 ): Promise<StudentDetail> {
     if (!studentId) throw new Error('Student id is required.');
     const requestedSection = normalizeDetailSection(section);
@@ -1148,10 +1461,8 @@ export async function loadStudentDetail(
     const client = createAdminClient();
     const core = client.schema('core');
     const lms = client.schema('lms');
-    const reporting = client.schema('reporting');
     const content = client.schema('content');
     const learning = client.schema('learning');
-    const ai = client.schema('ai');
     const assignedClassIds = await loadAssignedClassIdsForContext(context);
     await assertCanViewStudent(context, studentId, assignedClassIds);
 
@@ -1160,7 +1471,7 @@ export async function loadStudentDetail(
         studentIds: [studentId],
         assignedClassIds,
         includeBilling: permissions.canViewBilling,
-        includeWeakMetrics: requestedSection === 'learning' || requestedSection === 'full',
+        includeWeakMetrics: false,
     });
     const summary = students[0];
     if (!summary) throw new LmsAuthError('Student access is not allowed for this role.', 403);
@@ -1183,16 +1494,15 @@ export async function loadStudentDetail(
     }
 
     if (requestedSection === 'learning' || requestedSection === 'full') {
-        const [weakTypes, learningData, reports] = await Promise.all([
-            loadWeakTypes(reporting, context.academyId, studentId),
-            loadLearningAnalytics(content, learning, ai, context.academyId, studentId, options),
-            loadReports(learning, context.academyId, studentId),
-        ]);
-        detail.weakTypes = weakTypes;
-        detail.learningAnalytics = learningData.analytics;
-        detail.recentAttempts = learningData.recentAttempts;
-        detail.aiConversations = learningData.aiConversations;
-        detail.reports = reports;
+        detail.learningOverview = await loadStudentLearningOverviewData(
+            core,
+            lms,
+            learning,
+            content,
+            context.academyId,
+            studentId,
+            assignedClassIds,
+        );
     }
 
     if (requestedSection === 'attendance' || requestedSection === 'full') {
@@ -1214,20 +1524,245 @@ export async function loadStudentDetail(
     return detail;
 }
 
+export async function loadStudentLearningClassContext(
+    context: LmsRoleContext,
+    studentId: string,
+    classId: string,
+): Promise<StudentLearningClassContext> {
+    if (!studentId || !classId) throw new Error('Student id and class id are required.');
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const learning = client.schema('learning');
+    const content = client.schema('content');
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    await assertCanViewStudent(context, studentId, assignedClassIds);
+    await assertStudentInClass(core, studentId, classId);
+    if (assignedClassIds && !assignedClassIds.has(classId)) throw new LmsAuthError('Class access is not allowed for this role.', 403);
+
+    const assignments = await loadAssignmentInsights(learning, content, context.academyId, studentId);
+    const classAssignments = assignments.filter((row) => row.classId === classId && (row.active || row.progressStatus === 'completed'));
+    const paths = (await loadLearningPaths(learning, context.academyId, [classId], studentId)).get(classId) || [];
+    const attempts = await loadClassAttempts(learning, context.academyId, studentId, assignments, classId);
+    const problemMeta = await loadProblemMeta(content, uniqueStrings(attempts.map((row) => row.problem_id)));
+    const seeds = paths.length > 0 ? await loadPathUnitSeeds(core, learning, content, classId, paths) : [];
+    return {
+        classId,
+        pathState: paths.length > 0 ? 'configured' : 'needs_setup',
+        paths,
+        units: paths.length > 0 ? unitSummariesFromAttempts(attempts, problemMeta, seeds) : [],
+        assignments: classAssignments,
+    };
+}
+
+export async function loadStudentLearningUnitDetail(
+    context: LmsRoleContext,
+    studentId: string,
+    classId: string,
+    unitId: string | null,
+): Promise<StudentLearningUnitDetail> {
+    if (!studentId || !classId) throw new Error('Student id and class id are required.');
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const learning = client.schema('learning');
+    const content = client.schema('content');
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    await assertCanViewStudent(context, studentId, assignedClassIds);
+    await assertStudentInClass(core, studentId, classId);
+    if (assignedClassIds && !assignedClassIds.has(classId)) throw new LmsAuthError('Class access is not allowed for this role.', 403);
+
+    const assignments = await loadAssignmentInsights(learning, content, context.academyId, studentId);
+    const attempts = await loadClassAttempts(learning, context.academyId, studentId, assignments, classId);
+    const problemMeta = await loadProblemMeta(content, uniqueStrings(attempts.map((row) => row.problem_id)));
+    const normalizedUnitId = unitId && unitId !== 'none' ? unitId : null;
+    const unitAttempts = attempts.filter((row) => (problemMeta.get(row.problem_id)?.unitId || null) === normalizedUnitId);
+    const insight = buildUnitInsights(unitAttempts, problemMeta).find((row) => row.unitId === normalizedUnitId);
+    const grouped = groupAttemptsByProblem(unitAttempts);
+    const correctedByType = new Map<string, number>();
+    for (const [problemId, rows] of grouped) {
+        if (rows[0]?.correct !== false || !rows.slice(1).some((row) => row.correct === true)) continue;
+        const meta = problemMeta.get(problemId);
+        const key = meta?.typeId || 'none';
+        correctedByType.set(key, (correctedByType.get(key) || 0) + 1);
+    }
+    const types: StudentLearningTypeSummary[] = (insight?.types || []).map((row) => ({
+        typeId: row.typeId,
+        typeName: row.typeName,
+        sampleCount: row.sampleCount,
+        correctCount: row.correctCount,
+        correctRate: row.score,
+        correctedProblemCount: correctedByType.get(row.typeId || 'none') || 0,
+        status: row.status,
+        lastAttemptedAt: row.lastAttemptedAt,
+    }));
+    return {
+        classId,
+        unitId: normalizedUnitId,
+        unitName: insight?.unitName || '단원 미지정',
+        types,
+    };
+}
+
+export async function loadStudentLearningTypeEvidence(
+    context: LmsRoleContext,
+    studentId: string,
+    classId: string,
+    typeId: string | null,
+    unitId: string | null,
+): Promise<StudentLearningTypeEvidence> {
+    if (!studentId || !classId) throw new Error('Student id and class id are required.');
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const lms = client.schema('lms');
+    const learning = client.schema('learning');
+    const content = client.schema('content');
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    await assertCanViewStudent(context, studentId, assignedClassIds);
+    await assertStudentInClass(core, studentId, classId);
+    if (assignedClassIds && !assignedClassIds.has(classId)) throw new LmsAuthError('Class access is not allowed for this role.', 403);
+
+    const [allAssignments, allAttempts, allClasses] = await Promise.all([
+        loadAssignmentInsights(learning, content, context.academyId, studentId),
+        loadStudentAttempts(learning, context.academyId, studentId),
+        loadStudentClassDescriptors(core, lms, context.academyId, studentId),
+    ]);
+    const assignments = assignedClassIds
+        ? allAssignments.filter((row) => Boolean(row.classId && assignedClassIds.has(row.classId)))
+        : allAssignments;
+    const allowedAssignmentIds = new Set(assignments.map((row) => row.id));
+    const attempts = assignedClassIds
+        ? allAttempts.filter((row) => Boolean(row.assignment_id && allowedAssignmentIds.has(row.assignment_id)))
+        : allAttempts;
+    const classes = assignedClassIds ? allClasses.filter((row) => assignedClassIds.has(row.classId)) : allClasses;
+    const problemMeta = await loadProblemMeta(content, uniqueStrings(attempts.map((row) => row.problem_id)));
+    const normalizedTypeId = typeId && typeId !== 'none' ? typeId : null;
+    const normalizedUnitId = unitId && unitId !== 'none' ? unitId : null;
+    const matching = attempts.filter((row) => {
+        const meta = problemMeta.get(row.problem_id);
+        return (meta?.typeId || null) === normalizedTypeId
+            && (normalizedTypeId !== null || (meta?.unitId || null) === normalizedUnitId);
+    });
+    const grouped = groupAttemptsByLearningSource(matching);
+    const assignmentById = new Map(assignments.map((row) => [row.id, row]));
+    const classById = new Map(classes.map((row) => [row.classId, row]));
+    const evidence: StudentLearningEvidenceRow[] = [...grouped.entries()].map(([evidenceId, rows]) => {
+        const first = rows[0];
+        const latest = rows.at(-1) || first;
+        const problemId = String(first?.problem_id || '');
+        const meta = problemMeta.get(problemId);
+        const assignment = first?.assignment_id ? assignmentById.get(first.assignment_id) : null;
+        const classRow = assignment?.classId ? classById.get(assignment.classId) : null;
+        return {
+            id: evidenceId,
+            problemId,
+            problemLabel: meta?.label || problemId,
+            assignmentId: assignment?.id || null,
+            assignmentTitle: assignment?.title || null,
+            classId: classRow?.classId || null,
+            className: classRow?.className || null,
+            bookTitle: meta?.bookTitle || null,
+            firstCorrect: first?.correct === true,
+            corrected: first?.correct === false && rows.slice(1).some((row) => row.correct === true),
+            firstAttemptedAt: first?.created_at || '',
+            lastAttemptedAt: latest?.created_at || first?.created_at || '',
+        } satisfies StudentLearningEvidenceRow;
+    }).sort((a, b) => b.lastAttemptedAt.localeCompare(a.lastAttemptedAt));
+    const sampleMeta = [...problemMeta.values()].find((row) => (row.typeId || null) === normalizedTypeId);
+    return {
+        typeId: normalizedTypeId,
+        typeName: sampleMeta?.typeName || '유형 미지정',
+        evidence,
+    };
+}
+
+export async function loadStudentAssignmentLearningDetail(
+    context: LmsRoleContext,
+    studentId: string,
+    assignmentId: string,
+): Promise<StudentAssignmentLearningDetail> {
+    if (!studentId || !assignmentId) throw new Error('Student id and assignment id are required.');
+    const client = createAdminClient();
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    await assertCanViewStudent(context, studentId, assignedClassIds);
+    const learning = client.schema('learning');
+    const content = client.schema('content');
+    const assignments = await loadAssignmentInsights(learning, content, context.academyId, studentId);
+    const assignment = assignments.find((row) => row.id === assignmentId);
+    if (!assignment) throw new LmsAuthError('Assignment access is not allowed for this student.', 403);
+    if (assignedClassIds && (!assignment.classId || !assignedClassIds.has(assignment.classId))) {
+        throw new LmsAuthError('Assignment access is not allowed for this role.', 403);
+    }
+    const conversations = await loadStudentAiConversationSummariesData(
+        client.schema('ai'),
+        learning,
+        content,
+        context.academyId,
+        studentId,
+        { assignmentId },
+        assignedClassIds,
+    );
+    return { assignment, aiProblems: groupAiProblems(conversations) };
+}
+
+export async function loadStudentAiConversationDetail(
+    context: LmsRoleContext,
+    studentId: string,
+    conversationId: string,
+): Promise<StudentAiConversationDetail> {
+    if (!studentId || !conversationId) throw new Error('Student id and conversation id are required.');
+    const client = createAdminClient();
+    const assignedClassIds = await loadAssignedClassIdsForContext(context);
+    await assertCanViewStudent(context, studentId, assignedClassIds);
+    const summaries = await loadStudentAiConversationSummariesData(
+        client.schema('ai'),
+        client.schema('learning'),
+        client.schema('content'),
+        context.academyId,
+        studentId,
+        { conversationId },
+        assignedClassIds,
+    );
+    const summary = summaries[0];
+    if (!summary) throw new LmsAuthError('AI conversation access is not allowed.', 403);
+    const { data, error } = await client.schema('ai')
+        .from('messages')
+        .select('id,conversation_id,role,content,created_at')
+        .eq('conversation_id', conversationId)
+        .in('role', ['user', 'assistant'])
+        .order('created_at', { ascending: true })
+        .limit(500);
+    ensureNoError(error, 'Failed to load student AI conversation messages');
+    return {
+        ...summary,
+        messages: ((data || []) as Row[]).map((row) => ({
+            id: row.id,
+            conversationId: row.conversation_id,
+            role: row.role === 'assistant' ? 'assistant' : 'user',
+            content: row.content,
+            createdAt: row.created_at,
+        })),
+    };
+}
+
 export async function loadStudentAiConversationFeed(
     context: LmsRoleContext,
     studentId: string,
     assignmentId?: string | null,
-): Promise<StudentAiConversationRow[]> {
+): Promise<StudentAiConversationSummary[]> {
     if (!studentId) throw new Error('Student id is required.');
     const client = createAdminClient();
     const assignedClassIds = await loadAssignedClassIdsForContext(context);
     await assertCanViewStudent(context, studentId, assignedClassIds);
     const learning = client.schema('learning');
     const content = client.schema('content');
-    const assignmentInsights = await loadAssignmentInsights(learning, content, context.academyId, studentId);
-    const assignmentNames = new Map(assignmentInsights.map((assignment) => [assignment.id, assignment.title]));
-    return loadAiConversations(client.schema('ai'), learning, context.academyId, studentId, assignmentId || null, assignmentNames);
+    return loadStudentAiConversationSummariesData(
+        client.schema('ai'),
+        learning,
+        content,
+        context.academyId,
+        studentId,
+        { assignmentId: assignmentId || null },
+        assignedClassIds,
+    );
 }
 
 export async function loadStudentRosterPageRows(input: {

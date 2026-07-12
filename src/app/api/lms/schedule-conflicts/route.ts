@@ -1,4 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertDurableClassOperatorAccess } from '@/lib/lms/class-access';
 import { findScheduleConflictsForAcademy } from '@/lib/lms/mutations';
 import type { ScheduleMutationInput } from '@/features/lms/types';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
@@ -10,7 +11,8 @@ export async function POST(request: Request) {
         if (!body.academyId || !body.input?.classId || !body.input.startTime || !body.input.endTime) {
             return mutationError('INVALID_SCHEDULE_CONFLICT_REQUEST', 'Invalid schedule conflict request.', { request });
         }
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
+        await assertDurableClassOperatorAccess(actor, body.input);
         const data = await findScheduleConflictsForAcademy(body.academyId, body.input);
         return mutationSuccess(data, { request });
     } catch (error) {

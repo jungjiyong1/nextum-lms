@@ -3,10 +3,34 @@
 import { ClassroomsOperationsPage } from '@/features/lms/classrooms-operations-page';
 import { RouteScroll } from './RouteScroll';
 
-export function ClassroomsRoute() {
+export function ClassroomScheduleRoute({ classId }: { classId: string }) {
     return (
         <RouteScroll>
-            <ClassroomsOperationsPage view="overview" />
+            <ClassroomsOperationsPage view="schedule" initialClassId={classId} />
+        </RouteScroll>
+    );
+}
+
+export function ClassroomStudentsRoute({ classId }: { classId: string }) {
+    return (
+        <RouteScroll>
+            <ClassroomsOperationsPage view="overview" initialClassId={classId} detailSection="students" />
+        </RouteScroll>
+    );
+}
+
+export function ClassroomMaterialsRoute({ classId }: { classId: string }) {
+    return (
+        <RouteScroll>
+            <ClassroomsOperationsPage view="overview" initialClassId={classId} detailSection="materials" />
+        </RouteScroll>
+    );
+}
+
+export function ClassroomSettingsRoute({ classId }: { classId: string }) {
+    return (
+        <RouteScroll>
+            <ClassroomsOperationsPage view="overview" initialClassId={classId} detailSection="settings" />
         </RouteScroll>
     );
 }

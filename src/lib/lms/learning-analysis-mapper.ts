@@ -7,7 +7,10 @@ import type {
     LearningEvidenceEvent,
     LearningEvidenceOutcome,
     LearningEvidenceStatus,
-    LearningTrackSummary,
+    LearningPathPurpose,
+    LearningPathRole,
+    LearningPathStatus,
+    LearningPathSummary,
     StudentExamEvidenceSummary,
     StudyTrackKind,
 } from '@/features/lms/learning-analysis-types';
@@ -19,6 +22,9 @@ import {
     type LearningEvidenceKind,
     type LearningResponseState,
 } from './learning-evidence';
+import { toSeoulDate } from './seoul-date';
+
+export { toSeoulDate } from './seoul-date';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,7 +32,7 @@ const MAINTENANCE_INTERVALS = new Set([7, 14, 21, 30]);
 const DEFAULT_RECHECK_INTERVAL_DAYS = 21;
 const REQUIRED_EQUIVALENCE_COUNT = 2;
 
-export interface AnalysisClassroomRow {
+export interface AnalysisClassRow {
     id: string;
     name: string;
 }
@@ -52,10 +58,13 @@ export interface AnalysisMaterialRow {
 
 export interface AnalysisPlanRow {
     id: string;
-    classroomId: string;
+    classId: string;
     name: string;
     planType: 'study_track' | 'exam';
     trackKind: StudyTrackKind | null;
+    pathRole: LearningPathRole;
+    pathPurpose: LearningPathPurpose;
+    status: LearningPathStatus;
     targetBand: ChallengeBand;
     maintenanceIntervalDays: 7 | 14 | 21 | 30 | null;
     examDate: string | null;
@@ -124,7 +133,7 @@ export interface AnalysisAssignedActionRow {
 export interface LearningAnalysisSnapshot {
     asOfDate: string;
     selectedExamPlanId: string | null;
-    classrooms: AnalysisClassroomRow[];
+    classes: AnalysisClassRow[];
     students: AnalysisStudentRow[];
     skills: AnalysisSkillRow[];
     catalogSkillIds: string[];
@@ -141,7 +150,8 @@ export interface LearningAnalysisSnapshot {
 
 export interface NormalizedCreateLearningPlan {
     kind: 'current' | 'advance' | 'maintenance' | 'exam';
-    classroomId: string;
+    role: LearningPathRole;
+    classId: string;
     name: string;
     targetBand: ChallengeBand;
     examDate: string | null;
@@ -150,6 +160,7 @@ export interface NormalizedCreateLearningPlan {
     materialBookIds: string[];
     studentOverrides: Array<{
         studentId: string;
+        included: boolean;
         targetBand: ChallengeBand;
     }>;
 }
@@ -222,7 +233,7 @@ function normalizeStudentOverrides(value: unknown): NormalizedCreateLearningPlan
         });
     }
 
-    const byStudent = new Map<string, { studentId: string; targetBand: ChallengeBand }>();
+    const byStudent = new Map<string, { studentId: string; included: boolean; targetBand: ChallengeBand }>();
     for (const item of value) {
         if (!isRecord(item)) {
             throw new LearningAnalysisValidationError('학생별 목표 예외를 확인해 주세요.', {
@@ -240,7 +251,11 @@ function normalizeStudentOverrides(value: unknown): NormalizedCreateLearningPlan
                 studentOverrides: ['학생별로 하나의 목표 단계만 선택해 주세요.'],
             });
         }
-        byStudent.set(studentId, { studentId, targetBand: item.targetBand });
+        byStudent.set(studentId, {
+            studentId,
+            included: item.included !== false,
+            targetBand: item.targetBand,
+        });
     }
     return [...byStudent.values()];
 }
@@ -260,10 +275,18 @@ export function normalizeCreateLearningPlanInput(
             kind: ['현행, 선행, 유지 복습, 시험 중 하나여야 합니다.'],
         });
     }
-    const classroomId = typeof value.classroomId === 'string' ? value.classroomId.trim() : '';
-    if (!isUuid(classroomId)) {
+    const role = value.role === 'primary' || value.role === 'supplemental'
+        ? value.role
+        : kind === 'current' ? 'primary' : 'supplemental';
+    if (kind === 'exam' && role === 'primary') {
+        throw new LearningAnalysisValidationError('시험 대비는 보조 학습 경로로 만들어 주세요.', {
+            role: ['시험 대비는 대표 경로로 지정할 수 없습니다.'],
+        });
+    }
+    const classId = typeof value.classId === 'string' ? value.classId.trim() : '';
+    if (!isUuid(classId)) {
         throw new LearningAnalysisValidationError('반을 다시 선택해 주세요.', {
-            classroomId: ['올바른 반을 선택해 주세요.'],
+            classId: ['올바른 반을 선택해 주세요.'],
         });
     }
     const name = typeof value.name === 'string' ? value.name.trim() : '';
@@ -308,7 +331,8 @@ export function normalizeCreateLearningPlanInput(
 
     return {
         kind,
-        classroomId,
+        role,
+        classId,
         name,
         targetBand: value.targetBand,
         examDate,
@@ -317,20 +341,6 @@ export function normalizeCreateLearningPlanInput(
         materialBookIds,
         studentOverrides,
     };
-}
-
-export function toSeoulDate(value: string | Date): string {
-    const date = value instanceof Date ? value : new Date(value);
-    if (!Number.isFinite(date.getTime())) throw new Error('Invalid date');
-    const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).formatToParts(date);
-    const part = (type: Intl.DateTimeFormatPartTypes) =>
-        parts.find((candidate) => candidate.type === type)?.value ?? '';
-    return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
 function normalizeEvidenceKind(value: string): {
@@ -511,7 +521,7 @@ function trackKind(plan: AnalysisPlanRow): StudyTrackKind {
 export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): LearningAnalysisData {
     if (!validDateOnly(snapshot.asOfDate)) throw new Error('asOfDate must use YYYY-MM-DD');
 
-    const classroomById = new Map(snapshot.classrooms.map((row) => [row.id, row]));
+    const classById = new Map(snapshot.classes.map((row) => [row.id, row]));
     const skillById = new Map(snapshot.skills.map((row) => [row.id, row]));
     const problemById = new Map(snapshot.problems.map((row) => [row.id, row]));
     const materialById = new Map(snapshot.materials.map((row) => [row.id, row]));
@@ -560,12 +570,13 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
     const cellByPlan = new Map<string, CellEvaluation[]>();
     const allCells: CellEvaluation[] = [];
     for (const plan of snapshot.plans) {
-        const classroom = classroomById.get(plan.classroomId);
+        if (plan.status !== 'active') continue;
+        const classroom = classById.get(plan.classId);
         if (!classroom) continue;
         const scopes = (scopesByPlan.get(plan.id) ?? [])
             .filter((scope) => skillById.has(scope.skillId))
             .sort((left, right) => left.sortOrder - right.sortOrder || left.skillId.localeCompare(right.skillId));
-        const students = snapshot.students.filter((student) => student.classIds.includes(plan.classroomId));
+        const students = snapshot.students.filter((student) => student.classIds.includes(plan.classId));
         const planCells: CellEvaluation[] = [];
 
         for (const student of students) {
@@ -656,36 +667,71 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
             || new Date(latestIncludedEvidenceAt).getTime() <= new Date(assignedAt).getTime();
     };
 
-    const tracks: LearningTrackSummary[] = snapshot.plans
-        .filter((plan) => plan.planType === 'study_track')
-        .map((plan) => {
+    const paths: LearningPathSummary[] = snapshot.plans
+        .map((plan): LearningPathSummary => {
             const cells = cellByPlan.get(plan.id) ?? [];
+            const unitBuckets = new Map<string, {
+                skillIds: Set<string>;
+                needsCheckIds: Set<string>;
+                supportCandidateIds: Set<string>;
+                contentGapIds: Set<string>;
+            }>();
+            for (const scope of scopesByPlan.get(plan.id) ?? []) {
+                const skill = skillById.get(scope.skillId);
+                if (!skill) continue;
+                const bucket = unitBuckets.get(skill.unitLabel) ?? {
+                    skillIds: new Set<string>(),
+                    needsCheckIds: new Set<string>(),
+                    supportCandidateIds: new Set<string>(),
+                    contentGapIds: new Set<string>(),
+                };
+                bucket.skillIds.add(skill.id);
+                for (const cell of cells.filter((row) => row.skill.id === skill.id)) {
+                    if (cell.status === 'needs_check') bucket.needsCheckIds.add(skill.id);
+                    if (cell.status === 'support_candidate') bucket.supportCandidateIds.add(skill.id);
+                    if (cell.status === 'content_gap') bucket.contentGapIds.add(skill.id);
+                }
+                unitBuckets.set(skill.unitLabel, bucket);
+            }
             const actionCells = cells.filter((cell) =>
                 (cell.status === 'needs_check' || cell.status === 'support_candidate')
                 && !isSuppressedByAssignment(rowKey(cell.student.id, cell.skill.id), cell.events),
             );
             return {
                 id: plan.id,
-                kind: trackKind(plan),
-                classroomId: plan.classroomId,
-                classroomName: classroomById.get(plan.classroomId)?.name ?? '알 수 없는 반',
+                kind: plan.planType === 'exam' ? 'exam' : trackKind(plan),
+                role: plan.pathRole,
+                purpose: plan.pathPurpose,
+                status: plan.status,
+                classId: plan.classId,
+                className: classById.get(plan.classId)?.name ?? '알 수 없는 반',
                 name: plan.name,
                 targetBand: plan.targetBand,
-                maintenanceIntervalDays: plan.maintenanceIntervalDays ?? 21,
+                maintenanceIntervalDays: plan.maintenanceIntervalDays,
                 scopeSkillCount: (scopesByPlan.get(plan.id) ?? []).length,
                 materialCount: (materialsByPlan.get(plan.id) ?? []).length,
                 dueStudentCount: new Set(actionCells.map((cell) => cell.student.id)).size,
                 actionCount: actionCells.length,
+                units: [...unitBuckets.entries()].map(([name, bucket]) => ({
+                    name,
+                    skillCount: bucket.skillIds.size,
+                    needsCheckCount: bucket.needsCheckIds.size,
+                    supportCandidateCount: bucket.supportCandidateIds.size,
+                    contentGapCount: bucket.contentGapIds.size,
+                })).sort((left, right) => left.name.localeCompare(right.name, 'ko')),
                 lastEvidenceAt: maximumDate(cells.map((cell) => cell.lastEvidenceAt)),
             };
         })
-        .sort((left, right) => left.classroomName.localeCompare(right.classroomName, 'ko') || left.name.localeCompare(right.name, 'ko'));
+        .sort((left, right) => Number(left.role === 'supplemental') - Number(right.role === 'supplemental')
+            || Number(left.status !== 'active') - Number(right.status !== 'active')
+            || left.className.localeCompare(right.className, 'ko')
+            || left.name.localeCompare(right.name, 'ko'));
 
     const actionMap = new Map<string, {
         status: 'needs_check' | 'support_candidate';
         student: AnalysisStudentRow;
         skill: AnalysisSkillRow;
-        classroomNames: Set<string>;
+        classNames: Set<string>;
         planNames: Set<string>;
         dueDates: string[];
         events: LearningEvidenceEvent[];
@@ -698,14 +744,14 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
             status: 'needs_check' as const,
             student: cell.student,
             skill: cell.skill,
-            classroomNames: new Set<string>(),
+            classNames: new Set<string>(),
             planNames: new Set<string>(),
             dueDates: [],
             events: [],
             reasons: [],
         };
         if (cell.status === 'support_candidate') current.status = 'support_candidate';
-        current.classroomNames.add(classroomById.get(cell.plan.classroomId)?.name ?? '알 수 없는 반');
+        current.classNames.add(classById.get(cell.plan.classId)?.name ?? '알 수 없는 반');
         current.planNames.add(cell.plan.name);
         if (cell.dueAt) current.dueDates.push(cell.dueAt);
         current.events.push(...cell.events);
@@ -716,7 +762,7 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
         id,
         studentId: item.student.id,
         studentName: item.student.name,
-        classroomName: [...item.classroomNames].sort((a, b) => a.localeCompare(b, 'ko')).join(' · '),
+        className: [...item.classNames].sort((a, b) => a.localeCompare(b, 'ko')).join(' · '),
         skillId: item.skill.id,
         skillName: item.skill.name,
         status: item.status,
@@ -733,7 +779,7 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
     });
 
     const examPlans = snapshot.plans
-        .filter((plan) => plan.planType === 'exam' && plan.examDate)
+        .filter((plan) => plan.planType === 'exam' && plan.status === 'active' && plan.examDate)
         .map((plan) => {
             const scopes = scopesByPlan.get(plan.id) ?? [];
             const cells = cellByPlan.get(plan.id) ?? [];
@@ -748,8 +794,8 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
             });
             return {
                 id: plan.id,
-                classroomId: plan.classroomId,
-                classroomName: classroomById.get(plan.classroomId)?.name ?? '알 수 없는 반',
+                classId: plan.classId,
+                className: classById.get(plan.classId)?.name ?? '알 수 없는 반',
                 name: plan.name,
                 examDate: plan.examDate as string,
                 targetBand: plan.targetBand,
@@ -759,11 +805,11 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
         .sort((left, right) => left.examDate.localeCompare(right.examDate) || left.name.localeCompare(right.name, 'ko'));
 
     const selectedPlan = snapshot.plans.find((plan) =>
-        plan.id === snapshot.selectedExamPlanId && plan.planType === 'exam',
+        plan.id === snapshot.selectedExamPlanId && plan.planType === 'exam' && plan.status === 'active',
     );
     const examStudents: StudentExamEvidenceSummary[] = selectedPlan
         ? snapshot.students
-            .filter((student) => student.classIds.includes(selectedPlan.classroomId))
+            .filter((student) => student.classIds.includes(selectedPlan.classId))
             .filter((student) => overridesByPlanStudent.get(rowKey(selectedPlan.id, student.id))?.included !== false)
             .map((student) => {
                 const cells = (cellByPlan.get(selectedPlan.id) ?? []).filter((cell) => cell.student.id === student.id);
@@ -789,11 +835,11 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
 
     return {
         catalog: {
-            classrooms: snapshot.classrooms
+            classes: snapshot.classes
                 .map(({ id, name }) => ({ id, name }))
                 .sort((left, right) => left.name.localeCompare(right.name, 'ko')),
             students: snapshot.students
-                .map(({ id, name, classIds }) => ({ id, name, classroomIds: classIds }))
+                .map(({ id, name, classIds }) => ({ id, name, classIds: classIds }))
                 .sort((left, right) => left.name.localeCompare(right.name, 'ko')),
             skills: snapshot.skills
                 .filter((skill) => snapshot.catalogSkillIds.includes(skill.id))
@@ -807,7 +853,7 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
                 .map(({ id, name, description }) => ({ id, name, description }))
                 .sort((left, right) => left.name.localeCompare(right.name, 'ko')),
         },
-        tracks,
+        paths,
         actionQueue,
         examPlans,
         examStudents,
@@ -817,9 +863,11 @@ export function buildLearningAnalysisData(snapshot: LearningAnalysisSnapshot): L
 export function toCreatePlanContract(input: NormalizedCreateLearningPlan): Record<string, unknown> {
     const planType = input.kind === 'exam' ? 'exam' : 'study_track';
     return {
-        class_id: input.classroomId,
+        class_id: input.classId,
         plan_type: planType,
         track_kind: input.kind === 'exam' ? null : input.kind,
+        path_role: input.role,
+        path_purpose: input.kind === 'maintenance' ? 'review' : input.kind,
         name: input.name,
         target_challenge_band: input.targetBand,
         exam_date: input.examDate,
@@ -829,6 +877,7 @@ export function toCreatePlanContract(input: NormalizedCreateLearningPlan): Recor
         material_book_ids: input.materialBookIds,
         student_overrides: input.studentOverrides.map((override) => ({
             student_id: override.studentId,
+            included: override.included,
             target_challenge_band: override.targetBand,
         })),
     };

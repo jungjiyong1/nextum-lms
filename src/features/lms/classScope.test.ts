@@ -80,15 +80,17 @@ function attendanceRow(classId: string): AttendanceRow {
 }
 
 describe('assigned class scope', () => {
-  it('includes classes assigned by default instructor, schedule item, or schedule rule', () => {
+  it('uses durable class assignments and never promotes schedule participants', () => {
+    const explicit = classRow('explicit-class', 'staff-2');
+    explicit.instructorIds = ['staff-1', 'staff-2'];
     const ids = resolveAssignedClassIds(
       'staff-1',
-      [classRow('default-class', 'staff-1'), classRow('hidden-class', 'staff-2')],
+      [classRow('default-class', 'staff-1'), explicit, classRow('hidden-class', 'staff-2')],
       [scheduleRow('schedule-class', 'staff-1')],
       [ruleRow('rule-class', 'staff-1')],
     );
 
-    expect([...ids].sort()).toEqual(['default-class', 'rule-class', 'schedule-class']);
+    expect([...ids].sort()).toEqual(['default-class', 'explicit-class']);
   });
 
   it('filters all class-scoped rows to assigned classes', () => {

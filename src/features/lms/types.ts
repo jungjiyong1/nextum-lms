@@ -15,6 +15,8 @@ export type LessonOccurrenceStatus = 'normal' | 'cancelled' | 'makeup' | 'substi
 export type StudentLearningPeriod = '30d' | '90d' | '180d' | 'all';
 export type StudentLearningStatus = 'insufficient' | 'weak' | 'watch' | 'ok';
 export type StudentAssignmentProgressStatus = 'not_started' | 'in_progress' | 'completed';
+export type StudentLearningAttentionStatus = 'support_needed' | 'check_needed' | 'steady' | 'no_data';
+export type StudentLearningPathState = 'configured' | 'needs_setup';
 export type AdminExportType = 'tax' | 'payroll';
 export type AdminResetTarget =
   | 'classrooms'
@@ -46,12 +48,20 @@ export interface ClassSummary {
   id: string;
   name: string;
   grade: string | null;
+  /** Normalized subject fields are optional while legacy academies are migrated. */
+  subjectId?: string | null;
+  subjectName?: string | null;
+  targetGrades?: string[];
+  primaryTargetGrade?: string | null;
   active: boolean;
   status: string;
   color: string | null;
   capacity: number | null;
   defaultInstructorId: string | null;
+  instructorIds?: string[];
+  instructors?: Array<{ id: string; name: string }>;
   defaultClassroomId: string | null;
+  courseId?: string | null;
   courseTitle: string | null;
   instructorName: string | null;
   classroomName: string | null;
@@ -60,6 +70,34 @@ export interface ClassSummary {
   avgTypeScore: number | null;
   lastLearningAt: string | null;
   notes?: string | null;
+}
+
+export interface ClassDirectoryFacetOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface ClassCourseOption {
+  id: string;
+  title: string;
+  subjectId: string | null;
+  status: string;
+}
+
+export interface ClassDirectoryFacets {
+  grades: ClassDirectoryFacetOption[];
+  subjects: ClassDirectoryFacetOption[];
+  instructors: ClassDirectoryFacetOption[];
+  statuses: ClassDirectoryFacetOption[];
+}
+
+export interface ClassDirectoryPage {
+  classes: ClassSummary[];
+  facets: ClassDirectoryFacets;
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalCount: number;
 }
 
 export interface StudentSummary {
@@ -116,23 +154,6 @@ export interface StudentLearningMetric {
   lastLearningAt: string | null;
 }
 
-export interface StudentLearningAttemptRow {
-  id: number;
-  problemId: string;
-  assignmentId: string | null;
-  assignmentTitle: string | null;
-  unitId: string | null;
-  unitName: string | null;
-  typeId: string | null;
-  typeName: string | null;
-  label: string;
-  correct: boolean;
-  unsure: boolean;
-  attemptNo: number;
-  durationMs: number | null;
-  createdAt: string;
-}
-
 export interface StudentTypeInsight {
   typeId: string | null;
   typeName: string;
@@ -160,6 +181,8 @@ export interface StudentUnitInsight {
 
 export interface StudentAssignmentInsight {
   id: string;
+  classId: string | null;
+  personal: boolean;
   title: string;
   dueAt: string | null;
   status: string;
@@ -172,29 +195,132 @@ export interface StudentAssignmentInsight {
   attemptCount: number;
   correctAttemptCount: number;
   correctRate: number | null;
+  correctedProblemCount: number;
+  dueSoon: boolean;
+  overdue: boolean;
   lastActivityAt: string | null;
 }
 
 export interface StudentLearningOverview {
-  attemptedProblemCount: number;
-  attemptCount: number;
-  correctAttemptCount: number;
+  subjects: StudentLearningSubjectSummary[];
+  personalAssignments: StudentAssignmentInsight[];
+  unclassifiedAttemptCount: number;
+}
+
+export interface StudentLearningSubjectSummary {
+  subjectId: string | null;
+  subjectName: string;
+  status: StudentLearningAttentionStatus;
+  sampleCount: number;
+  correctCount: number;
   correctRate: number | null;
-  weakTypeCount: number;
-  watchTypeCount: number;
-  unitCount: number;
-  assignmentCount: number;
-  completedAssignmentCount: number;
-  aiConversationCount: number;
+  correctedProblemCount: number;
+  pendingAssignmentCount: number;
+  dueSoonAssignmentCount: number;
+  classes: StudentLearningClassSummary[];
+}
+
+export interface StudentLearningClassSummary {
+  classId: string;
+  className: string;
+  color: string | null;
+  courseTitle: string | null;
+  subjectId: string | null;
+  subjectName: string;
+  pathState: StudentLearningPathState;
+  primaryPathName: string | null;
+  activePathCount: number;
+  status: StudentLearningAttentionStatus;
+  sampleCount: number;
+  correctCount: number;
+  correctRate: number | null;
+  correctedProblemCount: number;
+  pendingAssignmentCount: number;
+  dueSoonAssignmentCount: number;
   lastLearningAt: string | null;
 }
 
-export interface StudentLearningAnalytics {
-  period: StudentLearningPeriod;
-  assignmentId: string | null;
-  overview: StudentLearningOverview;
-  units: StudentUnitInsight[];
+export interface StudentLearningPathSummary {
+  id: string;
+  name: string;
+  purpose: 'current' | 'advance' | 'review' | 'other';
+  role: 'primary' | 'secondary';
+  status: 'draft' | 'active' | 'completed' | 'archived';
+}
+
+export interface StudentLearningUnitSummary {
+  unitId: string | null;
+  unitName: string;
+  bookId: string | null;
+  bookTitle: string | null;
+  sampleCount: number;
+  correctCount: number;
+  correctRate: number | null;
+  correctedProblemCount: number;
+  status: StudentLearningStatus;
+  lastAttemptedAt: string | null;
+}
+
+export interface StudentLearningClassContext {
+  classId: string;
+  pathState: StudentLearningPathState;
+  paths: StudentLearningPathSummary[];
+  units: StudentLearningUnitSummary[];
   assignments: StudentAssignmentInsight[];
+}
+
+export interface StudentLearningTypeSummary {
+  typeId: string | null;
+  typeName: string;
+  sampleCount: number;
+  correctCount: number;
+  correctRate: number | null;
+  correctedProblemCount: number;
+  status: StudentLearningStatus;
+  lastAttemptedAt: string | null;
+}
+
+export interface StudentLearningUnitDetail {
+  classId: string;
+  unitId: string | null;
+  unitName: string;
+  types: StudentLearningTypeSummary[];
+}
+
+export interface StudentLearningEvidenceRow {
+  id: string;
+  problemId: string;
+  problemLabel: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  classId: string | null;
+  className: string | null;
+  bookTitle: string | null;
+  firstCorrect: boolean;
+  corrected: boolean;
+  firstAttemptedAt: string;
+  lastAttemptedAt: string;
+}
+
+export interface StudentLearningTypeEvidence {
+  typeId: string | null;
+  typeName: string;
+  evidence: StudentLearningEvidenceRow[];
+}
+
+export interface StudentAiProblemSummary {
+  problemId: string | null;
+  problemLabel: string;
+  unitName: string | null;
+  typeName: string | null;
+  conversationCount: number;
+  lastConversationAt: string;
+  conversations: StudentAiConversationSummary[];
+}
+
+export interface StudentAssignmentLearningDetail {
+  assignment: StudentAssignmentInsight;
+  aiProblems: StudentAiProblemSummary[];
 }
 
 export interface StudentAttendanceSummary {
@@ -206,17 +332,25 @@ export interface StudentAttendanceSummary {
   total: number;
 }
 
-export interface StudentAiConversationRow {
+export interface StudentAiConversationSummary {
   id: string;
   assignmentId: string | null;
   assignmentTitle: string | null;
+  problemId: string | null;
+  problemLabel: string | null;
+  unitName: string | null;
+  typeName: string | null;
+  linkStatus: 'linked' | 'needs_review';
   title: string | null;
   status: string;
   sourceApp: string | null;
   createdAt: string;
   updatedAt: string;
-  messageCount?: number;
-  messages?: StudentAiMessageRow[];
+  messageCount: number;
+}
+
+export interface StudentAiConversationDetail extends StudentAiConversationSummary {
+  messages: StudentAiMessageRow[];
 }
 
 export interface StudentAiMessageRow {
@@ -277,15 +411,11 @@ export interface StudentDetail {
   signupInvitation: StudentSignupInvitation | null;
   hasGradeAppAccount: boolean;
   gradeAppAccount: StudentGradeAppAccount | null;
-  learningAnalytics: StudentLearningAnalytics | null;
-  weakTypes: WeakTypeRow[];
-  recentAttempts: StudentLearningAttemptRow[];
+  learningOverview: StudentLearningOverview | null;
   attendanceSummary: StudentAttendanceSummary;
   recentAttendance: AttendanceRow[];
   billing: BillingRow | null;
   recentPayments: PaymentRow[];
-  aiConversations: StudentAiConversationRow[];
-  reports: StudentReportRow[];
   hardDeletePreview: StudentHardDeletePreview | null;
 }
 
@@ -397,6 +527,14 @@ export interface ClassroomSummary {
   active: boolean;
 }
 
+export interface ScheduleParticipant {
+  instructorId: string;
+  instructorName: string | null;
+  participationKind: 'regular' | 'substitute' | 'makeup' | 'assistant';
+  payableMinutes: number;
+  replacesInstructorId?: string | null;
+}
+
 export interface ScheduleItem {
   id: string;
   actualId: string | null;
@@ -416,6 +554,7 @@ export interface ScheduleItem {
   instructorId: string | null;
   instructorOverrideId?: string | null;
   instructorName: string | null;
+  instructors?: ScheduleParticipant[];
   substituteInstructorId?: string | null;
   substituteInstructorName?: string | null;
   cancelReason: string | null;
@@ -439,6 +578,7 @@ export interface ScheduleRuleSummary {
   classroomName: string | null;
   instructorId: string | null;
   instructorName: string | null;
+  instructors?: ScheduleParticipant[];
   updatedAt?: string | null;
 }
 
@@ -512,6 +652,9 @@ export interface InstructorPaymentRow {
   serviceMonth: string;
   paymentDate: string;
   grossAmount: number;
+  baseAmount: number;
+  additionalAmount: number;
+  deductionAmount: number;
   withholdingType: WithholdingType;
   withholdingRate: number;
   withholdingTax: number;
@@ -524,10 +667,18 @@ export interface InstructorPaymentRow {
   notes: string | null;
 }
 
+export interface InstructorPayrollRateBreakdown {
+  hourlyRate: number;
+  minutes: number;
+  amount: number;
+  effectiveFrom: string | null;
+}
+
 export interface InstructorPayrollEstimate {
   instructorId: string;
   instructorName: string;
   hourlyRate: number | null;
+  rateBreakdown: InstructorPayrollRateBreakdown[];
   completedLessonCount: number;
   completedMinutes: number;
   scheduledLessonCount: number;
@@ -535,6 +686,11 @@ export interface InstructorPayrollEstimate {
   estimatedGrossAmount: number;
   paidGrossAmount: number;
   remainingEstimatedAmount: number;
+  estimatedBase: number;
+  paidBase: number;
+  additionalAmount: number;
+  deductionAmount: number;
+  remainingBase: number;
 }
 
 export interface AccountingOperationsOverview {
@@ -555,6 +711,7 @@ export interface InstructorPayrollOperationsOverview {
   payroll: InstructorPaymentRow[];
   payrollEstimates: InstructorPayrollEstimate[];
   staff: StaffSummary[];
+  taxSettings: AccountingTaxSettings;
 }
 
 export interface ExpenseOperationsOverview {
@@ -703,6 +860,8 @@ export interface CreateLearningAssignmentInput {
   excludedProblemIds?: string[];
   classIds?: string[];
   studentIds?: string[];
+  directClassId?: string | null;
+  personal?: boolean;
   excludedStudentIds?: string[];
   dueAt?: string | null;
   context?: string | null;
@@ -779,7 +938,16 @@ export interface ClassOperationsOverview {
   attendance: AttendanceRow[];
   staff: StaffSummary[];
   classrooms: ClassroomSummary[];
+  courses?: ClassCourseOption[];
+  permissions?: ClassOperationsPermissions;
   truncated: ClassOperationsTruncation;
+}
+
+export interface ClassOperationsPermissions {
+  canCreateClass: boolean;
+  canManageGlobalResources: boolean;
+  operatorClassIds: string[];
+  occurrenceStatusIds: string[];
 }
 
 export interface ClassOperationsTruncation {
@@ -918,6 +1086,10 @@ export type DashboardData = HomeDashboardData;
 export interface CreateClassInput {
   name: string;
   grade?: string | null;
+  subjectId?: string | null;
+  courseId?: string | null;
+  targetGrades?: string[];
+  instructorIds?: string[];
   capacity?: number | null;
   color?: string | null;
   defaultInstructorId?: string | null;
@@ -996,6 +1168,7 @@ export interface CreateScheduleRuleInput {
   intervalWeeks?: number;
   classroomId?: string | null;
   instructorId?: string | null;
+  instructorIds?: string[];
 }
 
 export interface UpdateScheduleRuleInput extends CreateScheduleRuleInput {
@@ -1031,6 +1204,9 @@ export interface CreateInstructorPaymentInput {
   serviceMonth: string;
   paymentDate: string;
   grossAmount: number;
+  baseAmount?: number;
+  additionalAmount?: number;
+  deductionAmount?: number;
   withholdingType?: WithholdingType;
   withholdingRate?: number;
   withholdingTax?: number;
@@ -1041,6 +1217,12 @@ export interface CreateInstructorPaymentInput {
   paymentMethod?: string | null;
   status?: PayrollStatus;
   notes?: string | null;
+}
+
+export interface UpsertInstructorPayRateInput {
+  instructorId: string;
+  effectiveFrom: string;
+  hourlyRate: number;
 }
 
 export interface RecordAttendanceInput {
@@ -1100,6 +1282,13 @@ export interface ScheduleMutationInput {
   startTime: string;
   endTime: string;
   instructorId?: string | null;
+  instructorIds?: string[];
+  participants?: Array<{
+    instructorId: string;
+    participationKind?: ScheduleParticipant['participationKind'];
+    payableMinutes?: number | null;
+    replacesInstructorId?: string | null;
+  }>;
   classroomId?: string | null;
   substituteInstructorId?: string | null;
   status?: LessonOccurrenceStatus;
@@ -1125,6 +1314,8 @@ export interface UpdateLessonOccurrenceInput {
   endTime: string;
   status: LessonOccurrenceStatus;
   instructorId?: string | null;
+  instructorIds?: string[];
+  participants?: ScheduleMutationInput['participants'];
   classroomId?: string | null;
   substituteInstructorId?: string | null;
   overrideScope?: ScheduleEditScope | null;

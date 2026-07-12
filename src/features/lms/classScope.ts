@@ -11,21 +11,17 @@ export interface AssignedClassScopeInput {
 export function resolveAssignedClassIds(
   staffMemberId: string | null | undefined,
   classes: ClassSummary[],
-  schedule: ScheduleItem[],
-  scheduleRules: ScheduleRuleSummary[],
+  _schedule: ScheduleItem[],
+  _scheduleRules: ScheduleRuleSummary[],
 ): Set<string> {
   const ids = new Set<string>();
   if (!staffMemberId) return ids;
 
   classes
-    .filter((row) => row.defaultInstructorId === staffMemberId)
+    .filter((row) => (
+      row.defaultInstructorId === staffMemberId || row.instructorIds?.includes(staffMemberId)
+    ))
     .forEach((row) => ids.add(row.id));
-  schedule
-    .filter((row) => row.instructorId === staffMemberId)
-    .forEach((row) => ids.add(row.classId));
-  scheduleRules
-    .filter((row) => row.instructorId === staffMemberId)
-    .forEach((row) => ids.add(row.classId));
 
   return ids;
 }

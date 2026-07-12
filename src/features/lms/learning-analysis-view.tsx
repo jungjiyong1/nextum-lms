@@ -57,7 +57,10 @@ import type {
   LearningEvidenceEvent,
   LearningEvidenceOutcome,
   LearningEvidenceStatus,
-  LearningTrackSummary,
+  LearningPathRole,
+  LearningPathPurpose,
+  LearningPathStatus,
+  LearningPathSummary,
   StudentExamEvidenceSummary,
 } from './learning-analysis-types';
 
@@ -80,6 +83,26 @@ const PLAN_KIND_DESCRIPTION: Record<AnalysisPlanKind, string> = {
   advance: '앞으로 배울 범위를 미리 학습합니다.',
   maintenance: '교재 유무와 관계없이 잊지 않도록 확인합니다.',
   exam: '시험일과 정확한 범위를 기준으로 확인합니다.',
+};
+
+const PATH_ROLE_LABEL: Record<LearningPathRole, string> = {
+  primary: '대표 경로',
+  supplemental: '보조 경로',
+};
+
+const PATH_PURPOSE_LABEL: Record<LearningPathPurpose, string> = {
+  current: '현행',
+  advance: '선행',
+  review: '복습',
+  exam: '시험 대비',
+  other: '기타',
+};
+
+const PATH_STATUS_LABEL: Record<LearningPathStatus, string> = {
+  draft: '준비 중',
+  active: '진행 중',
+  completed: '완료',
+  archived: '보관',
 };
 
 const STATUS_LABEL: Record<LearningEvidenceStatus, string> = {
@@ -145,7 +168,7 @@ function statusBadge(status: LearningEvidenceStatus) {
 function LearningAnalysisLoading() {
   return (
     <PageShell
-      title="학습 분석"
+      title="학습 경로"
       icon={BarChart3}
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -235,48 +258,128 @@ function EvidenceDialog({
   );
 }
 
-function TrackCard({ track }: { track: LearningTrackSummary }) {
+function PathCard({
+  path,
+  onStart,
+  onStatusChange,
+}: {
+  path: LearningPathSummary;
+  onStart?: (pathId: string) => void | Promise<void>;
+  onStatusChange?: (pathId: string, action: 'complete' | 'archive') => void | Promise<void>;
+}) {
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  const start = async () => {
+    if (!onStart || starting) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      await onStart(path.id);
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : '다음 학습 경로를 시작하지 못했습니다.');
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const changeStatus = async (action: 'complete' | 'archive') => {
+    if (!onStatusChange || starting) return;
+    const message = action === 'complete'
+      ? '이 학습 경로를 완료 처리할까요? 학습 기록은 그대로 유지됩니다.'
+      : '이 학습 경로를 보관할까요?';
+    if (typeof window !== 'undefined' && !window.confirm(message)) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      await onStatusChange(path.id, action);
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : '학습 경로 상태를 변경하지 못했습니다.');
+    } finally {
+      setStarting(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle className="truncate">{track.name}</CardTitle>
+            <CardTitle className="truncate">{path.name}</CardTitle>
             <CardDescription className="mt-1">
-              {track.classroomName} · 목표 도전 단계 {CHALLENGE_BAND_LABEL[track.targetBand]}
+              {path.className} · 목표 도전 단계 {CHALLENGE_BAND_LABEL[path.targetBand]}
             </CardDescription>
           </div>
-          <StatusBadge label={PLAN_KIND_LABEL[track.kind]} tone="info" />
+          <div className="flex flex-wrap justify-end gap-1.5">
+            <StatusBadge label={PATH_ROLE_LABEL[path.role]} tone={path.role === 'primary' ? 'primary' : 'neutral'} />
+            <StatusBadge label={PATH_STATUS_LABEL[path.status]} tone={path.status === 'active' ? 'success' : path.status === 'draft' ? 'info' : 'neutral'} />
+            <StatusBadge label={PATH_PURPOSE_LABEL[path.purpose]} tone="info" />
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-lg bg-muted p-3">
             <dt className="text-xs text-muted-foreground">범위</dt>
-            <dd className="mt-1 font-semibold text-foreground">{track.scopeSkillCount.toLocaleString()}개 유형</dd>
+            <dd className="mt-1 font-semibold text-foreground">{path.scopeSkillCount.toLocaleString()}개 유형</dd>
           </div>
           <div className="rounded-lg bg-muted p-3">
             <dt className="text-xs text-muted-foreground">연결 자료</dt>
             <dd className="mt-1 font-semibold text-foreground">
-              {track.materialCount === 0 ? '없음' : `${track.materialCount.toLocaleString()}개`}
+              {path.materialCount === 0 ? '없음' : `${path.materialCount.toLocaleString()}개`}
             </dd>
           </div>
           <div className="rounded-lg bg-muted p-3">
             <dt className="text-xs text-muted-foreground">확인 예정 학생</dt>
-            <dd className="mt-1 font-semibold text-foreground">{track.dueStudentCount.toLocaleString()}명</dd>
+            <dd className="mt-1 font-semibold text-foreground">{path.dueStudentCount.toLocaleString()}명</dd>
           </div>
           <div className="rounded-lg bg-muted p-3">
             <dt className="text-xs text-muted-foreground">조치 항목</dt>
-            <dd className="mt-1 font-semibold text-foreground">{track.actionCount.toLocaleString()}건</dd>
+            <dd className="mt-1 font-semibold text-foreground">{path.actionCount.toLocaleString()}건</dd>
           </div>
         </dl>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>
-            {track.maintenanceIntervalDays}일마다{' '}
-            {track.kind === 'maintenance' ? '유지 확인' : '재확인'}
+            {path.maintenanceIntervalDays
+              ? `${path.maintenanceIntervalDays}일마다 ${path.kind === 'maintenance' ? '유지 확인' : '재확인'}`
+              : path.kind === 'exam' ? '시험 범위 경로' : '확인 주기 미설정'}
           </span>
-          <span>최근 근거 {formatDate(track.lastEvidenceAt)}</span>
+          <span>최근 근거 {formatDate(path.lastEvidenceAt)}</span>
         </div>
+        <details className="mt-4 rounded-lg border border-border px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">
+            단원별 상태 {path.units.length}개
+          </summary>
+          <div className="mt-3 space-y-2">
+            {path.units.map((unit) => (
+              <div key={unit.name} className="flex flex-col gap-1 rounded-md bg-muted px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+                <span className="font-medium text-foreground">{unit.name}</span>
+                <span className="text-muted-foreground">
+                  유형 {unit.skillCount} · 확인 {unit.needsCheckCount} · 지원 {unit.supportCandidateCount} · 자료 부족 {unit.contentGapCount}
+                </span>
+              </div>
+            ))}
+            {path.units.length === 0 && <p className="text-xs text-muted-foreground">학습 범위 설정이 필요합니다.</p>}
+          </div>
+        </details>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {path.status === 'draft' && path.role === 'primary' && onStart && (
+            <Button type="button" className="flex-1" disabled={starting} onClick={() => void start()}>
+              {starting ? '처리하는 중' : '다음 경로 시작'}
+            </Button>
+          )}
+          {path.status === 'active' && onStatusChange && (
+            <Button type="button" variant="outline" className="flex-1" disabled={starting} onClick={() => void changeStatus('complete')}>
+              {starting ? '처리하는 중' : '완료 처리'}
+            </Button>
+          )}
+          {(path.status === 'completed' || path.status === 'draft') && onStatusChange && (
+            <Button type="button" variant="ghost" className="flex-1" disabled={starting} onClick={() => void changeStatus('archive')}>
+              {starting ? '처리하는 중' : '보관'}
+            </Button>
+          )}
+        </div>
+        {startError && <p className="mt-3 text-sm text-destructive" role="alert">{startError}</p>}
       </CardContent>
     </Card>
   );
@@ -345,7 +448,7 @@ function ActionQueue({
           <div>
             <CardTitle>통합 조치 큐</CardTitle>
             <CardDescription className="mt-1">
-              여러 트랙에 겹치는 학생과 유형은 한 항목으로 모았습니다.
+              여러 학습 경로에 겹치는 학생과 유형은 한 항목으로 모았습니다.
             </CardDescription>
           </div>
           {onCreateAssignmentDraft && (
@@ -412,7 +515,7 @@ function ActionQueue({
                         )}
                         <TableCell>
                           <p className="font-medium">{item.studentName}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{item.classroomName}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{item.className}</p>
                         </TableCell>
                         <TableCell>
                           <p className="font-medium">{item.skillName}</p>
@@ -480,31 +583,37 @@ function ActionQueue({
 }
 
 function ClassLearningSection({
-  tracks,
+  paths,
   actionQueue,
   onCreateAssignmentDraft,
+  onStartPath,
+  onChangePathStatus,
 }: {
-  tracks: LearningTrackSummary[];
+  paths: LearningPathSummary[];
   actionQueue: LearningActionQueueItem[];
   onCreateAssignmentDraft?: (actionIds: string[]) => void | Promise<void>;
+  onStartPath?: (pathId: string) => void | Promise<void>;
+  onChangePathStatus?: (pathId: string, action: 'complete' | 'archive') => void | Promise<void>;
 }) {
   return (
     <div className="space-y-5">
       <section aria-labelledby="learning-track-heading">
         <div className="mb-3">
-          <h2 id="learning-track-heading" className="text-lg font-semibold text-foreground">학습 트랙</h2>
+          <h2 id="learning-track-heading" className="text-lg font-semibold text-foreground">학습 경로</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            현행, 선행, 유지 복습을 동시에 운영해도 조치 항목은 중복되지 않습니다.
+            대표 경로 하나와 여러 보조 경로를 운영합니다. 준비한 대표 경로는 기존 경로를 완료하면서 시작됩니다.
           </p>
         </div>
-        {tracks.length > 0 ? (
+        {paths.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {tracks.map((track) => <TrackCard key={track.id} track={track} />)}
+            {paths.map((path) => (
+              <PathCard key={path.id} path={path} onStart={onStartPath} onStatusChange={onChangePathStatus} />
+            ))}
           </div>
         ) : (
           <EmptyState
             icon={BookOpen}
-            title="아직 학습 트랙이 없습니다"
+            title="아직 학습 경로가 없습니다"
             description="현행, 선행 또는 유지 복습 계획을 추가하면 여기에서 함께 관리할 수 있습니다."
           />
         )}
@@ -677,7 +786,7 @@ function ExamPreparationSection({
             </div>
             {selectedPlan && (
               <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{selectedPlan.classroomName}</span>
+                <span className="font-medium text-foreground">{selectedPlan.className}</span>
                 {' · '}시험일 {formatDate(selectedPlan.examDate)}
                 {' · '}목표 도전 단계 {CHALLENGE_BAND_LABEL[selectedPlan.targetBand]}
               </div>
@@ -708,20 +817,22 @@ function ExamPreparationSection({
 
 type PlanDraft = {
   kind: AnalysisPlanKind;
-  classroomId: string;
+  role: LearningPathRole;
+  classId: string;
   name: string;
   targetBand: ChallengeBand;
   examDate: string;
   maintenanceIntervalDays: 7 | 14 | 21 | 30;
   scopeSkillIds: string[];
   materialBookIds: string[];
-  studentOverrides: Array<{ studentId: string; targetBand: ChallengeBand }>;
+  studentOverrides: Array<{ studentId: string; included: boolean; targetBand: ChallengeBand }>;
 };
 
 function initialPlanDraft(catalog: LearningAnalysisCatalog, kind: AnalysisPlanKind = 'current'): PlanDraft {
   return {
     kind,
-    classroomId: catalog.classrooms[0]?.id ?? '',
+    role: kind === 'current' ? 'primary' : 'supplemental',
+    classId: catalog.classes[0]?.id ?? '',
     name: '',
     targetBand: 2,
     examDate: '',
@@ -758,9 +869,9 @@ export function LearningPlanCreateDialog({
   const [draft, setDraft] = useState<PlanDraft>(() => initialPlanDraft(catalog, initialKind));
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const classroomStudents = useMemo(
-    () => catalog.students.filter((student) => student.classroomIds.includes(draft.classroomId)),
-    [catalog.students, draft.classroomId],
+  const classStudents = useMemo(
+    () => catalog.students.filter((student) => student.classIds.includes(draft.classId)),
+    [catalog.students, draft.classId],
   );
 
   useEffect(() => {
@@ -772,7 +883,7 @@ export function LearningPlanCreateDialog({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedName = draft.name.trim();
-    if (!draft.classroomId || !trimmedName || draft.scopeSkillIds.length === 0) {
+    if (!draft.classId || !trimmedName || draft.scopeSkillIds.length === 0) {
       setFormError('반, 계획 이름, 범위 유형을 모두 입력하세요.');
       return;
     }
@@ -786,7 +897,8 @@ export function LearningPlanCreateDialog({
     try {
       await onSubmit({
         kind: draft.kind,
-        classroomId: draft.classroomId,
+        role: draft.role,
+        classId: draft.classId,
         name: trimmedName,
         targetBand: draft.targetBand,
         examDate: draft.kind === 'exam' ? draft.examDate : null,
@@ -809,9 +921,9 @@ export function LearningPlanCreateDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl">
         <DialogHeader>
-          <DialogTitle>학습 계획 만들기</DialogTitle>
+          <DialogTitle>학습 경로 만들기</DialogTitle>
           <DialogDescription>
-            교재는 선택 사항입니다. 반과 범위, 목표 도전 단계를 먼저 정하세요.
+            반의 과목·과정에 맞는 범위와 경로 역할을 정하세요. 교재는 선택 사항입니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -823,10 +935,36 @@ export function LearningPlanCreateDialog({
                 <SelectableCard
                   key={kind}
                   selected={draft.kind === kind}
-                  onClick={() => setDraft((current) => ({ ...current, kind }))}
+                  onClick={() => setDraft((current) => ({
+                    ...current,
+                    kind,
+                    role: kind === 'exam' ? 'supplemental' : current.kind === 'exam' ? (kind === 'current' ? 'primary' : 'supplemental') : current.role,
+                  }))}
                 >
                   <span className="block font-semibold text-foreground">{PLAN_KIND_LABEL[kind]}</span>
                   <span className="mt-1 block text-xs text-muted-foreground">{PLAN_KIND_DESCRIPTION[kind]}</span>
+                </SelectableCard>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend className="text-sm font-medium text-foreground">경로 역할</legend>
+            <p className="mt-1 text-xs text-muted-foreground">
+              대표 경로가 이미 진행 중이면 새 대표 경로는 준비 중으로 저장됩니다.
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {(['primary', 'supplemental'] as LearningPathRole[]).map((role) => (
+                <SelectableCard
+                  key={role}
+                  selected={draft.role === role}
+                  disabled={draft.kind === 'exam' && role === 'primary'}
+                  onClick={() => setDraft((current) => ({ ...current, role }))}
+                >
+                  <span className="block font-semibold text-foreground">{PATH_ROLE_LABEL[role]}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {role === 'primary' ? '반 진도를 대표하는 경로입니다.' : '시험 대비·복습 등 함께 운영하는 경로입니다.'}
+                  </span>
                 </SelectableCard>
               ))}
             </div>
@@ -836,13 +974,13 @@ export function LearningPlanCreateDialog({
             <div>
               <Label htmlFor="learning-plan-classroom">반</Label>
               <Select
-                value={draft.classroomId || undefined}
-                onValueChange={(classroomId) => setDraft((current) => ({
+                value={draft.classId || undefined}
+                onValueChange={(classId) => setDraft((current) => ({
                   ...current,
-                  classroomId,
+                  classId,
                   studentOverrides: current.studentOverrides.filter((override) =>
                     catalog.students.some((student) =>
-                      student.id === override.studentId && student.classroomIds.includes(classroomId),
+                      student.id === override.studentId && student.classIds.includes(classId),
                     ),
                   ),
                 }))}
@@ -851,7 +989,7 @@ export function LearningPlanCreateDialog({
                   <SelectValue placeholder="반을 선택하세요" />
                 </SelectTrigger>
                 <SelectContent>
-                  {catalog.classrooms.map((classroom) => (
+                  {catalog.classes.map((classroom) => (
                     <SelectItem key={classroom.id} value={classroom.id}>{classroom.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -915,27 +1053,29 @@ export function LearningPlanCreateDialog({
 
           <details className="rounded-xl border border-border p-4">
             <summary className="cursor-pointer text-sm font-medium text-foreground">
-              학생별 목표 단계 예외
+              학생별 적용·목표 예외
               {draft.studentOverrides.length > 0 ? ` (${draft.studentOverrides.length}명)` : ' (선택)'}
             </summary>
             <p className="mt-2 text-xs text-muted-foreground">
-              반의 기본 목표 단계와 다른 학생만 지정하세요. 지정하지 않은 학생은 위 기본값을 사용합니다.
+              기본적으로 반 전체에 적용됩니다. 제외할 학생이나 목표 단계가 다른 학생만 지정하세요.
             </p>
             <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
-              {classroomStudents.map((student) => {
+              {classStudents.map((student) => {
                 const override = draft.studentOverrides.find((item) => item.studentId === student.id);
                 return (
                   <div key={student.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
                     <span className="min-w-0 truncate text-sm text-foreground">{student.name}</span>
                     <Select
-                      value={override ? String(override.targetBand) : 'default'}
+                      value={override?.included === false ? 'excluded' : override ? String(override.targetBand) : 'default'}
                       onValueChange={(value) => setDraft((current) => ({
                         ...current,
                         studentOverrides: value === 'default'
                           ? current.studentOverrides.filter((item) => item.studentId !== student.id)
                           : [
                               ...current.studentOverrides.filter((item) => item.studentId !== student.id),
-                              { studentId: student.id, targetBand: Number(value) as ChallengeBand },
+                              value === 'excluded'
+                                ? { studentId: student.id, included: false, targetBand: current.targetBand }
+                                : { studentId: student.id, included: true, targetBand: Number(value) as ChallengeBand },
                             ],
                       }))}
                     >
@@ -944,6 +1084,7 @@ export function LearningPlanCreateDialog({
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="default">반 기본값</SelectItem>
+                        <SelectItem value="excluded">이 경로에서 제외</SelectItem>
                         {(Object.keys(CHALLENGE_BAND_LABEL) as unknown as ChallengeBand[]).map((band) => (
                           <SelectItem key={band} value={String(band)}>
                             {CHALLENGE_BAND_LABEL[band]}
@@ -954,7 +1095,7 @@ export function LearningPlanCreateDialog({
                   </div>
                 );
               })}
-              {classroomStudents.length === 0 && (
+              {classStudents.length === 0 && (
                 <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
                   선택한 반에 활성 학생이 없습니다.
                 </p>
@@ -1032,7 +1173,7 @@ export function LearningPlanCreateDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>취소</Button>
-            <Button type="submit" disabled={busy}>{busy ? '저장하는 중' : '계획 저장'}</Button>
+            <Button type="submit" disabled={busy}>{busy ? '저장하는 중' : '경로 저장'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -1051,6 +1192,8 @@ export function LearningAnalysisView({
   onRetry,
   onSelectedExamPlanChange,
   onSubmitPlan,
+  onStartPath,
+  onChangePathStatus,
   onCreateAssignmentDraft,
 }: LearningAnalysisViewProps) {
   const [tab, setTab] = useState<LearningAnalysisTab>(initialTab);
@@ -1070,16 +1213,16 @@ export function LearningAnalysisView({
 
   if (!data) {
     return (
-      <PageShell title="학습 분석" icon={BarChart3}>
+      <PageShell title="학습 경로" icon={BarChart3}>
         {error ? (
           <ErrorState
-            title="학습 분석을 불러오지 못했습니다"
+            title="학습 경로를 불러오지 못했습니다"
             description={error}
             retryLabel="다시 시도"
             onRetry={onRetry}
           />
         ) : (
-          <EmptyState title="표시할 학습 분석 데이터가 없습니다" />
+          <EmptyState title="표시할 학습 경로 데이터가 없습니다" />
         )}
       </PageShell>
     );
@@ -1088,12 +1231,12 @@ export function LearningAnalysisView({
   return (
     <>
       <PageShell
-        title="학습 분석"
+        title="학습 경로"
         icon={BarChart3}
         actions={(
           <Button type="button" onClick={() => openPlanDialog(tab === 'exam-preparation' ? 'exam' : 'current')}>
             <Plus className="h-4 w-4" aria-hidden="true" />
-            계획 만들기
+            경로 만들기
           </Button>
         )}
         status={error ? (
@@ -1116,9 +1259,11 @@ export function LearningAnalysisView({
           </TabsList>
           <TabsContent value="class-learning">
             <ClassLearningSection
-              tracks={data.tracks}
+              paths={data.paths}
               actionQueue={data.actionQueue}
               onCreateAssignmentDraft={onCreateAssignmentDraft}
+              onStartPath={onStartPath}
+              onChangePathStatus={onChangePathStatus}
             />
           </TabsContent>
           <TabsContent value="exam-preparation">

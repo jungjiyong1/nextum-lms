@@ -21,14 +21,15 @@ describe('learning analysis plan validation', () => {
     it('accepts a bookless study track and builds the database contract', () => {
         const normalized = normalizeCreateLearningPlanInput({
             kind: 'maintenance',
-            classroomId: CLASS_ID,
+            role: 'supplemental',
+            classId: CLASS_ID,
             name: ' 2-2 유지 복습 ',
             targetBand: 2,
             examDate: null,
             maintenanceIntervalDays: 14,
             scopeSkillIds: [SKILL_ID, SKILL_ID],
             materialBookIds: [],
-            studentOverrides: [{ studentId: STUDENT_ID, targetBand: 3 }],
+            studentOverrides: [{ studentId: STUDENT_ID, included: false, targetBand: 3 }],
         }, '2026-07-11');
 
         expect(normalized.materialBookIds).toEqual([]);
@@ -36,10 +37,13 @@ describe('learning analysis plan validation', () => {
         expect(toCreatePlanContract(normalized)).toMatchObject({
             plan_type: 'study_track',
             track_kind: 'maintenance',
+            path_role: 'supplemental',
+            path_purpose: 'review',
             maintenance_interval_days: 14,
             material_book_ids: [],
             student_overrides: [{
                 student_id: STUDENT_ID,
+                included: false,
                 target_challenge_band: 3,
             }],
         });
@@ -48,7 +52,7 @@ describe('learning analysis plan validation', () => {
     it('rejects a past exam and an empty scope', () => {
         expect(() => normalizeCreateLearningPlanInput({
             kind: 'exam',
-            classroomId: CLASS_ID,
+            classId: CLASS_ID,
             name: '중간고사',
             targetBand: 2,
             examDate: '2026-07-10',
@@ -61,7 +65,7 @@ describe('learning analysis plan validation', () => {
     it('rejects duplicate or invalid student target overrides', () => {
         expect(() => normalizeCreateLearningPlanInput({
             kind: 'maintenance',
-            classroomId: CLASS_ID,
+            classId: CLASS_ID,
             name: '복습',
             targetBand: 2,
             maintenanceIntervalDays: 21,
@@ -84,7 +88,7 @@ describe('learning analysis projection', () => {
         const snapshot: LearningAnalysisSnapshot = {
             asOfDate: '2026-07-11',
             selectedExamPlanId: EXAM_ID,
-            classrooms: [{ id: CLASS_ID, name: '중2 A반' }],
+            classes: [{ id: CLASS_ID, name: '중2 A반' }],
             students: [{ id: STUDENT_ID, name: '김학생', classIds: [CLASS_ID] }],
             skills: [
                 { id: SKILL_ID, name: '삼각형의 성질', unitLabel: '중2 · 2학기', sortOrder: 1 },
@@ -95,10 +99,13 @@ describe('learning analysis projection', () => {
             plans: [
                 {
                     id: TRACK_ID,
-                    classroomId: CLASS_ID,
+                    classId: CLASS_ID,
                     name: '현행 학습',
                     planType: 'study_track',
                     trackKind: 'current',
+                    pathRole: 'primary',
+                    pathPurpose: 'current',
+                    status: 'active',
                     targetBand: 2,
                     maintenanceIntervalDays: 21,
                     examDate: null,
@@ -107,10 +114,13 @@ describe('learning analysis projection', () => {
                 },
                 {
                     id: EXAM_ID,
-                    classroomId: CLASS_ID,
+                    classId: CLASS_ID,
                     name: '2학기 중간고사',
                     planType: 'exam',
                     trackKind: null,
+                    pathRole: 'supplemental',
+                    pathPurpose: 'exam',
+                    status: 'active',
                     targetBand: 2,
                     maintenanceIntervalDays: null,
                     examDate: '2026-08-01',
@@ -170,7 +180,9 @@ describe('learning analysis projection', () => {
         });
         expect(data.actionQueue[0].evidence.filter((event) => event.outcome === 'blank')).toHaveLength(1);
         expect(data.actionQueue[0].evidence.find((event) => event.outcome === 'blank')?.included).toBe(false);
-        expect(data.tracks[0]).toMatchObject({ dueStudentCount: 1, actionCount: 1, materialCount: 1 });
+        expect(data.paths[0]).toMatchObject({
+            role: 'primary', status: 'active', dueStudentCount: 1, actionCount: 1, materialCount: 1,
+        });
         expect(data.examPlans[0].summary).toEqual({
             scope: 2,
             analyzable: 1,
@@ -194,7 +206,7 @@ describe('learning analysis projection', () => {
             }],
         });
         expect(assignedData.actionQueue).toHaveLength(0);
-        expect(assignedData.tracks[0]).toMatchObject({ dueStudentCount: 0, actionCount: 0 });
+        expect(assignedData.paths[0]).toMatchObject({ dueStudentCount: 0, actionCount: 0 });
         expect(buildLearningAnalysisData({
             ...snapshot,
             assignedActions: [{
@@ -208,17 +220,20 @@ describe('learning analysis projection', () => {
         const snapshot: LearningAnalysisSnapshot = {
             asOfDate: '2026-07-11',
             selectedExamPlanId: EXAM_ID,
-            classrooms: [{ id: CLASS_ID, name: '중2 A반' }],
+            classes: [{ id: CLASS_ID, name: '중2 A반' }],
             students: [{ id: STUDENT_ID, name: '김학생', classIds: [CLASS_ID] }],
             skills: [{ id: SKILL_ID, name: '삼각형의 성질', unitLabel: '중2', sortOrder: 1 }],
             catalogSkillIds: [SKILL_ID],
             materials: [],
             plans: [{
                 id: EXAM_ID,
-                classroomId: CLASS_ID,
+                classId: CLASS_ID,
                 name: '시험',
                 planType: 'exam',
                 trackKind: null,
+                pathRole: 'supplemental',
+                pathPurpose: 'exam',
+                status: 'active',
                 targetBand: 2,
                 maintenanceIntervalDays: null,
                 examDate: '2026-08-01',

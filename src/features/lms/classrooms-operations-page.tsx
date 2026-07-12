@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import {
   CalendarRange,
   ClipboardCheck,
@@ -20,6 +22,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DataTable,
   Table,
@@ -47,12 +50,16 @@ import { SkeletonPanel } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { canManageScheduleRules } from '@/core/auth/roles';
+import {
+  canCreateClass as canCreateClassForRole,
+  canManageGlobalClassResources,
+} from '@/core/auth/roles';
 import {
   addLmsInvalidationListener,
   createBook,
   createClass,
   createClassroom,
+  loadClassDirectory,
   loadClassOperationsDetail,
   loadClassOperationsOverview,
   setClassBook,
@@ -66,7 +73,10 @@ import type {
   AttendanceStatus,
   BookSummary,
   ClassBookSummary,
+  ClassCourseOption,
+  ClassDirectoryFacetOption,
   ClassOperationsTruncation,
+  ClassOperationsPermissions,
   ClassStatus,
   ClassStudentSummary,
   ClassSummary,
@@ -75,11 +85,14 @@ import type {
   ScheduleRuleSummary,
   StaffSummary,
 } from './types';
-import { AttendanceRoster } from './classrooms/attendance-roster';
-import { ClassMemberDialog } from './classrooms/class-member-dialog';
+import {
+  canCreateSchedule,
+  canOperateClass,
+  canUpdateOccurrenceStatus,
+  NO_CLASS_OPERATIONS_PERMISSIONS,
+} from './classrooms/class-operation-permissions';
+import { toggleClassInstructorId } from './class-instructors';
 import { LessonSpecialStatusBadge } from './classrooms/lesson-special-status-badge';
-import { ScheduleEditorDialog } from './classrooms/schedule-editor-dialog';
-import { ScheduleWeekView } from './classrooms/schedule-week-view';
 import {
   addDateValue,
   lessonSpecialStatusSelection,
@@ -92,7 +105,25 @@ import {
   type LessonSpecialStatusSelection,
 } from './classrooms/schedule-utils';
 
+const AttendanceRoster = dynamic(
+  () => import('./classrooms/attendance-roster').then((module) => module.AttendanceRoster),
+  { loading: () => <SkeletonPanel className="min-h-[320px]" rows={6} /> },
+);
+const ClassMemberDialog = dynamic(
+  () => import('./classrooms/class-member-dialog').then((module) => module.ClassMemberDialog),
+  { loading: () => null },
+);
+const ScheduleEditorDialog = dynamic(
+  () => import('./classrooms/schedule-editor-dialog').then((module) => module.ScheduleEditorDialog),
+  { loading: () => null },
+);
+const ScheduleWeekView = dynamic(
+  () => import('./classrooms/schedule-week-view').then((module) => module.ScheduleWeekView),
+  { loading: () => <SkeletonPanel className="min-h-[420px]" rows={7} /> },
+);
+
 type ClassroomsView = 'overview' | 'schedule' | 'attendance' | 'settings';
+type ClassDetailSection = 'students' | 'materials' | 'settings';
 type LmsPageLoadOptions = { force?: boolean; background?: boolean };
 
 const classStatuses: ClassStatus[] = ['active', 'inactive', 'archived'];
@@ -253,7 +284,16 @@ function ClassPicker({
   );
 }
 
-function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSelect?: (item: ScheduleItem) => void }) {
+function ScheduleTable({
+  schedule,
+  onSelect,
+  canSelect = () => true,
+}: {
+  schedule: ScheduleItem[];
+  onSelect?: (item: ScheduleItem) => void;
+  canSelect?: (item: ScheduleItem) => boolean;
+}) {
+  const hasManageableRows = Boolean(onSelect && schedule.some((item) => canSelect(item)));
   return (
     <>
       <div className="space-y-2 lg:hidden">
@@ -275,7 +315,7 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
               </div>
               <LessonSpecialStatusBadge status={item.status} />
             </div>
-            {onSelect && <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => onSelect(item)}>보기·수정</Button>}
+            {onSelect && canSelect(item) && <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => onSelect(item)}>보기·수정</Button>}
           </div>
         ))}
         {schedule.length === 0 && <EmptyState title="표시할 수업이 없습니다" />}
@@ -290,7 +330,7 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
                 <TableHead className="px-4 py-3 font-medium">반</TableHead>
                 <TableHead className="px-4 py-3 font-medium">강사/강의실</TableHead>
                 <TableHead className="px-4 py-3 font-medium">특이사항</TableHead>
-                {onSelect && <TableHead className="px-4 py-3 text-right font-medium">관리</TableHead>}
+                {hasManageableRows && <TableHead className="px-4 py-3 text-right font-medium">관리</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -306,12 +346,16 @@ function ScheduleTable({ schedule, onSelect }: { schedule: ScheduleItem[]; onSel
                   </TableCell>
                   <TableCell className="px-4 py-3 text-muted-foreground">{item.instructorName || '-'} · {item.classroomName || '-'}</TableCell>
                   <TableCell className="px-4 py-3"><LessonSpecialStatusBadge status={item.status} /></TableCell>
-                  {onSelect && <TableCell className="px-4 py-3 text-right"><Button type="button" variant="outline" size="sm" onClick={() => onSelect(item)}>보기·수정</Button></TableCell>}
+                  {hasManageableRows && (
+                    <TableCell className="px-4 py-3 text-right">
+                      {onSelect && canSelect(item) && <Button type="button" variant="outline" size="sm" onClick={() => onSelect(item)}>보기·수정</Button>}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {schedule.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={onSelect ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={hasManageableRows ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
                     표시할 수업이 없습니다.
                   </TableCell>
                 </TableRow>
@@ -362,11 +406,24 @@ function AttendanceTable({ attendance }: { attendance: AttendanceRow[] }) {
   );
 }
 
-export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
+export function ClassroomsOperationsPage({
+  view,
+  initialClassId,
+  detailSection,
+}: {
+  view: ClassroomsView;
+  initialClassId?: string;
+  detailSection?: ClassDetailSection;
+}) {
   const academyId = useAcademyId();
+  const router = useRouter();
   const { profile } = useAuth();
-  const canManageClassSetup = canManageScheduleRules(profile?.role);
-  const initialQuery = useMemo(() => readInitialQuery(), []);
+  const roleCanManageGlobalResources = canManageGlobalClassResources(profile?.role);
+  const roleCanCreateClass = canCreateClassForRole(profile?.role);
+  const initialQuery = useMemo(() => {
+    const query = readInitialQuery();
+    return initialClassId ? { ...query, classId: initialClassId } : query;
+  }, [initialClassId]);
 
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
@@ -377,6 +434,9 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
   const [staff, setStaff] = useState<StaffSummary[]>([]);
   const [classrooms, setClassrooms] = useState<ClassroomSummary[]>([]);
+  const [courseOptions, setCourseOptions] = useState<ClassCourseOption[]>([]);
+  const [subjectOptions, setSubjectOptions] = useState<ClassDirectoryFacetOption[]>([]);
+  const [operationPermissions, setOperationPermissions] = useState<ClassOperationsPermissions>(NO_CLASS_OPERATIONS_PERMISSIONS);
   const [truncated, setTruncated] = useState<ClassOperationsTruncation>({
     classes: false,
     scheduleRules: false,
@@ -399,7 +459,9 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const [scheduleClassroomFilter, setScheduleClassroomFilter] = useState('');
   const [scheduleStatusFilter, setScheduleStatusFilter] = useState('');
   const [classDetailTab, setClassDetailTab] = useState('students');
-  const [classDialogOpen, setClassDialogOpen] = useState(false);
+  const [classDialogOpen, setClassDialogOpen] = useState(() => (
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('newClass') === '1'
+  ));
   const [classroomDialogOpen, setClassroomDialogOpen] = useState(false);
   const [bookDialogOpen, setBookDialogOpen] = useState(false);
   const [resourceTab, setResourceTab] = useState('classrooms');
@@ -411,11 +473,14 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
   const [editingClassId, setEditingClassId] = useState('');
   const [className, setClassName] = useState('');
+  const [subjectId, setSubjectId] = useState('');
+  const [courseId, setCourseId] = useState('');
   const [grade, setGrade] = useState('');
+  const [additionalGrades, setAdditionalGrades] = useState('');
   const [classStatus, setClassStatus] = useState<ClassStatus>('active');
   const [capacity, setCapacity] = useState('');
   const [classColor, setClassColor] = useState('#059669');
-  const [defaultInstructorId, setDefaultInstructorId] = useState('');
+  const [classInstructorIds, setClassInstructorIds] = useState<string[]>([]);
   const [defaultClassroomId, setDefaultClassroomId] = useState('');
   const [classNotes, setClassNotes] = useState('');
 
@@ -436,6 +501,26 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const [lessonCancelReason, setLessonCancelReason] = useState('');
   const [lessonNotes, setLessonNotes] = useState('');
 
+  const effectivePermissions = useMemo<ClassOperationsPermissions>(() => ({
+    ...operationPermissions,
+    canCreateClass: operationPermissions.canCreateClass || roleCanCreateClass,
+    canManageGlobalResources: operationPermissions.canManageGlobalResources || roleCanManageGlobalResources,
+  }), [operationPermissions, roleCanCreateClass, roleCanManageGlobalResources]);
+  const canCreateNewClass = effectivePermissions.canCreateClass;
+  const canManageGlobalResources = effectivePermissions.canManageGlobalResources;
+  const canManageClassById = useCallback(
+    (classId: string | null | undefined) => canOperateClass(effectivePermissions, classId),
+    [effectivePermissions],
+  );
+  const canUpdateLessonByItem = useCallback(
+    (item: ScheduleItem | null | undefined) => Boolean(item && canUpdateOccurrenceStatus(
+      effectivePermissions,
+      item.classId,
+      item.actualId,
+    )),
+    [effectivePermissions],
+  );
+
   const loadBase = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
     if (options.background) setRefreshing(true);
@@ -443,21 +528,45 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
     try {
       const rangeStart = view === 'attendance' ? selectedDate : view === 'schedule' ? weekStart : today();
       const rangeEnd = view === 'attendance' ? selectedDate : addDaysString(rangeStart, view === 'schedule' ? 6 : 14);
-      const data = await loadClassOperationsOverview(academyId, rangeStart, rangeEnd, view, { force: options.force });
+      const [data, directoryPage] = await Promise.all([
+        loadClassOperationsOverview(academyId, rangeStart, rangeEnd, view, { force: options.force }),
+        initialClassId || view === 'settings' || detailSection === 'settings'
+          ? loadClassDirectory(academyId, {
+              classId: initialClassId || null,
+              status: 'all',
+              limit: 1,
+              force: options.force,
+            })
+          : Promise.resolve(null),
+      ]);
 
-      setClasses(data.classes);
+      const selectedSummary = initialClassId ? directoryPage?.classes[0] || null : null;
+      const visibleClasses = selectedSummary
+        ? data.classes.some((row) => row.id === selectedSummary.id)
+          ? data.classes.map((row) => row.id === selectedSummary.id ? { ...row, ...selectedSummary } : row)
+          : [selectedSummary, ...data.classes]
+        : data.classes;
+
+      setClasses(visibleClasses);
       setSchedule(data.schedule);
       setScheduleRules(data.scheduleRules);
       setBooks(data.books);
       setAttendance(data.attendance);
       setStaff(data.staff);
       setClassrooms(data.classrooms);
+      setCourseOptions(data.courses || []);
+      setOperationPermissions(data.permissions || NO_CLASS_OPERATIONS_PERMISSIONS);
+      setSubjectOptions(directoryPage?.facets.subjects || []);
       setTruncated(data.truncated);
       setSelectedClassId((current) => (
-        current && data.classes.some((row) => row.id === current) ? current : data.classes[0]?.id || ''
+        initialClassId && visibleClasses.some((row) => row.id === initialClassId)
+          ? initialClassId
+          : current && visibleClasses.some((row) => row.id === current) ? current : visibleClasses[0]?.id || ''
       ));
       setScheduleClassFilter((current) => (
-        current && data.classes.some((row) => row.id === current) ? current : ''
+        initialClassId && visibleClasses.some((row) => row.id === initialClassId)
+          ? initialClassId
+          : current && visibleClasses.some((row) => row.id === current) ? current : ''
       ));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 정보를 불러오지 못했습니다.');
@@ -465,17 +574,28 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
       if (options.background) setRefreshing(false);
       else setLoading(false);
     }
-  }, [academyId, selectedDate, view, weekStart]);
+  }, [academyId, detailSection, initialClassId, selectedDate, view, weekStart]);
 
   const loadClassDetail = useCallback(async (options: LmsPageLoadOptions = {}) => {
-    if (!academyId || !selectedClassId) {
+    const occurrenceId = view === 'attendance'
+      ? schedule.find((item) => item.id === selectedScheduleId)?.actualId || null
+      : null;
+    const canLoadAttendanceRoster = canUpdateOccurrenceStatus(
+      effectivePermissions,
+      selectedClassId,
+      occurrenceId,
+    );
+    if (!academyId || !selectedClassId || (!canManageClassById(selectedClassId) && !canLoadAttendanceRoster)) {
       setClassStudents([]);
       setClassBooks([]);
       return;
     }
     if (!options.background) setDetailLoading(true);
     try {
-      const data = await loadClassOperationsDetail(academyId, selectedClassId, { force: options.force });
+      const data = await loadClassOperationsDetail(academyId, selectedClassId, {
+        force: options.force,
+        occurrenceId,
+      });
       setClassStudents(data.students);
       setClassBooks(data.books);
     } catch (err) {
@@ -483,7 +603,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
     } finally {
       if (!options.background) setDetailLoading(false);
     }
-  }, [academyId, selectedClassId]);
+  }, [academyId, canManageClassById, effectivePermissions, schedule, selectedClassId, selectedScheduleId, view]);
 
   useEffect(() => {
     void loadBase();
@@ -492,6 +612,12 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   useEffect(() => {
     void loadClassDetail();
   }, [loadClassDetail]);
+
+  useEffect(() => {
+    if (detailSection === 'students') setClassDetailTab('students');
+    if (detailSection === 'materials') setClassDetailTab('books');
+    if (detailSection === 'settings') setClassDetailTab('settings');
+  }, [detailSection]);
 
   useEffect(() => {
     if (!academyId) return undefined;
@@ -506,6 +632,16 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
   const selectedClass = classes.find((row) => row.id === selectedClassId) || null;
   const selectedSchedule = schedule.find((item) => item.id === selectedScheduleId) || null;
+  const canManageSelectedClass = canManageClassById(selectedClassId);
+  const canCreateScheduleForView = canCreateSchedule(
+    effectivePermissions,
+    initialClassId || scheduleClassFilter || null,
+  );
+  const canManageScheduleItem = useCallback(
+    (item: ScheduleItem) => canManageClassById(item.classId),
+    [canManageClassById],
+  );
+  const canUpdateSelectedLesson = canUpdateLessonByItem(selectedSchedule);
   const daySchedule = useMemo(() => (
     schedule.filter((item) => item.date === selectedDate && (!scheduleClassFilter || item.classId === scheduleClassFilter))
   ), [schedule, scheduleClassFilter, selectedDate]);
@@ -610,6 +746,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   };
 
   const openScheduleEditor = (item: ScheduleItem | null) => {
+    if (item ? !canManageScheduleItem(item) : !canCreateScheduleForView) return;
     setScheduleEditingLesson(item);
     setScheduleDialogOpen(true);
   };
@@ -617,24 +754,37 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   const resetClassForm = () => {
     setEditingClassId('');
     setClassName('');
+    setSubjectId('');
+    setCourseId('');
     setGrade('');
+    setAdditionalGrades('');
     setClassStatus('active');
     setCapacity('');
     setClassColor('#059669');
-    setDefaultInstructorId('');
+    setClassInstructorIds([]);
     setDefaultClassroomId('');
     setClassNotes('');
   };
 
   const editClass = (row: ClassSummary) => {
+    if (!canManageClassById(row.id)) return;
     setEditingClassId(row.id);
     setSelectedClassId(row.id);
     setClassName(row.name);
-    setGrade(row.grade || '');
+    setSubjectId(row.subjectId || '');
+    setCourseId(row.courseId || '');
+    const primaryGrade = row.primaryTargetGrade || row.targetGrades?.[0] || row.grade || '';
+    setGrade(primaryGrade);
+    setAdditionalGrades((row.targetGrades || []).filter((value) => value !== primaryGrade).join(', '));
     setClassStatus((row.status as ClassStatus) || (row.active ? 'active' : 'inactive'));
     setCapacity(row.capacity === null ? '' : String(row.capacity));
     setClassColor(row.color || '#059669');
-    setDefaultInstructorId(row.defaultInstructorId || '');
+    const assignedInstructorIds = row.instructorIds?.length
+      ? row.instructorIds
+      : row.defaultInstructorId ? [row.defaultInstructorId] : [];
+    setClassInstructorIds(row.defaultInstructorId
+      ? [row.defaultInstructorId, ...assignedInstructorIds.filter((id) => id !== row.defaultInstructorId)]
+      : assignedInstructorIds);
     setDefaultClassroomId(row.defaultClassroomId || '');
     setClassNotes(row.notes || '');
     setClassDialogOpen(true);
@@ -642,13 +792,31 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
   const submitClass = async (event: React.FormEvent) => {
     event.preventDefault();
+    const primaryGrade = grade.trim();
+    const targetGrades = [
+      primaryGrade,
+      ...additionalGrades.split(',').map((value) => value.trim()).filter(Boolean),
+    ].filter((value, index, rows) => value && rows.indexOf(value) === index);
+    if (!subjectId) {
+      toast.error('과목을 선택하세요.');
+      return;
+    }
+    if (!primaryGrade || targetGrades.length === 0) {
+      toast.error('대표 대상 학년을 입력하세요.');
+      return;
+    }
     try {
+      const creating = !editingClassId;
       const payload = {
         name: className,
-        grade: grade || null,
+        subjectId,
+        courseId: courseId || null,
+        targetGrades,
+        grade: primaryGrade,
         capacity: capacity ? Number(capacity) : null,
         color: classColor || null,
-        defaultInstructorId: defaultInstructorId || null,
+        instructorIds: classInstructorIds,
+        defaultInstructorId: classInstructorIds[0] || null,
         defaultClassroomId: defaultClassroomId || null,
         notes: classNotes || null,
       };
@@ -666,6 +834,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
       resetClassForm();
       setClassDialogOpen(false);
       await loadBase({ force: true });
+      if (creating) router.push('/classrooms');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '반 저장에 실패했습니다.');
     }
@@ -829,6 +998,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   }[view];
 
   const startClassCreate = () => {
+    if (!canCreateNewClass) return;
     resetClassForm();
     setClassDialogOpen(true);
   };
@@ -847,13 +1017,13 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
   const actions = (
     <div className="flex flex-wrap gap-2">
-      {view === 'overview' && canManageClassSetup && (
+      {view === 'overview' && !detailSection && canManageGlobalResources && (
         <Button type="button" variant="outline" asChild><Link href="/classrooms/settings"><SlidersHorizontal className="mr-2 h-4 w-4" />기준 정보</Link></Button>
       )}
-      {view === 'schedule' && canManageClassSetup && (
+      {view === 'schedule' && canCreateScheduleForView && (
         <Button type="button" onClick={() => openScheduleEditor(null)}><Plus className="mr-2 h-4 w-4" />시간표 추가</Button>
       )}
-      {view === 'settings' && canManageClassSetup && (
+      {view === 'settings' && canManageGlobalResources && (
         <>
           <Button type="button" onClick={startClassroomCreate}><Plus className="mr-2 h-4 w-4" />강의실 추가</Button>
           <Button type="button" variant="outline" onClick={startBookCreate}><Plus className="mr-2 h-4 w-4" />교재 추가</Button>
@@ -884,14 +1054,16 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   ) : undefined;
 
   const renderOverview = () => (
-    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <ClassPicker
-        classes={classes}
-        selectedClassId={selectedClassId}
-        onSelectClass={selectClass}
-        onAddClass={startClassCreate}
-        canManage={canManageClassSetup}
-      />
+    <div className={detailSection ? 'block' : 'grid gap-5 xl:grid-cols-[0.9fr_1.1fr]'}>
+      {!detailSection && (
+        <ClassPicker
+          classes={classes}
+          selectedClassId={selectedClassId}
+          onSelectClass={selectClass}
+          onAddClass={startClassCreate}
+          canManage={canCreateNewClass}
+        />
+      )}
       <Card>
           <CardHeader className="gap-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -908,8 +1080,8 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
               </div>
               {selectedClass && (
                 <div className="flex flex-wrap gap-2">
-                  {canManageClassSetup && <Button type="button" variant="outline" size="sm" onClick={() => editClass(selectedClass)}><Edit3 className="mr-1 h-4 w-4" />수정</Button>}
-                  <Button type="button" variant="outline" size="sm" asChild><Link href={`/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>시간표</Link></Button>
+                  {canManageSelectedClass && <Button type="button" variant="outline" size="sm" onClick={() => editClass(selectedClass)}><Edit3 className="mr-1 h-4 w-4" />수정</Button>}
+                  <Button type="button" variant="outline" size="sm" asChild><Link href={detailSection ? `/classrooms/${selectedClass.id}/schedule` : `/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>시간표</Link></Button>
                   <Button type="button" variant="outline" size="sm" asChild><Link href={`/classrooms/attendance?classId=${selectedClass.id}&date=${today()}`}>출결</Link></Button>
                 </div>
               )}
@@ -920,19 +1092,20 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
               <LoadingBlock />
             ) : selectedClass ? (
               <Tabs value={classDetailTab} onValueChange={setClassDetailTab} variant="underline">
-                <TabsList className="w-full justify-start overflow-x-auto">
+                <TabsList className={detailSection ? 'hidden' : 'w-full justify-start overflow-x-auto'}>
                   <TabsTrigger value="students">학생 {classStudents.filter((student) => student.status === 'active').length}</TabsTrigger>
                   <TabsTrigger value="books">교재 {classBooks.length}</TabsTrigger>
                   <TabsTrigger value="schedule">다가오는 수업 {selectedClassSchedule.length}</TabsTrigger>
+                  <TabsTrigger value="settings">설정</TabsTrigger>
                 </TabsList>
                 <TabsContent value="students" className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium">재원 학생</p>
-                    {canManageClassSetup && <Button type="button" size="sm" onClick={() => setMemberDialogOpen(true)}><UserPlus className="mr-1 h-4 w-4" />학생 배정</Button>}
+                    {canManageSelectedClass && <Button type="button" size="sm" onClick={() => setMemberDialogOpen(true)}><UserPlus className="mr-1 h-4 w-4" />학생 배정</Button>}
                   </div>
                   <div className="rounded-lg border bg-card">
                     {classStudents.length === 0 ? (
-                      <EmptyState title="배정된 학생이 없습니다" description="학생을 검색해 이 반에 배정하세요." action={canManageClassSetup ? <Button type="button" onClick={() => setMemberDialogOpen(true)}>학생 추가</Button> : undefined} className="border-0" />
+                      <EmptyState title="배정된 학생이 없습니다" description="학생을 검색해 이 반에 배정하세요." action={canManageSelectedClass ? <Button type="button" onClick={() => setMemberDialogOpen(true)}>학생 추가</Button> : undefined} className="border-0" />
                     ) : (
                       classStudents.map((student) => (
                         <div key={student.id} className="flex items-center justify-between border-b px-4 py-3 last:border-0">
@@ -952,13 +1125,13 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
                       <p className="text-sm font-medium">배정 교재</p>
                       <p className="mt-1 text-xs text-muted-foreground">기존 교재를 배정하거나 새 교재를 등록하세요.</p>
                     </div>
-                    {canManageClassSetup && (
+                    {canManageGlobalResources && (
                       <Button type="button" variant="outline" size="sm" onClick={startBookCreate}>
                         <Plus className="mr-1 h-4 w-4" />교재 추가
                       </Button>
                     )}
                   </div>
-                  {canManageClassSetup && (
+                  {canManageSelectedClass && (
                     <form onSubmit={submitClassBook} className="flex gap-2">
                       <SelectField value={selectedBookId} onChange={(event) => setSelectedBookId(event.target.value)}>
                         <option value="">교재 선택</option>
@@ -977,7 +1150,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
                             <div className="text-sm font-medium">{book.title}</div>
                             <div className="text-xs text-muted-foreground">{book.subject || '-'} · {book.grade || '-'}</div>
                           </div>
-                          {canManageClassSetup && (
+                          {canManageSelectedClass && (
                             <Button type="button" variant="outline" size="sm" onClick={() => removeClassBook(book.id)}>
                               해제
                             </Button>
@@ -990,9 +1163,18 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
                 <TabsContent value="schedule" className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium">다가오는 수업</p>
-                    <Button type="button" variant="outline" size="sm" asChild><Link href={`/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>전체 시간표 보기</Link></Button>
+                    <Button type="button" variant="outline" size="sm" asChild><Link href={detailSection ? `/classrooms/${selectedClass.id}/schedule` : `/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>전체 시간표 보기</Link></Button>
                   </div>
                   <ScheduleTable schedule={selectedClassSchedule.slice(0, 8)} />
+                </TabsContent>
+                <TabsContent value="settings" className="space-y-4">
+                  <dl className="grid gap-4 rounded-xl border border-border bg-card p-4 text-sm sm:grid-cols-2">
+                    <div><dt className="text-muted-foreground">대상 학년</dt><dd className="mt-1 font-medium">{selectedClass.targetGrades?.join(', ') || selectedClass.grade || '미설정'}</dd></div>
+                    <div><dt className="text-muted-foreground">과목</dt><dd className="mt-1 font-medium">{selectedClass.subjectName || '과목 미설정'}</dd></div>
+                    <div><dt className="text-muted-foreground">세부 과정</dt><dd className="mt-1 font-medium">{selectedClass.courseTitle || '미설정'}</dd></div>
+                    <div><dt className="text-muted-foreground">반 색상</dt><dd className="mt-1 flex items-center gap-2 font-medium"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: selectedClass.color || '#64748b' }} />{selectedClass.color || '기본색'}</dd></div>
+                  </dl>
+                  {canManageSelectedClass && <Button type="button" onClick={() => editClass(selectedClass)}><Edit3 className="mr-2 h-4 w-4" />반 설정 수정</Button>}
                 </TabsContent>
               </Tabs>
             ) : (
@@ -1023,14 +1205,14 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
           </div>
       </CardHeader>
       <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div>
+          <div className={initialClassId ? 'grid gap-3 sm:grid-cols-3' : 'grid gap-3 sm:grid-cols-2 xl:grid-cols-4'}>
+            {!initialClassId && <div>
               <Label>반 필터</Label>
               <SelectField value={scheduleClassFilter} onChange={(event) => changeScheduleClassFilter(event.target.value)}>
                 <option value="">전체 반</option>
                 {classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
               </SelectField>
-            </div>
+            </div>}
             <div>
               <Label>강사</Label>
               <SelectField value={scheduleInstructorFilter} onChange={(event) => setScheduleInstructorFilter(event.target.value)}>
@@ -1055,11 +1237,11 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
           </div>
           {scheduleMode === 'week' ? (
             <>
-              <div className="hidden lg:block"><ScheduleWeekView weekStart={weekStart} schedule={filteredSchedule} onSelect={canManageClassSetup ? openScheduleEditor : undefined} /></div>
-              <div className="lg:hidden"><ScheduleTable schedule={filteredSchedule} onSelect={canManageClassSetup ? openScheduleEditor : undefined} /></div>
+              <div className="hidden lg:block"><ScheduleWeekView weekStart={weekStart} schedule={filteredSchedule} onSelect={canCreateSchedule(effectivePermissions) ? openScheduleEditor : undefined} canSelect={canManageScheduleItem} /></div>
+              <div className="lg:hidden"><ScheduleTable schedule={filteredSchedule} onSelect={canCreateSchedule(effectivePermissions) ? openScheduleEditor : undefined} canSelect={canManageScheduleItem} /></div>
             </>
-          ) : <ScheduleTable schedule={filteredSchedule} onSelect={canManageClassSetup ? openScheduleEditor : undefined} />}
-          {filteredSchedule.length === 0 && canManageClassSetup && (
+          ) : <ScheduleTable schedule={filteredSchedule} onSelect={canCreateSchedule(effectivePermissions) ? openScheduleEditor : undefined} canSelect={canManageScheduleItem} />}
+          {filteredSchedule.length === 0 && canCreateScheduleForView && (
             <div className="flex justify-center"><Button type="button" onClick={() => openScheduleEditor(null)}><Plus className="mr-2 h-4 w-4" />첫 시간표 추가</Button></div>
           )}
       </CardContent>
@@ -1111,7 +1293,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
         </CardContent>
       </Card>
 
-      {selectedSchedule && (
+      {selectedSchedule && canUpdateSelectedLesson && (
         <Card>
           <CardHeader><CardTitle>수업 특이사항</CardTitle></CardHeader>
           <CardContent>
@@ -1134,7 +1316,12 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
         </Card>
       )}
 
-      {detailLoading ? <LoadingBlock /> : selectedSchedule?.status === 'cancelled' ? (
+      {detailLoading ? <LoadingBlock /> : selectedSchedule && !canUpdateSelectedLesson ? (
+        <EmptyState
+          title="이 회차를 운영할 권한이 없습니다"
+          description="정규 담당 강사 또는 이 회차의 실제 참여 강사만 출결을 관리할 수 있습니다."
+        />
+      ) : selectedSchedule?.status === 'cancelled' ? (
         <EmptyState title="취소된 수업은 출결을 입력할 수 없습니다" description="취소를 해제하거나 보강으로 변경한 뒤 출결을 입력하세요." />
       ) : (
         <AttendanceRoster
@@ -1159,7 +1346,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
   );
 
   const renderSettings = () => {
-    if (!canManageClassSetup) {
+    if (!canManageGlobalResources) {
       return (
         <ErrorState
           title="운영 설정 권한이 없습니다"
@@ -1227,7 +1414,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
 
   return (
     <>
-      <PageShell title={pageMeta.title} icon={pageMeta.icon} actions={actions} status={status}>
+      <PageShell title={detailSection && selectedClass ? selectedClass.name : pageMeta.title} icon={pageMeta.icon} actions={actions} status={status}>
         {loading && <LoadingBlock />}
         {!loading && view === 'overview' && renderOverview()}
         {!loading && view === 'schedule' && renderSchedule()}
@@ -1235,7 +1422,10 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
         {!loading && view === 'settings' && renderSettings()}
       </PageShell>
 
-      <Dialog open={classDialogOpen} onOpenChange={setClassDialogOpen}>
+      <Dialog open={classDialogOpen} onOpenChange={(open) => {
+        setClassDialogOpen(open);
+        if (!open) replaceQuery({ newClass: null });
+      }}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{editingClassId ? `${className || '반'} 수정` : '반 추가'}</DialogTitle>
@@ -1244,7 +1434,51 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
           <form onSubmit={submitClass} className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div><Label htmlFor="class-name">반 이름</Label><Input id="class-name" required value={className} onChange={(event) => setClassName(event.target.value)} placeholder="중1 A반" /></div>
-              <div><Label htmlFor="class-grade">학년/레벨</Label><Input id="class-grade" value={grade} onChange={(event) => setGrade(event.target.value)} placeholder="중1" /></div>
+              <div>
+                <Label htmlFor="class-subject">과목</Label>
+                <SelectField id="class-subject" value={subjectId} onChange={(event) => {
+                  const nextSubjectId = event.target.value;
+                  setSubjectId(nextSubjectId);
+                  setCourseId((current) => (
+                    courseOptions.some((course) => course.id === current && course.subjectId === nextSubjectId)
+                      ? current
+                      : ''
+                  ));
+                }}>
+                  <option value="">과목 선택</option>
+                  {subjectOptions.map((subject) => <option key={subject.value} value={subject.value}>{subject.label}</option>)}
+                </SelectField>
+                {subjectOptions.length === 0 && <p className="mt-1 text-xs text-warning-foreground">등록된 과목이 없습니다. 먼저 기준 정보에서 과목을 추가하세요.</p>}
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="class-course">세부 과정 (선택)</Label>
+              <SelectField
+                id="class-course"
+                value={courseId}
+                disabled={!subjectId}
+                onChange={(event) => setCourseId(event.target.value)}
+              >
+                <option value="">세부 과정 미설정</option>
+                {courseOptions
+                  .filter((course) => (
+                    (course.subjectId === subjectId || course.id === courseId)
+                    && (course.status === 'active' || course.id === courseId)
+                  ))
+                  .map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.title}
+                      {course.subjectId !== subjectId ? ' (기존 연결 · 확인 필요)' : course.status === 'active' ? '' : ' (비활성)'}
+                    </option>
+                  ))}
+              </SelectField>
+              <p className="mt-1 text-xs text-muted-foreground">
+                과목에 연결된 세부 과정이 있을 때만 선택합니다. 미설정 상태로도 반을 운영할 수 있습니다.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><Label htmlFor="class-grade">대표 대상 학년</Label><Input id="class-grade" required value={grade} onChange={(event) => setGrade(event.target.value)} placeholder="중2" /></div>
+              <div><Label htmlFor="class-extra-grades">추가 대상 학년</Label><Input id="class-extra-grades" value={additionalGrades} onChange={(event) => setAdditionalGrades(event.target.value)} placeholder="중3, 고1" /><p className="mt-1 text-xs text-muted-foreground">혼합 반만 쉼표로 구분해 입력합니다.</p></div>
             </div>
             {editingClassId && (
               <div>
@@ -1259,21 +1493,37 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
               <div><Label>정원</Label><Input type="number" min="0" value={capacity} onChange={(event) => setCapacity(event.target.value)} /></div>
               <div><Label>색상</Label><Input type="color" value={classColor} onChange={(event) => setClassColor(event.target.value)} className="h-10 p-1" /></div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>기본 강사</Label>
-                <SelectField value={defaultInstructorId} onChange={(event) => setDefaultInstructorId(event.target.value)}>
-                  <option value="">미지정</option>
-                  {staff.filter((row) => row.status === 'active').map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                </SelectField>
+            <div className="space-y-2">
+              <Label>담당 강사</Label>
+              <div role="group" aria-label="반 담당 강사 선택" className="grid gap-2 rounded-xl border bg-muted/20 p-3 sm:grid-cols-2">
+                {staff.filter((row) => row.status === 'active' || classInstructorIds.includes(row.id)).map((row) => {
+                  const inputId = `class-instructor-${row.id}`;
+                  return (
+                    <label key={row.id} htmlFor={inputId} className="flex cursor-pointer items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
+                      <Checkbox
+                        id={inputId}
+                        checked={classInstructorIds.includes(row.id)}
+                        onCheckedChange={(checked) => setClassInstructorIds((current) => (
+                          toggleClassInstructorId(current, row.id, checked === true)
+                        ))}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{row.name}</span>
+                      {row.status !== 'active' && <span className="text-xs text-muted-foreground">비활성</span>}
+                    </label>
+                  );
+                })}
+                {staff.length === 0 && <p className="text-sm text-muted-foreground">등록된 강사가 없습니다.</p>}
               </div>
-              <div>
-                <Label>기본 강의실</Label>
-                <SelectField value={defaultClassroomId} onChange={(event) => setDefaultClassroomId(event.target.value)}>
-                  <option value="">미지정</option>
-                  {classrooms.filter((row) => row.active).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                </SelectField>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                선택 순서의 첫 강사는 기존 화면의 대표 강사로 표시되며, 수업 참여 강사는 시간표에서 별도로 선택합니다.
+              </p>
+            </div>
+            <div>
+              <Label>기본 강의실</Label>
+              <SelectField value={defaultClassroomId} onChange={(event) => setDefaultClassroomId(event.target.value)}>
+                <option value="">미지정</option>
+                {classrooms.filter((row) => row.active).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+              </SelectField>
             </div>
             <div><Label>운영 메모</Label><Textarea value={classNotes} onChange={(event) => setClassNotes(event.target.value)} placeholder="반 운영 시 공유할 메모" /></div>
             <DialogFooter>
@@ -1354,7 +1604,7 @@ export function ClassroomsOperationsPage({ view }: { view: ClassroomsView }) {
         open={scheduleDialogOpen}
         onOpenChange={setScheduleDialogOpen}
         academyId={academyId}
-        classes={classes}
+        classes={classes.filter((row) => canManageClassById(row.id))}
         staff={staff}
         classrooms={classrooms}
         lesson={scheduleEditingLesson}

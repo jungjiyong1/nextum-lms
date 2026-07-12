@@ -16,13 +16,14 @@ export async function GET(request: Request) {
         const params = new URL(request.url).searchParams;
         const academyId = params.get('academyId') || '';
         const classId = params.get('classId') || '';
+        const occurrenceId = params.get('occurrenceId') || null;
 
         if (!academyId || !classId) {
             return noStoreJson({ success: false, error: 'Invalid class detail request.' }, { status: 400 });
         }
 
         const actor = await assertLmsRoleForAcademy(academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
-        const data = await loadClassOperationsDetail(actor, classId);
+        const data = await loadClassOperationsDetail(actor, classId, occurrenceId);
 
         return noStoreJson({ success: true, data });
     } catch (error) {

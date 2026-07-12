@@ -13,15 +13,18 @@ import {
   scheduleHourRange,
   weekDateValues,
 } from './schedule-utils';
+import { scheduleInstructorNames } from './schedule-participants';
 
 export function ScheduleWeekView({
   weekStart,
   schedule,
   onSelect,
+  canSelect = () => true,
 }: {
   weekStart: string;
   schedule: ScheduleItem[];
   onSelect?: (item: ScheduleItem) => void;
+  canSelect?: (item: ScheduleItem) => boolean;
 }) {
   const dates = weekDateValues(weekStart);
   const { startHour, endHour } = scheduleHourRange(schedule);
@@ -71,7 +74,7 @@ export function ScheduleWeekView({
                       key={item.id}
                       type="button"
                       variant="outline"
-                      disabled={!onSelect}
+                      disabled={!onSelect || !canSelect(item)}
                       onClick={() => onSelect?.(item)}
                       className="absolute h-auto items-start justify-start overflow-hidden px-2 py-1.5 text-left hover:brightness-[0.98] disabled:cursor-default disabled:opacity-100"
                       style={{
@@ -91,7 +94,7 @@ export function ScheduleWeekView({
                           <LessonSpecialStatusBadge status={item.status} className="shrink-0" />
                         </span>
                         <span className="block text-xs tabular-nums text-muted-foreground">{item.startTime}-{item.endTime}</span>
-                        <span className="block truncate text-xs text-muted-foreground">{item.instructorName || '강사 미지정'}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{scheduleInstructorNames(item)}</span>
                         <span className="block truncate text-xs text-muted-foreground">{item.classroomName || '강의실 미지정'}</span>
                       </span>
                     </Button>

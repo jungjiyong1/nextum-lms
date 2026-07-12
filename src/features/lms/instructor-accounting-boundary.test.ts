@@ -34,10 +34,15 @@ describe('instructor and accounting workflow boundary', () => {
         expect(accountingPage).not.toContain('TabsList');
         expect(accountingPage).toContain('월 급여 예상');
         expect(accountingPage).toContain('추가금');
-        expect(accountingPage).toContain('차감·기지급');
+        expect(accountingPage).toContain('차감액');
+        expect(accountingPage).toContain('혼합 시급');
+        expect(accountingPage).toContain('baseAmount: payrollPreview.baseAmount');
+        expect(accountingPage).toContain('additionalAmount: payrollPreview.additionalAmount');
+        expect(accountingPage).toContain('deductionAmount: payrollPreview.deductionAmount');
         expect(accountingPage).toContain('시급');
         expect(accountingQuery).toContain('loadSchedule');
         expect(accountingQuery).toContain('buildInstructorPayrollEstimates');
+        expect(accountingQuery).toContain('loadAccountingTaxSettings');
     });
 
     it('opens the class schedule first without an overview tab', () => {

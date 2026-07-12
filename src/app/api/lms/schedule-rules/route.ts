@@ -1,4 +1,5 @@
 import { assertSameOrigin, authErrorResponse, assertLmsRoleForAcademy } from '@/lib/lms/auth';
+import { assertDurableClassOperatorAccess } from '@/lib/lms/class-access';
 import { createScheduleRuleForAcademy, mutateScheduleForAcademy, updateScheduleRuleForAcademy } from '@/lib/lms/mutations';
 import type { CreateScheduleRuleInput, ScheduleMutationInput, UpdateScheduleRuleInput } from '@/features/lms/types';
 import { mutationError, mutationException, mutationSuccess } from '@/lib/lms/api-response';
@@ -16,11 +17,16 @@ export async function POST(request: Request) {
             return mutationError('INVALID_SCHEDULE_RULE_REQUEST', 'Invalid schedule rule request.', { request });
         }
 
-        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff']);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin', 'staff', 'teacher', 'instructor']);
         if (body.mutation) {
+            await assertDurableClassOperatorAccess(actor, body.mutation);
             const data = await mutateScheduleForAcademy(body.academyId, body.mutation, actor);
             return mutationSuccess(data, { request });
         }
+        await assertDurableClassOperatorAccess(actor, {
+            classId: body.input!.classId,
+            ruleId: body.ruleId || null,
+        });
         if (body.ruleId) {
             await updateScheduleRuleForAcademy(body.academyId, body.ruleId, body.input as UpdateScheduleRuleInput);
         } else {
