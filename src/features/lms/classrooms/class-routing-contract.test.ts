@@ -7,9 +7,14 @@ function source(path: string): string {
 }
 
 describe('class detail route contract', () => {
-  it('redirects the class root to its schedule and exposes every detail section', () => {
+  it('opens class management at the class root and exposes every detail section', () => {
     const rootPage = source('src/app/(app)/classrooms/[classId]/page.tsx');
-    expect(rootPage).toContain('/schedule${suffix}`');
+    const directory = source('src/features/lms/classrooms/class-directory-page.tsx');
+    const navigation = source('src/features/lms/classrooms/class-detail-navigation.tsx');
+    expect(rootPage).toContain('ClassroomOverviewRoute');
+    expect(rootPage).not.toContain('redirect(');
+    expect(directory).toContain('encodeURIComponent(row.id)}?returnTo=');
+    expect(navigation).toContain("{ id: 'overview', label: '반 관리' }");
     for (const section of ['schedule', 'students', 'learning', 'materials', 'settings']) {
       expect(() => source(`src/app/(app)/classrooms/[classId]/${section}/page.tsx`)).not.toThrow();
     }

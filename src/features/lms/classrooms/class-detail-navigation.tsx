@@ -9,9 +9,10 @@ import { Button } from '@/components/ui/button';
 import { SelectField } from '@/components/ui/select-field';
 import { cn } from '@/lib/utils';
 
-export type ClassDetailSection = 'schedule' | 'students' | 'learning' | 'materials' | 'settings';
+export type ClassDetailSection = 'overview' | 'schedule' | 'students' | 'learning' | 'materials' | 'settings';
 
 const sections: Array<{ id: ClassDetailSection; label: string }> = [
+  { id: 'overview', label: '반 관리' },
   { id: 'schedule', label: '시간표' },
   { id: 'students', label: '학생' },
   { id: 'learning', label: '학습 경로' },
@@ -20,7 +21,8 @@ const sections: Array<{ id: ClassDetailSection; label: string }> = [
 ];
 
 export function classDetailHref(classId: string, section: ClassDetailSection, returnTo?: string | null): string {
-  const pathname = `/classrooms/${encodeURIComponent(classId)}/${section}`;
+  const basePath = `/classrooms/${encodeURIComponent(classId)}`;
+  const pathname = section === 'overview' ? basePath : `${basePath}/${section}`;
   return returnTo ? `${pathname}?returnTo=${encodeURIComponent(returnTo)}` : pathname;
 }
 
@@ -28,7 +30,7 @@ export function ClassDetailNavigation({ classId, children }: { classId: string; 
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeSection = sections.find((item) => pathname.endsWith(`/${item.id}`))?.id || 'schedule';
+  const activeSection = sections.find((item) => item.id !== 'overview' && pathname.endsWith(`/${item.id}`))?.id || 'overview';
   const requestedReturnTo = searchParams.get('returnTo');
   const returnTo = requestedReturnTo?.startsWith('/classrooms') && !requestedReturnTo.startsWith('//')
     ? requestedReturnTo

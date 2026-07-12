@@ -214,7 +214,7 @@ export function ClassDirectoryPageView() {
                       {subjectGroup.classes.map((row) => (
                         <Link
                           key={row.id}
-                          href={`/classrooms/${encodeURIComponent(row.id)}/schedule?returnTo=${encodeURIComponent(returnTo)}`}
+                          href={`/classrooms/${encodeURIComponent(row.id)}?returnTo=${encodeURIComponent(returnTo)}`}
                           className="group flex min-h-24 items-start justify-between gap-4 rounded-xl border border-border bg-card p-4 no-underline transition-colors hover:border-primary/40 hover:bg-primary-soft/30"
                         >
                           <div className="min-w-0">

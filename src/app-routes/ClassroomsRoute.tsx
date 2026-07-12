@@ -3,6 +3,14 @@
 import { ClassroomsOperationsPage } from '@/features/lms/classrooms-operations-page';
 import { RouteScroll } from './RouteScroll';
 
+export function ClassroomOverviewRoute({ classId }: { classId: string }) {
+    return (
+        <RouteScroll>
+            <ClassroomsOperationsPage view="overview" initialClassId={classId} />
+        </RouteScroll>
+    );
+}
+
 export function ClassroomScheduleRoute({ classId }: { classId: string }) {
     return (
         <RouteScroll>

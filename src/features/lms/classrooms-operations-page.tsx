@@ -1017,7 +1017,7 @@ export function ClassroomsOperationsPage({
 
   const actions = (
     <div className="flex flex-wrap gap-2">
-      {view === 'overview' && !detailSection && canManageGlobalResources && (
+      {view === 'overview' && !initialClassId && !detailSection && canManageGlobalResources && (
         <Button type="button" variant="outline" asChild><Link href="/classrooms/settings"><SlidersHorizontal className="mr-2 h-4 w-4" />기준 정보</Link></Button>
       )}
       {view === 'schedule' && canCreateScheduleForView && (
@@ -1054,8 +1054,8 @@ export function ClassroomsOperationsPage({
   ) : undefined;
 
   const renderOverview = () => (
-    <div className={detailSection ? 'block' : 'grid gap-5 xl:grid-cols-[0.9fr_1.1fr]'}>
-      {!detailSection && (
+    <div className={initialClassId || detailSection ? 'block' : 'grid gap-5 xl:grid-cols-[0.9fr_1.1fr]'}>
+      {!initialClassId && !detailSection && (
         <ClassPicker
           classes={classes}
           selectedClassId={selectedClassId}
@@ -1081,7 +1081,7 @@ export function ClassroomsOperationsPage({
               {selectedClass && (
                 <div className="flex flex-wrap gap-2">
                   {canManageSelectedClass && <Button type="button" variant="outline" size="sm" onClick={() => editClass(selectedClass)}><Edit3 className="mr-1 h-4 w-4" />수정</Button>}
-                  <Button type="button" variant="outline" size="sm" asChild><Link href={detailSection ? `/classrooms/${selectedClass.id}/schedule` : `/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>시간표</Link></Button>
+                  <Button type="button" variant="outline" size="sm" asChild><Link href={initialClassId ? `/classrooms/${selectedClass.id}/schedule` : `/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>시간표</Link></Button>
                   <Button type="button" variant="outline" size="sm" asChild><Link href={`/classrooms/attendance?classId=${selectedClass.id}&date=${today()}`}>출결</Link></Button>
                 </div>
               )}
@@ -1163,7 +1163,7 @@ export function ClassroomsOperationsPage({
                 <TabsContent value="schedule" className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium">다가오는 수업</p>
-                    <Button type="button" variant="outline" size="sm" asChild><Link href={detailSection ? `/classrooms/${selectedClass.id}/schedule` : `/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>전체 시간표 보기</Link></Button>
+                    <Button type="button" variant="outline" size="sm" asChild><Link href={initialClassId ? `/classrooms/${selectedClass.id}/schedule` : `/classrooms/schedule?classId=${selectedClass.id}&week=${weekStart}`}>전체 시간표 보기</Link></Button>
                   </div>
                   <ScheduleTable schedule={selectedClassSchedule.slice(0, 8)} />
                 </TabsContent>
@@ -1414,7 +1414,7 @@ export function ClassroomsOperationsPage({
 
   return (
     <>
-      <PageShell title={detailSection && selectedClass ? selectedClass.name : pageMeta.title} icon={pageMeta.icon} actions={actions} status={status}>
+      <PageShell title={initialClassId && selectedClass ? selectedClass.name : pageMeta.title} icon={pageMeta.icon} actions={actions} status={status}>
         {loading && <LoadingBlock />}
         {!loading && view === 'overview' && renderOverview()}
         {!loading && view === 'schedule' && renderSchedule()}
