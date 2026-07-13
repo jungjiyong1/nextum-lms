@@ -50,5 +50,7 @@ describe('PDF assignment intake hardening contract', () => {
         expect(serverInspection).toContain("import('pdfjs-dist/legacy/build/pdf.worker.mjs')");
         expect(serverInspection).toContain('pdfjsWorker ??= worker');
         expect(serverInspection).toContain("console.error('[PDF upload inspection] PDF.js parsing failed:'");
+        expect(serverInspection).toContain("console.error('[PDF upload inspection] PDF.js cleanup failed:'");
+        expect(serverInspection).toContain("'PDF_RUNTIME_UNAVAILABLE'");
     });
 });
