@@ -186,6 +186,10 @@ export async function inspectPdfBytes(
         return { pageCount: document.numPages, answerAssessment, scannedAnswerInspection };
     } catch (error) {
         if (error instanceof PdfUploadInspectionError) throw error;
+        console.error('[PDF upload inspection] PDF.js parsing failed:', {
+            name: error instanceof Error ? error.name : 'UnknownError',
+            message: error instanceof Error ? error.message : String(error),
+        });
         throw new PdfUploadInspectionError('INVALID_PDF_FILE', 'The uploaded object is not a readable PDF document.');
     } finally {
         await loadingTask.destroy();

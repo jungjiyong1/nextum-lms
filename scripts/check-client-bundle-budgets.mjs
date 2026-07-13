@@ -4,15 +4,18 @@ import { join, relative, sep } from 'node:path';
 
 const nextDir = join(process.cwd(), '.next');
 const appDir = join(nextDir, 'server', 'app');
-const budgets = {
-  login: 100 * 1024,
-  feature: 150 * 1024,
-  pdfAssignmentMatch: 155 * 1024,
+const budgetsByBundler = {
+  turbopack: {
+    login: 100 * 1024,
+    feature: 150 * 1024,
+    pdfAssignmentMatch: 155 * 1024,
+  },
+  webpack: {
+    login: 140 * 1024,
+    feature: 180 * 1024,
+    pdfAssignmentMatch: 185 * 1024,
+  },
 };
-const routeBudgets = new Map([
-  ['/login', budgets.login],
-  ['/assignments/pdf-match', budgets.pdfAssignmentMatch],
-]);
 
 if (!existsSync(appDir)) {
   throw new Error('Missing .next build output. Run `npm run build` before bundle:check.');
@@ -26,15 +29,33 @@ function walk(directory) {
 }
 
 function readManifest(path) {
-  const assignment = readFileSync(path, 'utf8')
-    .split(/\r?\n/)
-    .find((line) => line.includes('__RSC_MANIFEST["'));
+  const source = readFileSync(path, 'utf8').trim();
+  const manifestMarker = '__RSC_MANIFEST["';
+  const markerStart = source.indexOf(manifestMarker);
+  if (markerStart < 0 || !source.endsWith(';')) return null;
+  const keyEnd = source.indexOf('"]', markerStart + manifestMarker.length);
+  const assignmentStart = source.indexOf('=', keyEnd + 2);
+  if (keyEnd < 0 || assignmentStart < 0) return null;
+  return JSON.parse(source.slice(assignmentStart + 1, -1).trim());
+}
 
-  if (!assignment) return null;
-  const marker = ' = ';
-  const start = assignment.indexOf(marker);
-  if (start < 0 || !assignment.endsWith(';')) return null;
-  return JSON.parse(assignment.slice(start + marker.length, -1));
+function manifestJavaScriptAssets(manifest) {
+  const entryAssets = Object.values(manifest.entryJSFiles ?? {}).flat();
+  if (entryAssets.length > 0) return entryAssets;
+  return Object.values(manifest.clientModules ?? {})
+    .flatMap((clientModule) => clientModule.chunks ?? [])
+    .filter((asset) => asset.startsWith('static/') && asset.endsWith('.js'));
+}
+
+function manifestBundler(manifest) {
+  return Object.keys(manifest.entryJSFiles ?? {}).length > 0 ? 'turbopack' : 'webpack';
+}
+
+function routeBudget(route, bundler) {
+  const budgets = budgetsByBundler[bundler];
+  if (route === '/login') return budgets.login;
+  if (route === '/assignments/pdf-match') return budgets.pdfAssignmentMatch;
+  return budgets.feature;
 }
 
 const compressedSizes = new Map();
@@ -57,21 +78,22 @@ const results = pageManifests.map((path) => {
   const manifest = readManifest(path);
   if (!manifest) throw new Error(`Unable to parse client reference manifest: ${path}`);
 
-  const assets = [...new Set(Object.values(manifest.entryJSFiles ?? {}).flat())];
-  const bytes = assets.reduce((total, asset) => total + compressedSize(join(nextDir, asset)), 0);
+  const assets = [...new Set(manifestJavaScriptAssets(manifest))];
+  const bytes = assets.reduce((total, asset) => total + compressedSize(join(nextDir, decodeURIComponent(asset))), 0);
   const route = relative(appDir, path)
     .replaceAll(sep, '/')
     .replace('/page_client-reference-manifest.js', '')
     .replace(/^\(app\)\/?/, '/')
     .replace(/^login$/, '/login') || '/';
-  const limit = routeBudgets.get(route) ?? budgets.feature;
+  const bundler = manifestBundler(manifest);
+  const limit = routeBudget(route, bundler);
 
   if (bytes > limit) failures.push({ route, bytes, limit });
-  return { route, bytes, limit };
+  return { route, bytes, limit, bundler };
 }).sort((left, right) => left.route.localeCompare(right.route));
 
-for (const { route, bytes, limit } of results) {
-  console.log(`${route.padEnd(32)} ${(bytes / 1024).toFixed(1)} KiB / ${(limit / 1024).toFixed(0)} KiB`);
+for (const { route, bytes, limit, bundler } of results) {
+  console.log(`${route.padEnd(32)} ${(bytes / 1024).toFixed(1)} KiB / ${(limit / 1024).toFixed(0)} KiB (${bundler})`);
 }
 
 if (failures.length > 0) {

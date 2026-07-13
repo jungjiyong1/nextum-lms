@@ -6,6 +6,7 @@ const page = readFileSync('src/features/lms/pdf-assignment-match-page.tsx', 'utf
 const service = readFileSync('src/lib/lms/assignment-match.ts', 'utf8');
 const serverInspection = readFileSync('src/lib/lms/pdf-upload-inspection.ts', 'utf8');
 const assetScript = readFileSync('scripts/copy-pdfjs-assets.mjs', 'utf8');
+const packageJson = readFileSync('package.json', 'utf8');
 
 describe('PDF assignment intake hardening contract', () => {
     it('ships a local numbers-only OCR fallback and retains OCR bounding boxes', () => {
@@ -42,5 +43,10 @@ describe('PDF assignment intake hardening contract', () => {
         expect(serverInspection).toContain('needsScannedAnswerOcr(textPages');
         expect(serverInspection).toContain('assessScannedAnswerLayout(ocrPages)');
         expect(service).toContain('scanned_answer_inspection: authoritative.scannedAnswerInspection');
+    });
+
+    it('uses the supported Webpack production build for PDF.js server compatibility', () => {
+        expect(packageJson).toContain('"build": "next build --webpack"');
+        expect(serverInspection).toContain("console.error('[PDF upload inspection] PDF.js parsing failed:'");
     });
 });
