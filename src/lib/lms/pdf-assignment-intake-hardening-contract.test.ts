@@ -47,7 +47,8 @@ describe('PDF assignment intake hardening contract', () => {
 
     it('bundles the PDF.js fake-worker handler into the compatible production build', () => {
         expect(packageJson).toContain('"build": "next build --webpack"');
-        expect(serverInspection).toContain("import('pdfjs-dist/legacy/build/pdf.worker.mjs')");
+        expect(serverInspection).toContain('pathToFileURL');
+        expect(serverInspection).toContain('webpackIgnore: true');
         expect(serverInspection).toContain('pdfjsWorker ??= worker');
         expect(serverInspection).toContain("console.error('[PDF upload inspection] PDF.js parsing failed:'");
         expect(serverInspection).toContain("console.error('[PDF upload inspection] PDF.js cleanup failed:'");

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, TextItem } from 'pdfjs-dist/types/src/display/api';
 import {
     assessPdfDocumentText,
@@ -53,9 +54,14 @@ type PdfJsWorkerGlobal = typeof globalThis & {
 };
 
 async function loadServerPdfJs() {
-    const worker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    const buildDirectory = resolve(process.cwd(), 'node_modules', 'pdfjs-dist', 'legacy', 'build');
+    const workerUrl = pathToFileURL(resolve(buildDirectory, 'pdf.worker.mjs')).href;
+    const pdfUrl = pathToFileURL(resolve(buildDirectory, 'pdf.mjs')).href;
+    const worker = await import(/* webpackIgnore: true */ workerUrl) as {
+        WorkerMessageHandler: unknown;
+    };
     (globalThis as PdfJsWorkerGlobal).pdfjsWorker ??= worker;
-    return import('pdfjs-dist/legacy/build/pdf.mjs');
+    return import(/* webpackIgnore: true */ pdfUrl) as Promise<typeof import('pdfjs-dist/legacy/build/pdf.mjs')>;
 }
 
 function assetDirectory(relativePath: string): string {
