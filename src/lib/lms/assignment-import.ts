@@ -15,7 +15,6 @@ type Row = Record<string, any>;
 type LmsAdminClient = ReturnType<typeof createAdminClient>;
 
 const PROBLEM_IMAGES_BUCKET = 'problem-images';
-const ASSIGNMENT_FILES_BUCKET = process.env.NEXTUM_ASSIGNMENT_FILES_BUCKET || process.env.ASSIGNMENT_FILES_BUCKET || 'assignment-files';
 
 type WorksheetImportState = WorksheetImportCompensationState;
 
@@ -81,10 +80,6 @@ function slug(value: string): string {
 
 function safePathSegment(value: string): string {
     return value.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120) || randomBytes(4).toString('hex');
-}
-
-function uniqueStrings(values: Array<string | null | undefined>): string[] {
-    return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
 async function ensureBucket(client: LmsAdminClient, bucket: string) {
@@ -191,48 +186,56 @@ async function createHiddenWorksheetBook(
     const flattened = flattenProblems(exportJson);
     if (flattened.length === 0) throw new Error('Worksheet export has no verified problems.');
 
-    const conceptNames = uniqueStrings(flattened.map((item) => item.problem.concept_name || null));
-    const conceptIdByName = new Map<string, string>();
-    if (conceptNames.length > 0) {
+    const conceptRowsByKey = new Map<string, Row>();
+    for (const item of flattened) {
+        const name = item.problem.concept_name;
+        const unitId = unitIdByKey.get(item.unit.unit_id || '') ?? null;
+        if (!name || !unitId) continue;
+        const key = `${unitId}::${name}`;
+        if (conceptRowsByKey.has(key)) continue;
+        conceptRowsByKey.set(key, {
+            book_id: bookId,
+            unit_id: unitId,
+            name,
+            name_raw: item.problem.concept_name_raw ?? null,
+            sort_order: conceptRowsByKey.size,
+        });
+    }
+    const conceptIdByKey = new Map<string, string>();
+    if (conceptRowsByKey.size > 0) {
         const { data, error } = await content
             .from('concepts')
-            .upsert(
-                conceptNames.map((name, index) => ({
-                    book_id: bookId,
-                    name,
-                    name_raw: flattened.find((item) => item.problem.concept_name === name)?.problem.concept_name_raw ?? null,
-                    sort_order: index,
-                })),
-                { onConflict: 'book_id,name' },
-            )
-            .select('id,name');
+            .upsert([...conceptRowsByKey.values()], { onConflict: 'book_id,unit_id,name' })
+            .select('id,unit_id,name');
         ensureNoError(error, 'Failed to create worksheet concepts');
-        for (const row of (data || []) as Row[]) conceptIdByName.set(row.name, row.id);
+        for (const row of (data || []) as Row[]) conceptIdByKey.set(`${row.unit_id}::${row.name}`, row.id);
     }
 
-    const typeNames = uniqueStrings(flattened.map((item) => item.problem.type_name || null));
-    const typeIdByName = new Map<string, string>();
-    if (typeNames.length > 0) {
+    const typeRowsByKey = new Map<string, Row>();
+    for (const item of flattened) {
+        const name = item.problem.type_name;
+        const unitId = unitIdByKey.get(item.unit.unit_id || '') ?? null;
+        if (!name || !unitId) continue;
+        const key = `${unitId}::${name}`;
+        if (typeRowsByKey.has(key)) continue;
+        const conceptKey = `${unitId}::${item.problem.concept_name || ''}`;
+        typeRowsByKey.set(key, {
+            book_id: bookId,
+            unit_id: unitId,
+            concept_id: item.problem.concept_name ? conceptIdByKey.get(conceptKey) ?? null : null,
+            name,
+            name_raw: item.problem.type_name_raw ?? null,
+            sort_order: typeRowsByKey.size,
+        });
+    }
+    const typeIdByKey = new Map<string, string>();
+    if (typeRowsByKey.size > 0) {
         const { data, error } = await content
             .from('problem_types')
-            .upsert(
-                typeNames.map((name, index) => {
-                    const sample = flattened.find((item) => item.problem.type_name === name);
-                    const unitKey = sample?.unit.unit_id || '';
-                    return {
-                        book_id: bookId,
-                        unit_id: unitIdByKey.get(unitKey) ?? null,
-                        concept_id: sample?.problem.concept_name ? conceptIdByName.get(sample.problem.concept_name) ?? null : null,
-                        name,
-                        name_raw: sample?.problem.type_name_raw ?? null,
-                        sort_order: index,
-                    };
-                }),
-                { onConflict: 'book_id,name' },
-            )
-            .select('id,name');
+            .upsert([...typeRowsByKey.values()], { onConflict: 'book_id,unit_id,name' })
+            .select('id,unit_id,name');
         ensureNoError(error, 'Failed to create worksheet problem types');
-        for (const row of (data || []) as Row[]) typeIdByName.set(row.name, row.id);
+        for (const row of (data || []) as Row[]) typeIdByKey.set(`${row.unit_id}::${row.name}`, row.id);
     }
 
     await ensureBucket(client, PROBLEM_IMAGES_BUCKET);
@@ -275,8 +278,8 @@ async function createHiddenWorksheetBook(
             id: problemId,
             book_id: bookId,
             unit_id: unitId,
-            concept_id: item.problem.concept_name ? conceptIdByName.get(item.problem.concept_name) ?? null : null,
-            problem_type_id: item.problem.type_name ? typeIdByName.get(item.problem.type_name) ?? null : null,
+            concept_id: item.problem.concept_name ? conceptIdByKey.get(`${unitId}::${item.problem.concept_name}`) ?? null : null,
+            problem_type_id: item.problem.type_name ? typeIdByKey.get(`${unitId}::${item.problem.type_name}`) ?? null : null,
             page_printed: item.problem.page_printed ?? item.index + 1,
             number: String(item.problem.number ?? item.index + 1),
             image_path: imagePath,
@@ -306,35 +309,6 @@ async function createHiddenWorksheetBook(
     }
 
     return { bookId, problemIds };
-}
-
-async function attachUploadedExportFile(
-    client: LmsAdminClient,
-    assignmentId: string,
-    file: File,
-    state: WorksheetImportState,
-) {
-    await ensureBucket(client, ASSIGNMENT_FILES_BUCKET);
-    const storagePath = `${assignmentId}/${safePathSegment(file.name)}`;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const { error: uploadError } = await client.storage
-        .from(ASSIGNMENT_FILES_BUCKET)
-        .upload(storagePath, bytes, { contentType: file.type || 'application/octet-stream', upsert: true });
-    ensureNoError(uploadError, 'Failed to upload assignment source file');
-    state.uploadedObjects.push({ bucket: ASSIGNMENT_FILES_BUCKET, path: storagePath });
-
-    const { error } = await client
-        .schema('learning')
-        .from('assignment_files')
-        .insert({
-            assignment_id: assignmentId,
-            storage_path: storagePath,
-            file_name: file.name,
-            media_type: file.type || null,
-            display_order: 0,
-            metadata: { source: 'worksheet_export' },
-        });
-    ensureNoError(error, 'Failed to attach assignment source file');
 }
 
 async function compensateWorksheetImport(client: LmsAdminClient, state: WorksheetImportState) {
@@ -383,7 +357,6 @@ export async function importWorksheetAssignmentForAcademy(
             sourceType: 'worksheet',
         }, context);
         state.assignmentId = assignment.id;
-        await attachUploadedExportFile(client, assignment.id, file, state);
         return assignment;
     } catch (error) {
         await compensateWorksheetImport(client, state);

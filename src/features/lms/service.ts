@@ -2,6 +2,18 @@ import { csrfHeaders, jsonCsrfHeaders } from '@/lib/lms/csrf-client';
 import { supabase } from '@/core/supabaseClient';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type {
+  CreatedPdfAssignmentMatchBatch,
+  CreatePdfAssignmentMatchBatchInput,
+  FinalizedPdfAssignmentMatchBatch,
+  FinalizedPdfAssignmentMatchJob,
+  FinalizePdfAssignmentMatchBatchInput,
+  FinalizePdfAssignmentMatchJobInput,
+  PatchPdfAssignmentMatchJobInput,
+  PdfAssignmentMatchBatch,
+  PdfAssignmentMatchJob,
+  ResolvePdfAssignmentMatchJobInput,
+} from './pdf-assignment-match-types';
+import type {
   AccountingOperationsOverview,
   AccountingTaxSettings,
   BatchAttendanceInput,
@@ -548,6 +560,32 @@ async function postLmsMutation<T = undefined>(
   return result as T;
 }
 
+async function patchLmsMutation<T>(path: string, payload: Record<string, unknown>): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PATCH',
+    headers: jsonCsrfHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => null) as ({
+    success?: boolean;
+    data?: unknown;
+    error?: unknown;
+    invalidation?: unknown;
+  } & Record<string, unknown>) | null;
+  if (!response.ok || !result?.success) {
+    throw new Error(apiErrorMessage(result?.error, '요청 처리에 실패했습니다.'));
+  }
+  const serverInvalidation = normalizeInvalidationPayload(result.invalidation)
+    ?? invalidationFromMetadata(result.invalidation, path, payload);
+  if (serverInvalidation) {
+    applyLmsInvalidation(serverInvalidation);
+    publishLocalInvalidation(serverInvalidation);
+  } else {
+    invalidateAfterMutation(path, payload);
+  }
+  return result as T;
+}
+
 async function getLmsJson<T>(path: string, options: LmsRequestOptions = {}): Promise<T> {
   const policy = options.policy ?? 'operational';
   const ttl = CACHE_TTL_MS[policy];
@@ -1001,6 +1039,94 @@ export async function createLearningAssignment(
   input: CreateLearningAssignmentInput,
 ): Promise<void> {
   await postLmsMutation('/api/lms/assignments', { academyId, ...input });
+}
+
+export async function createPdfAssignmentMatchBatch(
+  academyId: string,
+  input: CreatePdfAssignmentMatchBatchInput,
+): Promise<CreatedPdfAssignmentMatchBatch> {
+  const result = await postLmsMutation<{ data?: CreatedPdfAssignmentMatchBatch }>(
+    '/api/lms/assignment-match-batches',
+    { academyId, ...input },
+  );
+  if (!result.data) throw new Error('PDF 매칭 작업을 만들지 못했습니다.');
+  return result.data;
+}
+
+export async function loadPdfAssignmentMatchBatch(
+  academyId: string,
+  batchId: string,
+  options: LmsRequestOptions = {},
+): Promise<PdfAssignmentMatchBatch> {
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<PdfAssignmentMatchBatch>(
+    `/api/lms/assignment-match-batches/${encodeURIComponent(batchId)}?${params.toString()}`,
+    { policy: 'live', ...options },
+  );
+}
+
+export async function loadPdfAssignmentMatchJob(
+  academyId: string,
+  jobId: string,
+  options: LmsRequestOptions = {},
+): Promise<PdfAssignmentMatchJob> {
+  const params = new URLSearchParams({ academyId });
+  return getLmsJson<PdfAssignmentMatchJob>(
+    `/api/lms/assignment-match-jobs/${encodeURIComponent(jobId)}?${params.toString()}`,
+    { policy: 'live', ...options },
+  );
+}
+
+export async function resolvePdfAssignmentMatchJob(
+  academyId: string,
+  jobId: string,
+  input: ResolvePdfAssignmentMatchJobInput,
+): Promise<PdfAssignmentMatchJob> {
+  const result = await postLmsMutation<{ data?: PdfAssignmentMatchJob }>(
+    `/api/lms/assignment-match-jobs/${encodeURIComponent(jobId)}/resolve`,
+    { academyId, ...input },
+  );
+  if (!result.data) throw new Error('PDF 문항코드를 매칭하지 못했습니다.');
+  return result.data;
+}
+
+export async function patchPdfAssignmentMatchJob(
+  academyId: string,
+  jobId: string,
+  input: PatchPdfAssignmentMatchJobInput,
+): Promise<PdfAssignmentMatchJob> {
+  const result = await patchLmsMutation<{ data?: PdfAssignmentMatchJob }>(
+    `/api/lms/assignment-match-jobs/${encodeURIComponent(jobId)}`,
+    { academyId, ...input },
+  );
+  if (!result.data) throw new Error('PDF 매칭 작업을 수정하지 못했습니다.');
+  return result.data;
+}
+
+export async function finalizePdfAssignmentMatchJob(
+  academyId: string,
+  jobId: string,
+  input: FinalizePdfAssignmentMatchJobInput,
+): Promise<FinalizedPdfAssignmentMatchJob> {
+  const result = await postLmsMutation<{ data?: FinalizedPdfAssignmentMatchJob }>(
+    `/api/lms/assignment-match-jobs/${encodeURIComponent(jobId)}/finalize`,
+    { academyId, ...input },
+  );
+  if (!result.data) throw new Error('PDF 과제를 배정하지 못했습니다.');
+  return result.data;
+}
+
+export async function finalizePdfAssignmentMatchBatch(
+  academyId: string,
+  batchId: string,
+  input: FinalizePdfAssignmentMatchBatchInput,
+): Promise<FinalizedPdfAssignmentMatchBatch> {
+  const result = await postLmsMutation<{ data?: FinalizedPdfAssignmentMatchBatch }>(
+    `/api/lms/assignment-match-batches/${encodeURIComponent(batchId)}/finalize`,
+    { academyId, ...input },
+  );
+  if (!result.data) throw new Error('PDF 과제 묶음을 배정하지 못했습니다.');
+  return result.data;
 }
 
 export async function importWorksheetAssignment(

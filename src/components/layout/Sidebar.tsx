@@ -24,6 +24,7 @@ interface SidebarProps {
     onSignOut?: () => void;
     userProfile?: Profile | null;
     academyName?: string | null;
+    pdfAssignmentMatchEnabled: boolean;
 }
 
 type NavChild = {
@@ -52,6 +53,7 @@ const navItems: NavItem[] = [
         children: [
             { id: 'assignments-status', label: '과제 현황', href: appPageHref.assignments, exact: true },
             { id: 'assignments-new', label: '과제 관리', href: '/assignments/new', exact: true },
+            { id: 'assignments-pdf-match', label: 'PDF 과제 배정', href: '/assignments/pdf-match', exact: true },
         ],
     },
     {
@@ -100,7 +102,13 @@ const navItems: NavItem[] = [
     },
 ];
 
-export function Sidebar({ activePage, onSignOut, userProfile, academyName }: SidebarProps) {
+export function Sidebar({
+    activePage,
+    onSignOut,
+    userProfile,
+    academyName,
+    pdfAssignmentMatchEnabled,
+}: SidebarProps) {
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const [collapsed, setCollapsed] = React.useState(false);
@@ -111,7 +119,10 @@ export function Sidebar({ activePage, onSignOut, userProfile, academyName }: Sid
         .filter((item) => canAccessAppPage(role, item.id))
         .map((item) => ({
             ...item,
-            children: item.children?.filter((child) => !child.roles || (role && child.roles.includes(role))),
+            children: item.children?.filter((child) => (
+                (pdfAssignmentMatchEnabled || child.id !== 'assignments-pdf-match')
+                && (!child.roles || (role && child.roles.includes(role)))
+            )),
         }));
     const visuallyCollapsed = collapsed || compactViewport;
     const accountingMonth = normalizeAccountingMonth(searchParams.get('month'));

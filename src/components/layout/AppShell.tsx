@@ -21,9 +21,11 @@ import { Sidebar } from './Sidebar';
 function AppShellContent({
     academyName,
     children,
+    pdfAssignmentMatchEnabled,
 }: {
     academyName: string;
     children: ReactNode;
+    pdfAssignmentMatchEnabled: boolean;
 }) {
     const pathname = usePathname();
     const router = useRouter();
@@ -71,6 +73,7 @@ function AppShellContent({
                 onSignOut={handleSignOut}
                 userProfile={profile}
                 academyName={academyName}
+                pdfAssignmentMatchEnabled={pdfAssignmentMatchEnabled}
             />
             <main className="relative flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
                 {mainContent}
@@ -83,14 +86,21 @@ export function AppShell({
     academyName,
     children,
     profile,
+    pdfAssignmentMatchEnabled,
 }: {
     academyName: string;
     children: ReactNode;
     profile: AppProfile;
+    pdfAssignmentMatchEnabled: boolean;
 }) {
     return (
         <AuthProvider profile={profile}>
-            <AppShellContent academyName={academyName}>{children}</AppShellContent>
+            <AppShellContent
+                academyName={academyName}
+                pdfAssignmentMatchEnabled={pdfAssignmentMatchEnabled}
+            >
+                {children}
+            </AppShellContent>
         </AuthProvider>
     );
 }

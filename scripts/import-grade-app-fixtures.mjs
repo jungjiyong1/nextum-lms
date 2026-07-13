@@ -150,6 +150,7 @@ async function importBundle(client, bundle, options) {
         schema_version: exportJson.schema_version,
         pipeline_version: exportJson.pipeline_version ?? null,
         metadata: {
+          visibility: 'catalog',
           source: 'grade_app_fixture',
           source_path: input,
           imported_by: 'nextum-lms/scripts/import-grade-app-fixtures.mjs',
@@ -216,30 +217,32 @@ async function importBundle(client, bundle, options) {
     for (const row of data || []) conceptIdByKey.set(`${row.unit_id || 'none'}::${row.name}`, row.id);
   }
 
-  const typeRowsByName = new Map();
+  const typeRowsByKey = new Map();
   for (const item of flattened) {
     const name = item.problem.type_name;
-    if (!name || typeRowsByName.has(name)) continue;
+    if (!name) continue;
     const unitId = unitIdByKey.get(item.unit.unit_id || '') ?? null;
+    const typeKey = `${unitId || 'none'}::${name}`;
+    if (typeRowsByKey.has(typeKey)) continue;
     const conceptKey = `${unitId || 'none'}::${item.problem.concept_name || ''}`;
-    typeRowsByName.set(name, {
+    typeRowsByKey.set(typeKey, {
       book_id: bookId,
       unit_id: unitId,
       concept_id: item.problem.concept_name ? conceptIdByKey.get(conceptKey) ?? null : null,
       name,
       name_raw: item.problem.type_name_raw ?? null,
-      sort_order: typeRowsByName.size,
+      sort_order: typeRowsByKey.size,
     });
   }
 
-  const typeIdByName = new Map();
-  if (typeRowsByName.size > 0) {
+  const typeIdByKey = new Map();
+  if (typeRowsByKey.size > 0) {
     const { data, error } = await content
       .from('problem_types')
-      .upsert([...typeRowsByName.values()], { onConflict: 'book_id,name' })
-      .select('id,name');
+      .upsert([...typeRowsByKey.values()], { onConflict: 'book_id,unit_id,name' })
+      .select('id,unit_id,name');
     if (error) throw error;
-    for (const row of data || []) typeIdByName.set(row.name, row.id);
+    for (const row of data || []) typeIdByKey.set(`${row.unit_id || 'none'}::${row.name}`, row.id);
   }
 
   await ensureBucket(client, PROBLEM_IMAGES_BUCKET);
@@ -284,7 +287,7 @@ async function importBundle(client, bundle, options) {
       book_id: bookId,
       unit_id: unitId,
       concept_id: problem.concept_name ? conceptIdByKey.get(conceptKey) ?? null : null,
-      problem_type_id: problem.type_name ? typeIdByName.get(problem.type_name) ?? null : null,
+      problem_type_id: problem.type_name ? typeIdByKey.get(`${unitId}::${problem.type_name}`) ?? null : null,
       page_printed: problem.page_printed ?? problemRows.length + 1,
       number: String(problem.number ?? problemRows.length + 1),
       image_path: imagePath,
@@ -312,7 +315,7 @@ async function importBundle(client, bundle, options) {
 
   console.log(`Imported ${exportJson.title}`);
   console.log(`  book=${bookId}`);
-  console.log(`  units=${unitRows.length} concepts=${conceptRowsByKey.size} types=${typeRowsByName.size} problems=${problemRows.length} images=${uploaded}`);
+  console.log(`  units=${unitRows.length} concepts=${conceptRowsByKey.size} types=${typeRowsByKey.size} problems=${problemRows.length} images=${uploaded}`);
 }
 
 async function main() {

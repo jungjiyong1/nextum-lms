@@ -220,7 +220,7 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
         .order('title');
     ensureNoError(bookError, 'Failed to load assignment books');
 
-    const bookRows = ((books || []) as Row[]).filter((row) => row.metadata?.visibility !== 'assignment_hidden');
+    const bookRows = ((books || []) as Row[]).filter((row) => row.metadata?.visibility === 'catalog');
     const bookIds = bookRows.map((row) => row.id);
     if (bookIds.length === 0) return [];
 
@@ -231,8 +231,32 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
     ensureNoError(unitResult.error, 'Failed to load units');
     ensureNoError(typeResult.error, 'Failed to load problem types');
 
-    const units = (unitResult.data || []) as Row[];
-    const types = (typeResult.data || []) as Row[];
+    const publishedBookIds = new Set<string>();
+    const publishedUnitIds = new Set<string>();
+    const publishedTypeIds = new Set<string>();
+    const pageSize = 1_000;
+    for (let from = 0; ; from += pageSize) {
+        const { data, error } = await content
+            .from('problems')
+            .select('id,book_id,unit_id,problem_type_id,type_id')
+            .in('book_id', bookIds)
+            .eq('verified', true)
+            .eq('is_example', false)
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1);
+        ensureNoError(error, 'Failed to load published assignment catalog facets');
+        const rows = (data || []) as Row[];
+        for (const row of rows) {
+            if (row.book_id) publishedBookIds.add(String(row.book_id));
+            if (row.unit_id) publishedUnitIds.add(String(row.unit_id));
+            const typeId = row.problem_type_id || row.type_id;
+            if (typeId) publishedTypeIds.add(String(typeId));
+        }
+        if (rows.length < pageSize) break;
+    }
+
+    const units = ((unitResult.data || []) as Row[]).filter((row) => publishedUnitIds.has(String(row.id)));
+    const types = ((typeResult.data || []) as Row[]).filter((row) => publishedTypeIds.has(String(row.id)));
     const unitsByBook = new Map<string, Row[]>();
     const typesByBook = new Map<string, Row[]>();
     for (const unit of units) {
@@ -246,7 +270,7 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
         typesByBook.set(type.book_id, rows);
     }
 
-    return bookRows.map((book) => {
+    return bookRows.filter((book) => publishedBookIds.has(String(book.id))).map((book) => {
         const unitSummaries: AssignmentUnitSummary[] = (unitsByBook.get(book.id) || [])
             .map((row) => ({
                 id: row.id,
