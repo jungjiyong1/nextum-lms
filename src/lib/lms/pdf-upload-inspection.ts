@@ -42,6 +42,18 @@ export interface PdfUploadInspectionOptions {
     scanImageOnly?: boolean;
 }
 
+type PdfJsWorkerGlobal = typeof globalThis & {
+    pdfjsWorker?: {
+        WorkerMessageHandler: unknown;
+    };
+};
+
+async function loadServerPdfJs() {
+    const worker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    (globalThis as PdfJsWorkerGlobal).pdfjsWorker ??= worker;
+    return import('pdfjs-dist/legacy/build/pdf.mjs');
+}
+
 function assetDirectory(relativePath: string): string {
     return `${resolve(process.cwd(), 'node_modules', 'pdfjs-dist', relativePath).replace(/\\/gu, '/')}/`;
 }
@@ -102,7 +114,7 @@ export async function inspectPdfBytes(
         throw new PdfUploadInspectionError('INVALID_PDF_FILE', 'The uploaded object does not have a PDF signature.');
     }
 
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const pdfjs = await loadServerPdfJs();
     const loadingTask = pdfjs.getDocument({
         data: bytes,
         cMapUrl: assetDirectory('cmaps'),
