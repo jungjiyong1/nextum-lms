@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { resolve } from 'node:path';
-import type { PDFDocumentProxy, TextItem } from 'pdfjs-dist/types/src/display/api';
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, TextItem } from 'pdfjs-dist/types/src/display/api';
 import {
     assessPdfDocumentText,
     assessScannedAnswerLayout,
@@ -13,7 +13,11 @@ const SCANNED_ANSWER_OCR_PAGE_LIMIT = 3;
 
 export class PdfUploadInspectionError extends Error {
     constructor(
-        public readonly code: 'INVALID_PDF_FILE' | 'PDF_PAGE_LIMIT_EXCEEDED' | 'PDF_SCAN_INSPECTION_FAILED',
+        public readonly code:
+            | 'INVALID_PDF_FILE'
+            | 'PDF_PAGE_LIMIT_EXCEEDED'
+            | 'PDF_RUNTIME_UNAVAILABLE'
+            | 'PDF_SCAN_INSPECTION_FAILED',
         message: string,
     ) {
         super(message);
@@ -114,16 +118,19 @@ export async function inspectPdfBytes(
         throw new PdfUploadInspectionError('INVALID_PDF_FILE', 'The uploaded object does not have a PDF signature.');
     }
 
-    const pdfjs = await loadServerPdfJs();
-    const loadingTask = pdfjs.getDocument({
-        data: bytes,
-        cMapUrl: assetDirectory('cmaps'),
-        cMapPacked: true,
-        standardFontDataUrl: assetDirectory('standard_fonts'),
-        wasmUrl: assetDirectory('wasm'),
-        useWorkerFetch: false,
-    });
+    let loadingTask: PDFDocumentLoadingTask | null = null;
+    let stage: 'initializing' | 'parsing' = 'initializing';
     try {
+        const pdfjs = await loadServerPdfJs();
+        loadingTask = pdfjs.getDocument({
+            data: bytes,
+            cMapUrl: assetDirectory('cmaps'),
+            cMapPacked: true,
+            standardFontDataUrl: assetDirectory('standard_fonts'),
+            wasmUrl: assetDirectory('wasm'),
+            useWorkerFetch: false,
+        });
+        stage = 'parsing';
         const document = await loadingTask.promise;
         if (document.numPages < 1 || document.numPages > maxPages) {
             throw new PdfUploadInspectionError(
@@ -199,11 +206,30 @@ export async function inspectPdfBytes(
     } catch (error) {
         if (error instanceof PdfUploadInspectionError) throw error;
         console.error('[PDF upload inspection] PDF.js parsing failed:', {
+            stage,
             name: error instanceof Error ? error.name : 'UnknownError',
             message: error instanceof Error ? error.message : String(error),
         });
-        throw new PdfUploadInspectionError('INVALID_PDF_FILE', 'The uploaded object is not a readable PDF document.');
+        if (stage === 'initializing') {
+            throw new PdfUploadInspectionError(
+                'PDF_RUNTIME_UNAVAILABLE',
+                'The server PDF parser is temporarily unavailable.',
+            );
+        }
+        throw new PdfUploadInspectionError(
+            'INVALID_PDF_FILE',
+            'The uploaded object is not a readable PDF document.',
+        );
     } finally {
-        await loadingTask.destroy();
+        if (loadingTask) {
+            try {
+                await loadingTask.destroy();
+            } catch (error) {
+                console.error('[PDF upload inspection] PDF.js cleanup failed:', {
+                    name: error instanceof Error ? error.name : 'UnknownError',
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
     }
 }
