@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { isExplicitFeatureEnabled } from '@/lib/feature-flags';
+import { isFeatureEnabledUnlessExplicitlyDisabled } from '@/lib/feature-flags';
 
 const service = readFileSync('src/lib/lms/assignment-match.ts', 'utf8');
 const feature = readFileSync('src/lib/lms/pdf-assignment-match-feature.ts', 'utf8');
@@ -10,21 +10,22 @@ const sidebar = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 
 describe('PDF assignment match rollback gate', () => {
     it.each([
-        [undefined, false],
-        [null, false],
-        ['', false],
+        [undefined, true],
+        [null, true],
+        ['', true],
         ['false', false],
-        ['1', false],
-        ['enabled', false],
+        [' FALSE ', false],
+        ['1', true],
+        ['enabled', true],
         [' true ', true],
         ['TRUE', true],
-    ])('treats only an explicit true value as enabled: %s', (value, expected) => {
-        expect(isExplicitFeatureEnabled(value)).toBe(expected);
+    ])('defaults to enabled and treats only an explicit false value as disabled: %s', (value, expected) => {
+        expect(isFeatureEnabledUnlessExplicitlyDisabled(value)).toBe(expected);
     });
 
     it('closes every server operation and derives all UI state from the server flag', () => {
         expect(feature).toContain('process.env.PDF_ASSIGNMENT_MATCH_ENABLED');
-        expect(feature).toContain('isExplicitFeatureEnabled');
+        expect(feature).toContain('isFeatureEnabledUnlessExplicitlyDisabled');
         expect(service.match(/assertPdfAssignmentMatchEnabled\(\);/gu)).toHaveLength(7);
         expect(service).toContain('PDF_ASSIGNMENT_MATCH_DISABLED');
         expect(service).toContain('503');
