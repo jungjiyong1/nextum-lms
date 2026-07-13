@@ -8,8 +8,12 @@ import {
   changeClassMembers,
   checkScheduleConflicts,
   createClass,
+  createPdfAssignmentMatchBatch,
+  finalizePdfAssignmentMatchBatch,
+  finalizePdfAssignmentMatchJob,
   getDashboardData,
   loadClassMemberCandidates,
+  loadPdfAssignmentMatchBatch,
   loadStaffOperationsOverview,
   loadStudentAiConversationDetail,
   loadStudentAiConversationSummaries,
@@ -21,7 +25,9 @@ import {
   loadStudentOperationsOverview,
   mutateSchedule,
   normalizeInvalidationPayload,
+  patchPdfAssignmentMatchJob,
   recordAttendanceBatch,
+  resolvePdfAssignmentMatchJob,
   upsertInstructorPayRate,
 } from './service';
 
@@ -163,6 +169,43 @@ describe('LMS service cache policy', () => {
         hourlyRate: 32000,
       },
     });
+  });
+
+  it('uses the canonical PDF match endpoints and PATCH method', async () => {
+    for (let index = 0; index < 6; index += 1) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({
+        success: true,
+        data: { id: 'result-1', batch: { id: 'batch-1', jobs: [] }, uploads: [] },
+      }));
+    }
+    const createInput = {
+      mode: 'single' as const,
+      clientRequestId: 'request-1',
+      jobs: [{ fileName: 'student.pdf', fileSize: 100, targetStudentId: 'student-1', title: '과제' }],
+    };
+    await createPdfAssignmentMatchBatch('academy-1', createInput);
+    await loadPdfAssignmentMatchBatch('academy-1', 'batch-1');
+    await resolvePdfAssignmentMatchJob('academy-1', 'job-1', {
+      revision: 1,
+      pageCount: 1,
+      codes: [{ externalCode: '1234567', page: 1 }],
+    });
+    await patchPdfAssignmentMatchJob('academy-1', 'job-1', { revision: 2, title: '수정 과제' });
+    await finalizePdfAssignmentMatchJob('academy-1', 'job-1', { revision: 3, idempotencyKey: 'final-1' });
+    await finalizePdfAssignmentMatchBatch('academy-1', 'batch-1', { idempotencyKey: 'batch-final-1' });
+
+    const calls = fetchMock.mock.calls.map(([input, init]) => ({
+      url: String(input),
+      method: (init as RequestInit | undefined)?.method || 'GET',
+    }));
+    expect(calls).toEqual([
+      { url: '/api/lms/assignment-match-batches', method: 'POST' },
+      { url: '/api/lms/assignment-match-batches/batch-1?academyId=academy-1', method: 'GET' },
+      { url: '/api/lms/assignment-match-jobs/job-1/resolve', method: 'POST' },
+      { url: '/api/lms/assignment-match-jobs/job-1', method: 'PATCH' },
+      { url: '/api/lms/assignment-match-jobs/job-1/finalize', method: 'POST' },
+      { url: '/api/lms/assignment-match-batches/batch-1/finalize', method: 'POST' },
+    ]);
   });
 
   it('expires volatile learning data after thirty seconds', async () => {

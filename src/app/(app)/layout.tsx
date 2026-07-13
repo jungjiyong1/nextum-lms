@@ -3,13 +3,18 @@ import { redirect } from 'next/navigation';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { LmsAuthError } from '@/lib/lms/auth';
+import { isPdfAssignmentMatchEnabled } from '@/lib/lms/pdf-assignment-match-feature';
 import { loadAppShellContext } from '@/lib/lms/shell-context';
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
     try {
         const context = await loadAppShellContext();
         return (
-            <AppShell academyName={context.academyName} profile={context.profile}>
+            <AppShell
+                academyName={context.academyName}
+                profile={context.profile}
+                pdfAssignmentMatchEnabled={isPdfAssignmentMatchEnabled()}
+            >
                 {children}
             </AppShell>
         );

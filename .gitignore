@@ -17,6 +17,8 @@ renderer/styles/tailwind.out.css
 renderer/styles/files/
 *.tsbuildinfo
 .turbo/
+public/pdfjs/
+public/tesseract/
 
 # Environment and Config
 .env
@@ -42,3 +44,5 @@ planning/
 desktop.ini
 Thumbs.db
 .DS_Store
+.vercel
+.env*

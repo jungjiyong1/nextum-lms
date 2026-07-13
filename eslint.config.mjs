@@ -12,6 +12,8 @@ export default tseslint.config(
             'node_modules/**',
             'node_modules (1)/**',
             'renderer/**',
+            'public/pdfjs/**',
+            'public/tesseract/**',
             'next-env.d.ts',
         ],
     },

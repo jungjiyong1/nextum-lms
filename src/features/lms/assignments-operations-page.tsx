@@ -853,13 +853,22 @@ function AssignmentComposer({
                                                 <StatusBadge tone="primary" label={`${selectedUnitIds.size}개 단원 선택`} />
                                             </div>
                                             <div className="max-h-[38rem] space-y-2 overflow-auto rounded-lg border bg-card p-2">
-                                                {unitProblemRows.map((row) => {
+                                                {unitProblemRows.map((row, index) => {
                                                     const expanded = expandedUnitIds.has(row.unit.id);
                                                     const selected = selectedUnitIds.has(row.unit.id);
                                                     const hasProblems = !row.loaded || row.totalCount === null || row.totalCount > 0;
+                                                    const partName = row.unit.partName || '과정 미분류';
+                                                    const showPartHeading = index === 0
+                                                        || (unitProblemRows[index - 1]?.unit.partName || '과정 미분류') !== partName;
 
                                                     return (
-                                                        <section key={row.unit.id} className="rounded-lg border border-border bg-background">
+                                                        <React.Fragment key={row.unit.id}>
+                                                        {showPartHeading && (
+                                                            <div className="sticky top-0 z-10 rounded-md border border-primary/20 bg-primary-soft px-3 py-2 text-xs font-semibold text-primary-strong">
+                                                                {partName}
+                                                            </div>
+                                                        )}
+                                                        <section className="rounded-lg border border-border bg-background">
                                                             <div className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
                                                                 <div className="flex min-w-0 items-start gap-2">
                                                                     <Button
@@ -1007,6 +1016,7 @@ function AssignmentComposer({
                                                                 </div>
                                                             )}
                                                         </section>
+                                                        </React.Fragment>
                                                     );
                                                 })}
                                             </div>

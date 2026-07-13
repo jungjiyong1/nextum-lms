@@ -96,7 +96,7 @@ export async function loadProblemCatalogPage(
     if (
         !bookRow
         || (bookRow.academy_id && bookRow.academy_id !== context.academyId)
-        || bookRow.metadata?.visibility === 'assignment_hidden'
+        || bookRow.metadata?.visibility !== 'catalog'
     ) {
         throw new ApiContractError({
             code: 'CATALOG_NOT_FOUND',
@@ -111,6 +111,7 @@ export async function loadProblemCatalogPage(
             cursor ? undefined : { count: 'planned' },
         )
         .eq('book_id', bookId)
+        .eq('verified', true)
         .eq('is_example', false)
         .not('page_printed', 'is', null);
 

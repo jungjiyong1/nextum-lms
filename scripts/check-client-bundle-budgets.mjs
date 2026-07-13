@@ -7,7 +7,12 @@ const appDir = join(nextDir, 'server', 'app');
 const budgets = {
   login: 100 * 1024,
   feature: 150 * 1024,
+  pdfAssignmentMatch: 155 * 1024,
 };
+const routeBudgets = new Map([
+  ['/login', budgets.login],
+  ['/assignments/pdf-match', budgets.pdfAssignmentMatch],
+]);
 
 if (!existsSync(appDir)) {
   throw new Error('Missing .next build output. Run `npm run build` before bundle:check.');
@@ -59,7 +64,7 @@ const results = pageManifests.map((path) => {
     .replace('/page_client-reference-manifest.js', '')
     .replace(/^\(app\)\/?/, '/')
     .replace(/^login$/, '/login') || '/';
-  const limit = route === '/login' ? budgets.login : budgets.feature;
+  const limit = routeBudgets.get(route) ?? budgets.feature;
 
   if (bytes > limit) failures.push({ route, bytes, limit });
   return { route, bytes, limit };

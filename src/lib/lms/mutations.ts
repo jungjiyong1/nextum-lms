@@ -336,16 +336,28 @@ async function loadStudentName(core: SchemaClient, academyId: string, studentId:
     return person?.display_name || person?.full_name || 'Unknown student';
 }
 
-async function assertBookAssignableToAcademy(content: SchemaClient, academyId: string, bookId: string) {
+async function assertBookAssignableToAcademy(
+    content: SchemaClient,
+    academyId: string,
+    bookId: string,
+    options: { allowAssignmentHidden?: boolean } = {},
+) {
     const { data, error } = await content
         .from('books')
-        .select('id,academy_id')
+        .select('id,academy_id,metadata')
         .eq('id', bookId)
         .maybeSingle();
     ensureNoError(error, 'Failed to verify book');
 
     const book = data as Row | null;
-    if (!book || (book.academy_id && book.academy_id !== academyId)) {
+    if (
+        !book
+        || (book.academy_id && book.academy_id !== academyId)
+        || (
+            book.metadata?.visibility !== 'catalog'
+            && !(options.allowAssignmentHidden && book.metadata?.visibility === 'assignment_hidden')
+        )
+    ) {
         throw new Error('Selected book does not belong to this academy.');
     }
 }
@@ -373,6 +385,7 @@ export async function createBookForAcademy(academyId: string, input: CreateBookI
         title,
         subject: input.subject?.trim() || null,
         grade: input.grade?.trim() || null,
+        metadata: { visibility: 'catalog' },
     });
     ensureNoError(error, 'Failed to create book');
 }
@@ -750,6 +763,7 @@ async function resolveAssignmentProblemIds(
             .from('problems')
             .select('id,book_id,unit_id,problem_type_id,type_id,page_printed,number,is_example')
             .eq('book_id', input.bookId)
+            .eq('verified', true)
             .eq('is_example', false)
             .order('id', { ascending: true })
             .limit(pageSize);
@@ -2023,7 +2037,11 @@ export async function createLearningAssignmentForAcademy(
             throw new Error('선택한 모든 학생이 해당 반에 재원 중이어야 합니다.');
         }
     }
-    if (input.bookId) await assertBookAssignableToAcademy(content, academyId, input.bookId);
+    if (input.bookId) {
+        await assertBookAssignableToAcademy(content, academyId, input.bookId, {
+            allowAssignmentHidden: input.sourceType === 'worksheet',
+        });
+    }
     if (learningAnalysisActions.length > 0) {
         const skillIds = uniqueStrings(learningAnalysisActions.map((action) => action.skillId));
         const { data: skills, error: skillError } = await content
@@ -2116,7 +2134,8 @@ export async function createLearningAssignmentForAcademy(
             const { data, error } = await content
                 .from('problems')
                 .select('id,book_id,unit_id')
-                .in('id', problemIds.slice(offset, offset + verificationBatchSize));
+                .in('id', problemIds.slice(offset, offset + verificationBatchSize))
+                .eq('verified', true);
             ensureNoError(error, 'Failed to verify assignment problems');
             problemRows.push(...((data || []) as Row[]));
         }
