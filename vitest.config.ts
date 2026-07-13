@@ -29,6 +29,10 @@ export default defineConfig({
                 'src/lib/lms/class-queries.ts',
                 'src/lib/lms/staff-queries.ts',
                 'src/lib/lms/student-queries.ts',
+
+                // The StudyQ importer is an executable CLI integration boundary.
+                // Its retry and bundle contracts are covered by focused tests.
+                'scripts/import-studyq-bank.mjs',
             ],
             thresholds: {
                 statements: 60,

@@ -1,14 +1,22 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
 const sourceRoot = join(root, 'node_modules', 'pdfjs-dist');
 const outputRoot = join(root, 'public', 'pdfjs');
 const tesseractRoot = join(root, 'node_modules', 'tesseract.js');
 const tesseractCoreRoot = join(root, 'node_modules', 'tesseract.js-core');
-const tesseractLanguageRoot = join(root, 'node_modules', '@tesseract.js-data', 'eng', '4.0.0_best_int');
-const tesseractKoreanLanguageRoot = join(root, 'node_modules', '@tesseract.js-data', 'kor', '4.0.0_best_int');
+const tesseractLanguageRoot = join(
+  dirname(require.resolve('@tesseract.js-data/eng/package.json')),
+  '4.0.0_best_int',
+);
+const tesseractKoreanLanguageRoot = join(
+  dirname(require.resolve('@tesseract.js-data/kor/package.json')),
+  '4.0.0_best_int',
+);
 const tesseractOutputRoot = join(root, 'public', 'tesseract');
 
 if (!existsSync(sourceRoot)) {
