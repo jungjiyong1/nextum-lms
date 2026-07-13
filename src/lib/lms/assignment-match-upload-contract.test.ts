@@ -11,6 +11,17 @@ describe('immutable assignment PDF upload contract', () => {
         expect(uploader).toContain("'x-upsert': 'false'");
     });
 
+    it('authenticates resumable uploads with the signed-in user JWT', () => {
+        expect(uploader).toContain('client.auth.getSession()');
+        expect(uploader).toContain('authorization: `Bearer ${accessToken}`');
+        expect(uploader).not.toContain("'x-signature': input.uploadToken");
+    });
+
+    it('falls back to the server-issued signed upload URL on Storage auth incompatibility', () => {
+        expect(uploader).toContain('.uploadToSignedUrl(input.objectPath, input.uploadToken, input.file');
+        expect(uploader).toContain('isTusAuthorizationFailure');
+    });
+
     it('resumes an uploaded-but-unresolved job without replacing its object', () => {
         expect(service).toContain('async function uploadedObjectExists');
         expect(service).toContain('await uploadedObjectExists(client, job.filePath)');
