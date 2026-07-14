@@ -448,13 +448,6 @@ interface CatalogTypeSection {
     leaves: AssignmentCatalogLeaf[];
 }
 
-function toggleSetValue<T>(current: Set<T>, value: T): Set<T> {
-    const next = new Set(current);
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    return next;
-}
-
 function materialLabel(material: AssignmentCatalogMaterial): string {
     return MATERIAL_OPTIONS.find((row) => row.key === material)?.label || material;
 }
@@ -555,30 +548,38 @@ export function AssignmentCatalogTree({
     selectedUnitIds,
     selectedTypeIds,
     onSelectLeaf,
+    onRemoveMiddle,
 }: {
     books: AssignmentBookCatalogSummary[];
     selectedBookId: string;
     selectedUnitIds: Set<string>;
     selectedTypeIds: Set<string>;
     onSelectLeaf: (leaf: AssignmentCatalogLeaf) => void;
+    onRemoveMiddle: (leaves: AssignmentCatalogLeaf[]) => void;
 }) {
     const tree = useMemo(() => buildAssignmentCatalogTree(books), [books]);
     const leaves = useMemo(() => flattenCatalogTree(tree), [tree]);
-    const [selectedGrades, setSelectedGrades] = useState<Set<CatalogGrade>>(() => new Set());
-    const [selectedCourses, setSelectedCourses] = useState<Set<string>>(() => new Set());
-    const [selectedMaterials, setSelectedMaterials] = useState<Set<AssignmentCatalogMaterial>>(() => new Set());
-    const [selectedMajorKeys, setSelectedMajorKeys] = useState<Set<string>>(() => new Set());
+    const [selectedGrade, setSelectedGrade] = useState<CatalogGrade | null>(null);
+    const [selectedCourse, setSelectedCourse] = useState('');
+    const [selectedMaterial, setSelectedMaterial] = useState<AssignmentCatalogMaterial | null>(null);
+    const [selectedMajorKey, setSelectedMajorKey] = useState('');
     const [selectedMiddleKeys, setSelectedMiddleKeys] = useState<Set<string>>(() => new Set());
+    const [activeMiddleKey, setActiveMiddleKey] = useState('');
     const [query, setQuery] = useState('');
-    const selectedGradeRows = GRADE_ORDER.filter((grade) => selectedGrades.has(grade));
-    const displayedCourseLabels = buildCourseLabels(leaves, selectedGrades);
+    const displayedCourseLabels = buildCourseLabels(leaves, selectedGrade ? new Set([selectedGrade]) : new Set());
     const courseScopedLeaves = leaves.filter((leaf) => (
-        selectedGrades.has(leaf.grade) && selectedCourses.has(leaf.courseLabel)
+        leaf.grade === selectedGrade && leaf.courseLabel === selectedCourse
     ));
-    const scopedLeaves = courseScopedLeaves.filter((leaf) => selectedMaterials.has(leaf.material));
+    const scopedLeaves = courseScopedLeaves.filter((leaf) => leaf.material === selectedMaterial);
     const majorOptions = buildMajorOptions(scopedLeaves);
-    const middleOptions = buildMiddleOptions(majorOptions, selectedMajorKeys);
-    const typeSections = buildTypeSections(middleOptions, selectedMiddleKeys, query);
+    const allMiddleOptions = buildMiddleOptions(majorOptions, new Set(majorOptions.map((major) => major.key)));
+    const middleOptions = allMiddleOptions.filter((middle) => middle.majorKey === selectedMajorKey);
+    const selectedMiddleOptions = allMiddleOptions.filter((middle) => selectedMiddleKeys.has(middle.key));
+    const typeSections = buildTypeSections(
+        selectedMiddleOptions,
+        activeMiddleKey ? new Set([activeMiddleKey]) : new Set(),
+        query,
+    );
     const majorSections = [...majorOptions.reduce((sections, option) => {
         const key = `${option.grade}\u0000${option.courseLabel}`;
         const current = sections.get(key) || { key, label: `${option.grade} · ${option.courseLabel}`, options: [] as CatalogMajorOption[] };
@@ -598,39 +599,52 @@ export function AssignmentCatalogTree({
     }, new Map<string, { key: string; label: string; options: CatalogMiddleOption[] }>()).values()];
 
     const courseHasData = (course: string) => leaves.some((leaf) => (
-        selectedGrades.has(leaf.grade) && leaf.courseLabel === course
+        leaf.grade === selectedGrade && leaf.courseLabel === course
     ));
     const materialHasData = (material: AssignmentCatalogMaterial) => courseScopedLeaves.some((leaf) => leaf.material === material);
 
-    const toggleGrade = (grade: CatalogGrade) => {
-        setSelectedGrades((current) => toggleSetValue(current, grade));
-        setSelectedCourses(new Set());
-        setSelectedMaterials(new Set());
-        setSelectedMajorKeys(new Set());
+    const selectGrade = (grade: CatalogGrade) => {
+        if (grade === selectedGrade) return;
+        setSelectedGrade(grade);
+        setSelectedCourse('');
+        setSelectedMaterial(null);
+        setSelectedMajorKey('');
         setSelectedMiddleKeys(new Set());
+        setActiveMiddleKey('');
         setQuery('');
     };
-    const toggleCourse = (course: string) => {
-        setSelectedCourses((current) => toggleSetValue(current, course));
-        setSelectedMaterials(new Set());
-        setSelectedMajorKeys(new Set());
+    const selectCourse = (course: string) => {
+        if (course === selectedCourse) return;
+        setSelectedCourse(course);
+        setSelectedMaterial(null);
+        setSelectedMajorKey('');
         setSelectedMiddleKeys(new Set());
+        setActiveMiddleKey('');
         setQuery('');
     };
-    const toggleMaterial = (material: AssignmentCatalogMaterial) => {
-        setSelectedMaterials((current) => toggleSetValue(current, material));
-        setSelectedMajorKeys(new Set());
+    const selectMaterial = (material: AssignmentCatalogMaterial) => {
+        if (material === selectedMaterial) return;
+        setSelectedMaterial(material);
+        setSelectedMajorKey('');
         setSelectedMiddleKeys(new Set());
+        setActiveMiddleKey('');
         setQuery('');
     };
-    const toggleMajor = (majorKey: string) => {
-        const next = toggleSetValue(selectedMajorKeys, majorKey);
-        setSelectedMajorKeys(next);
-        setSelectedMiddleKeys((current) => new Set([...current].filter((key) => next.has(key.split('\u0000').slice(0, 3).join('\u0000')))));
+    const selectMajor = (majorKey: string) => {
+        setSelectedMajorKey(majorKey);
         setQuery('');
     };
-    const toggleMiddle = (middleKey: string) => {
-        setSelectedMiddleKeys((current) => toggleSetValue(current, middleKey));
+    const selectMiddle = (middleKey: string) => {
+        setSelectedMiddleKeys((current) => new Set([...current, middleKey]));
+        setActiveMiddleKey(middleKey);
+        setQuery('');
+    };
+    const removeMiddle = (middleKey: string) => {
+        const removedMiddle = selectedMiddleOptions.find((middle) => middle.key === middleKey);
+        if (removedMiddle) onRemoveMiddle(removedMiddle.leaves);
+        const remainingKeys = [...selectedMiddleKeys].filter((key) => key !== middleKey);
+        setSelectedMiddleKeys(new Set(remainingKeys));
+        if (activeMiddleKey === middleKey) setActiveMiddleKey(remainingKeys[0] || '');
         setQuery('');
     };
 
@@ -648,6 +662,7 @@ export function AssignmentCatalogTree({
                     selected ? 'border-primary bg-primary-soft text-primary-strong' : 'border-border bg-background',
                 )}
                 title={`${leaf.bookTitle} / ${leaf.label}`}
+                aria-pressed={selected}
                 onClick={() => onSelectLeaf(leaf)}
             >
                 <Tags className={cn('h-3.5 w-3.5 shrink-0', selected ? 'text-primary' : 'text-muted-foreground')} />
@@ -665,7 +680,7 @@ export function AssignmentCatalogTree({
                 <SelectorColumn step={1} title="학년">
                     <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
                         {GRADE_ORDER.map((grade) => {
-                            const selected = selectedGrades.has(grade);
+                            const selected = selectedGrade === grade;
                             return (
                                 <Button
                                     key={grade}
@@ -678,7 +693,8 @@ export function AssignmentCatalogTree({
                                             ? 'bg-primary text-primary-foreground'
                                             : 'text-foreground hover:bg-primary-soft',
                                     )}
-                                    onClick={() => toggleGrade(grade)}
+                                    aria-pressed={selected}
+                                    onClick={() => selectGrade(grade)}
                                 >
                                     <span>{grade}</span>
                                     {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
@@ -690,18 +706,17 @@ export function AssignmentCatalogTree({
 
                 <SelectorColumn
                     step={2}
-                    title={selectedGradeRows.length > 0
-                        && selectedGradeRows.every((grade) => grade.startsWith('중'))
+                    title={selectedGrade?.startsWith('중')
                         ? '학기'
-                        : selectedGradeRows.length > 0 && selectedGradeRows.every((grade) => grade.startsWith('고'))
+                        : selectedGrade?.startsWith('고')
                             ? '과목'
                             : '학기·과목'}
                 >
-                    {selectedGrades.size > 0 ? (
+                    {selectedGrade ? (
                         <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
                             {displayedCourseLabels.map((course) => {
                                 const hasData = courseHasData(course);
-                                const selected = selectedCourses.has(course);
+                                const selected = selectedCourse === course;
                                 return (
                                     <Button
                                         key={course}
@@ -715,7 +730,8 @@ export function AssignmentCatalogTree({
                                             !selected && hasData && 'text-foreground hover:bg-primary-soft/60',
                                             !hasData && 'cursor-not-allowed text-muted-foreground/35',
                                         )}
-                                        onClick={() => toggleCourse(course)}
+                                        aria-pressed={selected}
+                                        onClick={() => selectCourse(course)}
                                     >
                                         <span className="min-w-0 break-keep">{course}</span>
                                         {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
@@ -729,11 +745,11 @@ export function AssignmentCatalogTree({
                 </SelectorColumn>
 
                 <SelectorColumn step={3} title="자료 구분">
-                    {selectedCourses.size > 0 ? (
+                    {selectedCourse ? (
                         <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
                             {MATERIAL_OPTIONS.map((material) => {
                                 const hasData = materialHasData(material.key);
-                                const selected = selectedMaterials.has(material.key);
+                                const selected = selectedMaterial === material.key;
                                 const Icon = material.key === 'bank' ? Database : BookOpen;
                                 return (
                                     <Button
@@ -748,7 +764,8 @@ export function AssignmentCatalogTree({
                                             !selected && hasData && 'text-foreground hover:bg-primary-soft/60',
                                             !hasData && 'cursor-not-allowed text-muted-foreground/35',
                                         )}
-                                        onClick={() => toggleMaterial(material.key)}
+                                        aria-pressed={selected}
+                                        onClick={() => selectMaterial(material.key)}
                                     >
                                         <Icon className="h-4 w-4 shrink-0" />
                                         <span className="min-w-0 flex-1 truncate text-xs font-semibold">{material.label}</span>
@@ -763,7 +780,7 @@ export function AssignmentCatalogTree({
                 </SelectorColumn>
 
                 <SelectorColumn step={4} title="대단원">
-                    {selectedMaterials.size === 0 ? (
+                    {!selectedMaterial ? (
                         <p className="px-2 py-3 text-xs text-muted-foreground">자료 구분을 선택하세요.</p>
                     ) : majorSections.length === 0 ? (
                         <p className="px-2 py-3 text-xs text-muted-foreground">등록된 단원이 없습니다.</p>
@@ -776,7 +793,7 @@ export function AssignmentCatalogTree({
                                     </p>
                                     <div className="space-y-0.5">
                                     {section.options.map((major) => {
-                                        const selected = selectedMajorKeys.has(major.key);
+                                        const selected = selectedMajorKey === major.key;
                                         return (
                                             <Button
                                                 key={major.key}
@@ -789,7 +806,8 @@ export function AssignmentCatalogTree({
                                                         ? 'bg-primary-soft text-primary-strong'
                                                         : 'text-foreground hover:bg-primary-soft/60',
                                                 )}
-                                                onClick={() => toggleMajor(major.key)}
+                                                aria-pressed={selected}
+                                                onClick={() => selectMajor(major.key)}
                                             >
                                                 <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
                                                 <span className="min-w-0 flex-1 whitespace-normal break-keep">{major.label}</span>
@@ -805,7 +823,7 @@ export function AssignmentCatalogTree({
                 </SelectorColumn>
 
                 <SelectorColumn step={5} title="중단원" className="border-r-0">
-                    {selectedMajorKeys.size === 0 ? (
+                    {!selectedMajorKey ? (
                         <p className="px-2 py-3 text-xs text-muted-foreground">대단원을 선택하세요.</p>
                     ) : (
                         <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
@@ -816,7 +834,8 @@ export function AssignmentCatalogTree({
                                     </p>
                                     <div className="space-y-0.5">
                                     {section.options.map((middle) => {
-                                        const selected = selectedMiddleKeys.has(middle.key);
+                                        const selected = activeMiddleKey === middle.key;
+                                        const added = selectedMiddleKeys.has(middle.key);
                                         return (
                                             <Button
                                                 key={middle.key}
@@ -829,11 +848,12 @@ export function AssignmentCatalogTree({
                                                         ? 'bg-primary-soft text-primary-strong'
                                                         : 'text-foreground hover:bg-primary-soft/60',
                                                 )}
-                                                onClick={() => toggleMiddle(middle.key)}
+                                                aria-pressed={added}
+                                                onClick={() => selectMiddle(middle.key)}
                                             >
                                                 <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
                                                 <span className="min-w-0 flex-1 whitespace-normal break-keep">{middle.label}</span>
-                                                {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
+                                                {added && <CheckCircle2 className="h-3 w-3 shrink-0" />}
                                             </Button>
                                         );
                                     })}
@@ -849,12 +869,14 @@ export function AssignmentCatalogTree({
             <section className="overflow-hidden rounded-xl border border-border bg-card">
                 <div className="flex flex-col gap-2 border-b border-border p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <p className="text-sm font-bold text-foreground">유형 선택</p>
+                        <p className="text-sm font-bold text-foreground">선택한 중단원과 유형</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                            {selectedMiddleKeys.size > 0 ? '선택한 범위를 구분해서 표시합니다.' : '위에서 중단원까지 선택하세요.'}
+                            {selectedMiddleOptions.length > 0
+                                ? '중단원을 하나씩 열어 배포할 세부 유형을 선택하세요.'
+                                : '위 폴더에서 중단원까지 선택하세요.'}
                         </p>
                     </div>
-                    {selectedMiddleKeys.size > 0 && (
+                    {activeMiddleKey && (
                         <div className="relative w-full sm:w-64">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" placeholder="유형 검색" />
@@ -862,31 +884,89 @@ export function AssignmentCatalogTree({
                     )}
                 </div>
                 <div className="p-3">
-                    {selectedMiddleKeys.size === 0 ? (
+                    {selectedMiddleOptions.length === 0 ? (
                         <p className="rounded-lg border border-dashed bg-muted/25 p-6 text-center text-xs text-muted-foreground">
-                            중단원을 선택하면 유형이 표시됩니다.
-                        </p>
-                    ) : typeSections.length === 0 ? (
-                        <p className="rounded-lg border border-dashed bg-muted/25 p-6 text-center text-xs text-muted-foreground">
-                            검색 결과가 없습니다.
+                            중단원을 선택하면 이곳에 목록으로 추가됩니다.
                         </p>
                     ) : (
-                        <div className="max-h-[48rem] space-y-3 overflow-y-auto pr-1">
-                            {typeSections.map((section) => (
-                                <section key={section.key} className="overflow-hidden rounded-lg border border-border bg-background">
-                                    <div className="flex min-w-0 items-center gap-2 border-b border-border bg-muted/35 px-3 py-1.5">
-                                        <span className="shrink-0 rounded bg-primary-soft px-1.5 py-0.5 text-[9px] font-bold text-primary-strong">
-                                            {section.contextLabel}
-                                        </span>
-                                        <span className="min-w-0 truncate text-[10px] font-semibold text-muted-foreground" title={section.pathLabel}>
-                                            {section.pathLabel}
-                                        </span>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-bold text-foreground">선택한 중단원</p>
+                                    <span className="text-[11px] text-muted-foreground">{selectedMiddleOptions.length}개</span>
+                                </div>
+                                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                    {selectedMiddleOptions.map((middle) => {
+                                        const active = activeMiddleKey === middle.key;
+                                        return (
+                                            <div
+                                                key={middle.key}
+                                                className={cn(
+                                                    'flex min-w-0 items-stretch overflow-hidden rounded-lg border bg-background',
+                                                    active ? 'border-primary' : 'border-border',
+                                                )}
+                                            >
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    className={cn(
+                                                        'h-auto min-w-0 flex-1 justify-start rounded-none px-3 py-2 text-left',
+                                                        active && 'bg-primary-soft text-primary-strong',
+                                                    )}
+                                                    aria-pressed={active}
+                                                    onClick={() => {
+                                                        setActiveMiddleKey(middle.key);
+                                                        setQuery('');
+                                                    }}
+                                                >
+                                                    <Folder className="h-4 w-4 shrink-0 text-warning" />
+                                                    <span className="min-w-0">
+                                                        <span className="block truncate text-xs font-semibold">{middle.label}</span>
+                                                        <span className="block truncate text-[10px] text-muted-foreground">{middle.majorLabel}</span>
+                                                    </span>
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon-sm"
+                                                    className="h-auto shrink-0 rounded-none border-l border-border"
+                                                    aria-label={`${middle.label} 선택 목록에서 제거`}
+                                                    title="선택 목록에서 제거"
+                                                    onClick={() => removeMiddle(middle.key)}
+                                                >
+                                                    <span aria-hidden="true" className="text-base leading-none">×</span>
+                                                </Button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="border-t border-border pt-4">
+                                {typeSections.length === 0 ? (
+                                    <p className="rounded-lg border border-dashed bg-muted/25 p-6 text-center text-xs text-muted-foreground">
+                                        검색 결과가 없습니다.
+                                    </p>
+                                ) : (
+                                    <div className="max-h-[48rem] space-y-3 overflow-y-auto pr-1">
+                                        {typeSections.map((section) => (
+                                            <section key={section.key} className="overflow-hidden rounded-lg border border-border bg-background">
+                                                <div className="flex min-w-0 items-center gap-2 border-b border-border bg-muted/35 px-3 py-1.5">
+                                                    <span className="shrink-0 rounded bg-primary-soft px-1.5 py-0.5 text-[9px] font-bold text-primary-strong">
+                                                        {section.contextLabel}
+                                                    </span>
+                                                    <span className="min-w-0 truncate text-[10px] font-semibold text-muted-foreground" title={section.pathLabel}>
+                                                        {section.pathLabel}
+                                                    </span>
+                                                </div>
+                                                <div className="grid gap-2 p-2 md:grid-cols-2 xl:grid-cols-3">
+                                                    {section.leaves.map(renderLeaf)}
+                                                </div>
+                                            </section>
+                                        ))}
                                     </div>
-                                    <div className="grid gap-2 p-2 md:grid-cols-2 xl:grid-cols-3">
-                                        {section.leaves.map(renderLeaf)}
-                                    </div>
-                                </section>
-                            ))}
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>

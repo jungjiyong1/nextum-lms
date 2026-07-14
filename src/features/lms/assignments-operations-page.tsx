@@ -636,16 +636,79 @@ function AssignmentComposer({
     };
 
     const selectCatalogLeaf = (leaf: AssignmentCatalogLeaf) => {
-        const switchedBook = Boolean(bookId && bookId !== leaf.bookId && contentReady);
-        setBookId(leaf.bookId);
+        const sameBook = bookId === leaf.bookId;
+        const selected = sameBook
+            && selectedUnitIds.has(leaf.unitId)
+            && (leaf.typeId === null || selectedTypeIds.has(leaf.typeId));
+        const switchedBook = Boolean(bookId && !sameBook && contentReady);
+
         setWholeBook(false);
-        setSelectedUnitIds(new Set([leaf.unitId]));
-        setSelectedTypeIds(new Set(leaf.typeId ? [leaf.typeId] : []));
-        setExcludedProblemIds(new Set());
-        setExpandedUnitIds(new Set([leaf.unitId]));
-        void loadUnitProblems(leaf.unitId, null, leaf.bookId);
+        if (!sameBook) {
+            setBookId(leaf.bookId);
+            setSelectedUnitIds(new Set([leaf.unitId]));
+            setSelectedTypeIds(new Set(leaf.typeId ? [leaf.typeId] : []));
+            setExcludedProblemIds(new Set());
+        } else if (leaf.typeId) {
+            const nextTypeIds = new Set(selectedTypeIds);
+            if (selected) nextTypeIds.delete(leaf.typeId);
+            else nextTypeIds.add(leaf.typeId);
+            setSelectedTypeIds(nextTypeIds);
+
+            const leafBook = data.books.find((book) => book.id === leaf.bookId);
+            const unitTypeIds = new Set((leafBook?.problemTypes || [])
+                .filter((type) => type.unitId === leaf.unitId)
+                .map((type) => type.id));
+            const unitHasSelectedType = [...nextTypeIds].some((typeId) => unitTypeIds.has(typeId));
+            setSelectedUnitIds((current) => {
+                const next = new Set(current);
+                if (unitHasSelectedType) next.add(leaf.unitId);
+                else next.delete(leaf.unitId);
+                return next;
+            });
+        } else {
+            setSelectedUnitIds((current) => {
+                const next = new Set(current);
+                if (selected) next.delete(leaf.unitId);
+                else next.add(leaf.unitId);
+                return next;
+            });
+        }
+
+        if (!selected) {
+            setExpandedUnitIds((current) => new Set([...current, leaf.unitId]));
+            void loadUnitProblems(leaf.unitId, null, leaf.bookId);
+        }
         if (switchedBook) {
             toast.info(`선택 교재를 ‘${leaf.bookTitle}’(으)로 전환했습니다.`);
+        }
+    };
+
+    const removeCatalogMiddle = (leaves: AssignmentCatalogLeaf[]) => {
+        const currentBookLeaves = leaves.filter((leaf) => leaf.bookId === bookId);
+        if (currentBookLeaves.length === 0) return;
+
+        const removedUnitIds = new Set(currentBookLeaves.map((leaf) => leaf.unitId));
+        const removedTypeIds = new Set(currentBookLeaves.flatMap((leaf) => leaf.typeId ? [leaf.typeId] : []));
+        const nextTypeIds = new Set([...selectedTypeIds].filter((typeId) => !removedTypeIds.has(typeId)));
+        const currentBook = data.books.find((book) => book.id === bookId);
+        setSelectedTypeIds(nextTypeIds);
+        setSelectedUnitIds((current) => {
+            const next = new Set(current);
+            for (const unitId of removedUnitIds) {
+                const unitTypeIds = new Set((currentBook?.problemTypes || [])
+                    .filter((type) => type.unitId === unitId)
+                    .map((type) => type.id));
+                const hasRemainingType = [...nextTypeIds].some((typeId) => unitTypeIds.has(typeId));
+                if (!hasRemainingType) next.delete(unitId);
+            }
+            return next;
+        });
+
+        const removedProblemIds = new Set([...removedUnitIds].flatMap((unitId) => (
+            unitCatalogs.get(unitCatalogKey(bookId, unitId))?.items.map((problem) => problem.id) || []
+        )));
+        if (removedProblemIds.size > 0) {
+            setExcludedProblemIds((current) => new Set([...current].filter((problemId) => !removedProblemIds.has(problemId))));
         }
     };
 
@@ -990,6 +1053,7 @@ function AssignmentComposer({
                                             selectedUnitIds={selectedUnitIds}
                                             selectedTypeIds={selectedTypeIds}
                                             onSelectLeaf={selectCatalogLeaf}
+                                            onRemoveMiddle={removeCatalogMiddle}
                                         />
                                     </div>
                                     <div className="min-w-0 space-y-3">
