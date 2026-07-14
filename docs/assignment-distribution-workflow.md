@@ -53,17 +53,26 @@ npm run db:import-grade-fixtures -- /path/to/export-folder
 npm run db:import-grade-fixtures -- --grade-app-dir /path/to/grade-app
 ```
 
+검수 보류 문항도 DB에 유지하면서 `verified=false`로 격리해야 하는 전체 교재
+재반영은 `--include-unverified`를 사용한다.
+
+```bash
+npm run db:import-grade-fixtures -- --include-unverified /path/to/export-folder
+```
+
 객관식 변환 번들은 `answer`, `answer_key`, 학생 공개용 `public_payload`,
 소문항 변환 상태와 crop 메타데이터를 함께 유지한다. 중학교 라이트 6권의
 운영 반영 상태는 다음 명령으로 전수 검증한다.
 
 ```bash
+npm run db:verify-gaeppul-concept
+npm run db:verify-gaeppul-power
 npm run db:verify-gaeppul-light
 ```
 
-검증 기준은 `scripts/manifests/gaeppul-middle-light-v1.json`에 고정되어 있으며,
-총 3,094문항의 이미지, 개념/유형 연결, 객관식 정답, 공개 payload와 소문항
-분리 상태를 확인한다.
+검증 기준은 `scripts/manifests/gaeppul-middle-*-v1.json`에 고정되어 있으며,
+개념편 2,914문항, 파워편 4,160문항, 라이트 3,094문항의 이미지,
+개념/유형 연결, 객관식 정답, 공개 payload와 소문항 분리 상태를 확인한다.
 
 특정 학원 전용 교재로 넣고 싶으면 `--academy-id`를 붙인다. 붙이지 않으면 모든 학원에서 선택 가능한 공용 교재로 들어간다.
 

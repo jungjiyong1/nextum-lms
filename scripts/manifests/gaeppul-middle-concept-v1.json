@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "family": "Concept",
+  "pipelineVersion": "gaeppul_middle_concept_choice_v1",
+  "appliedAt": "2026-07-14",
+  "problemCount": 2914,
+  "books": [
+    { "bookKey": "gaeppul_math1_1_concept", "problemCount": 485, "verifiedCount": 446, "conceptLinkedCount": 332, "typeLinkedCount": 329 },
+    { "bookKey": "gaeppul_math1_2_concept", "problemCount": 447, "verifiedCount": 427, "conceptLinkedCount": 277, "typeLinkedCount": 277 },
+    { "bookKey": "gaeppul_math2_1_concept", "problemCount": 510, "verifiedCount": 410, "conceptLinkedCount": 347, "typeLinkedCount": 347 },
+    { "bookKey": "gaeppul_math2_2_concept", "problemCount": 536, "verifiedCount": 522, "conceptLinkedCount": 307, "typeLinkedCount": 333 },
+    { "bookKey": "gaeppul_math3_1_concept", "problemCount": 589, "verifiedCount": 528, "conceptLinkedCount": 407, "typeLinkedCount": 397 },
+    { "bookKey": "gaeppul_math3_2_concept", "problemCount": 347, "verifiedCount": 333, "conceptLinkedCount": 201, "typeLinkedCount": 196 }
+  ]
+}

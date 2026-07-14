@@ -63,6 +63,7 @@ function parseArgs(argv) {
   const options = {
     academyId: null,
     gradeAppDir: DEFAULT_GRADE_APP_DIR,
+    includeUnverified: false,
     inputs: [],
   };
 
@@ -70,6 +71,8 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--academy-id') {
       options.academyId = argv[++index] || null;
+    } else if (arg === '--include-unverified') {
+      options.includeUnverified = true;
     } else if (arg === '--grade-app-dir') {
       options.gradeAppDir = resolve(argv[++index] || DEFAULT_GRADE_APP_DIR);
     } else if (arg.startsWith('--academy-id=')) {
@@ -121,12 +124,12 @@ function loadBundle(input) {
   };
 }
 
-function flattenProblems(exportJson) {
+function flattenProblems(exportJson, includeUnverified = false) {
   const rows = [];
   for (const [partIndex, part] of (exportJson.parts || []).entries()) {
     for (const [unitIndex, unit] of (part.units || []).entries()) {
       for (const [problemIndex, problem] of (unit.problems || []).entries()) {
-        if (problem.verified === false) continue;
+        if (!includeUnverified && problem.verified === false) continue;
         rows.push({ part, unit, problem, partIndex, unitIndex, problemIndex });
       }
     }
@@ -250,7 +253,7 @@ async function importBundle(client, bundle, options) {
   if (unitError) throw unitError;
   const unitIdByKey = new Map((units || []).map((row) => [row.unit_key, row.id]));
 
-  const flattened = flattenProblems(exportJson);
+  const flattened = flattenProblems(exportJson, options.includeUnverified);
   if (flattened.length === 0) fail(`${input}: no verified problems found`);
 
   const conceptRowsByKey = new Map();
@@ -365,7 +368,7 @@ async function importBundle(client, bundle, options) {
       position_in_type: problem.position_in_type ?? null,
       is_example: problem.is_example ?? false,
       difficulty_hint: problem.difficulty_hint ?? null,
-      verified: true,
+      verified: problem.verified !== false,
       metadata: {
         ...sourceMetadata,
         source: sourceMetadata.source || 'grade_app_fixture',
@@ -430,6 +433,7 @@ async function main() {
   console.log(`Target Supabase: ${url}`);
   console.log(`Fixture source: ${options.gradeAppDir}`);
   console.log(`Academy scope: ${options.academyId || 'global shared content'}`);
+  console.log(`Include unverified: ${options.includeUnverified ? 'yes' : 'no'}`);
   console.log('');
 
   for (const input of inputs) {

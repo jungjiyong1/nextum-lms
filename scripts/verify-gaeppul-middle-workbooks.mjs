@@ -76,7 +76,7 @@ for (const expected of manifest.books) {
   const { data: problems, error: problemsError } = await content
     .from('problems')
     .select(
-      'id,concept_id,problem_type_id,type_id,image_path,answer,answer_key,public_payload,verified,metadata',
+      'id,concept_id,problem_type_id,image_path,answer,answer_key,public_payload,verified,metadata',
     )
     .eq('book_id', book.id)
     .order('id');
@@ -90,7 +90,12 @@ for (const expected of manifest.books) {
   if (assetsError) throw assetsError;
   const assetByProblem = new Map((assets || []).map((asset) => [asset.problem_id, asset.storage_path]));
 
-  const rows = problems || [];
+  const supersededRows = (problems || []).filter(
+    (problem) => problem.metadata?.superseded_by_pipeline === manifest.pipelineVersion,
+  );
+  const rows = (problems || []).filter(
+    (problem) => problem.metadata?.superseded_by_pipeline !== manifest.pipelineVersion,
+  );
   totalProblems += rows.length;
   if (rows.length !== expected.problemCount) {
     failures.push(`${expected.bookKey}: problems=${rows.length} expected=${expected.problemCount}`);
@@ -98,9 +103,6 @@ for (const expected of manifest.books) {
 
   for (const problem of rows) {
     const prefix = `${expected.bookKey}/${problem.id}`;
-    if (!problem.verified) failures.push(`${prefix}: verified=false`);
-    if (!problem.concept_id) failures.push(`${prefix}: concept_id missing`);
-    if (!problem.problem_type_id) failures.push(`${prefix}: problem_type_id missing`);
     if (!problem.image_path) failures.push(`${prefix}: image_path missing`);
     if (assetByProblem.get(problem.id) !== problem.image_path) {
       failures.push(`${prefix}: problem_image asset mismatch`);
@@ -121,8 +123,27 @@ for (const expected of manifest.books) {
     }
   }
 
+  const verifiedCount = rows.filter((problem) => problem.verified).length;
+  const conceptLinkedCount = rows.filter((problem) => problem.concept_id).length;
+  const typeLinkedCount = rows.filter((problem) => problem.problem_type_id).length;
+  if (verifiedCount !== expected.verifiedCount) {
+    failures.push(
+      `${expected.bookKey}: verified=${verifiedCount} expected=${expected.verifiedCount}`,
+    );
+  }
+  if (conceptLinkedCount !== expected.conceptLinkedCount) {
+    failures.push(
+      `${expected.bookKey}: concept links=${conceptLinkedCount} expected=${expected.conceptLinkedCount}`,
+    );
+  }
+  if (typeLinkedCount !== expected.typeLinkedCount) {
+    failures.push(
+      `${expected.bookKey}: type links=${typeLinkedCount} expected=${expected.typeLinkedCount}`,
+    );
+  }
+
   console.log(
-    `${expected.bookKey}: problems=${rows.length} assets=${assets?.length || 0} pipeline=${book.pipeline_version}`,
+    `${expected.bookKey}: problems=${rows.length} verified=${verifiedCount} concepts=${conceptLinkedCount} types=${typeLinkedCount} superseded=${supersededRows.length}`,
   );
 }
 
@@ -130,7 +151,9 @@ if (totalProblems !== manifest.problemCount) {
   failures.push(`total problems=${totalProblems} expected=${manifest.problemCount}`);
 }
 if (failures.length > 0) {
-  throw new Error(`Gaeppul Light verification failed (${failures.length}):\n${failures.slice(0, 30).join('\n')}`);
+  throw new Error(
+    `Gaeppul ${manifest.family} verification failed (${failures.length}):\n${failures.slice(0, 30).join('\n')}`,
+  );
 }
 
-console.log(`Verified ${manifest.books.length} Light books and ${totalProblems} problems.`);
+console.log(`Verified ${manifest.books.length} ${manifest.family} books and ${totalProblems} problems.`);

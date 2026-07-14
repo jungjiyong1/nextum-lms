@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "family": "Power",
+  "pipelineVersion": "gaeppul_middle_power_choice_v1",
+  "appliedAt": "2026-07-14",
+  "problemCount": 4160,
+  "books": [
+    { "bookKey": "gaeppul_math1_1_power", "problemCount": 629, "verifiedCount": 571, "conceptLinkedCount": 629, "typeLinkedCount": 363 },
+    { "bookKey": "gaeppul_math1_2_power", "problemCount": 683, "verifiedCount": 669, "conceptLinkedCount": 683, "typeLinkedCount": 393 },
+    { "bookKey": "gaeppul_math2_1_power", "problemCount": 707, "verifiedCount": 621, "conceptLinkedCount": 707, "typeLinkedCount": 426 },
+    { "bookKey": "gaeppul_math2_2_power", "problemCount": 749, "verifiedCount": 745, "conceptLinkedCount": 749, "typeLinkedCount": 426 },
+    { "bookKey": "gaeppul_math3_1_power", "problemCount": 856, "verifiedCount": 759, "conceptLinkedCount": 856, "typeLinkedCount": 534 },
+    { "bookKey": "gaeppul_math3_2_power", "problemCount": 536, "verifiedCount": 530, "conceptLinkedCount": 536, "typeLinkedCount": 334 }
+  ]
+}

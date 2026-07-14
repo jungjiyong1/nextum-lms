@@ -79,4 +79,4 @@ Database changes additionally require the runbook preflight and `npm run db:chec
 ### 2026-07-14
 
 - Made the grade fixture importer preserve objective answer keys, student-safe public payloads, and crop/conversion metadata on re-import.
-- Added a production manifest and full DB verifier for the six middle-school Light workbooks (3,094 problems).
+- Added production manifests and full DB verification for the middle-school Concept (2,914), Power (4,160), and Light (3,094) workbook problems.

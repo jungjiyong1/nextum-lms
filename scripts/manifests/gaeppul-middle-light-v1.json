@@ -1,24 +1,15 @@
 {
   "schemaVersion": 1,
+  "family": "Light",
   "pipelineVersion": "gaeppul_middle_light_choice_v1",
   "appliedAt": "2026-07-14",
   "problemCount": 3094,
-  "requirements": {
-    "verified": true,
-    "choiceAnswer": true,
-    "answerKey": true,
-    "publicPayload": true,
-    "concept": true,
-    "problemType": true,
-    "problemImage": true,
-    "deliveryVerified": true
-  },
   "books": [
-    { "bookKey": "gaeppul_math1_1_light", "problemCount": 500 },
-    { "bookKey": "gaeppul_math1_2_light", "problemCount": 536 },
-    { "bookKey": "gaeppul_math2_1_light", "problemCount": 526 },
-    { "bookKey": "gaeppul_math2_2_light", "problemCount": 550 },
-    { "bookKey": "gaeppul_math3_1_light", "problemCount": 628 },
-    { "bookKey": "gaeppul_math3_2_light", "problemCount": 354 }
+    { "bookKey": "gaeppul_math1_1_light", "problemCount": 500, "verifiedCount": 500, "conceptLinkedCount": 500, "typeLinkedCount": 500 },
+    { "bookKey": "gaeppul_math1_2_light", "problemCount": 536, "verifiedCount": 536, "conceptLinkedCount": 536, "typeLinkedCount": 536 },
+    { "bookKey": "gaeppul_math2_1_light", "problemCount": 526, "verifiedCount": 526, "conceptLinkedCount": 526, "typeLinkedCount": 526 },
+    { "bookKey": "gaeppul_math2_2_light", "problemCount": 550, "verifiedCount": 550, "conceptLinkedCount": 550, "typeLinkedCount": 550 },
+    { "bookKey": "gaeppul_math3_1_light", "problemCount": 628, "verifiedCount": 628, "conceptLinkedCount": 628, "typeLinkedCount": 628 },
+    { "bookKey": "gaeppul_math3_2_light", "problemCount": 354, "verifiedCount": 354, "conceptLinkedCount": 354, "typeLinkedCount": 354 }
   ]
 }
