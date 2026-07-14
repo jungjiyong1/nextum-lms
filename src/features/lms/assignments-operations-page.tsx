@@ -11,6 +11,7 @@ import {
     ChevronRight,
     ClipboardList,
     FileText,
+    Folder,
     Plus,
     RefreshCw,
     Search,
@@ -69,6 +70,10 @@ import {
     recallAssignment,
     removeAssignmentRecipient,
 } from './service';
+import {
+    AssignmentCatalogTree,
+    type AssignmentCatalogLeaf,
+} from './assignment-catalog-tree';
 import { loadAssignmentProblemCatalog } from './problem-catalog-client';
 import type {
     AssignmentClassProgressSummary,
@@ -353,6 +358,25 @@ type UnitProblemCatalogState = {
     error: string | null;
 };
 
+type AssignmentComposerStep = 1 | 2 | 3 | 4;
+
+const assignmentComposerSteps = [
+    { id: 1 as const, label: '문제 구성', description: '학년·과목·유형', icon: FileText },
+    { id: 2 as const, label: '대상 선택', description: '반·학생', icon: Users },
+    { id: 3 as const, label: '일정 설정', description: '제목·마감', icon: SlidersHorizontal },
+    { id: 4 as const, label: '최종 확인', description: '검토·배포', icon: CheckCircle2 },
+];
+
+function duePresetValue(daysFromToday: number): string {
+    const date = new Date();
+    date.setDate(date.getDate() + daysFromToday);
+    date.setHours(22, 0, 0, 0);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}T22:00`;
+}
+
 function unitCatalogKey(bookId: string, unitId: string): string {
     return `${bookId}\u0000${unitId}`;
 }
@@ -372,16 +396,16 @@ function AssignmentComposer({
 }) {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
+    const [composerStep, setComposerStep] = useState<AssignmentComposerStep>(1);
     const [title, setTitle] = useState(initialDraft?.title ?? '');
     const [dueAt, setDueAt] = useState('');
-    const [bookId, setBookId] = useState(data.books[0]?.id || '');
+    const [bookId, setBookId] = useState('');
     const [wholeBook, setWholeBook] = useState(false);
     const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
     const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
     const [excludedProblemIds, setExcludedProblemIds] = useState<Set<string>>(new Set());
     const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(() => {
-        const firstUnitId = data.books[0]?.units[0]?.id;
-        return firstUnitId ? new Set([firstUnitId]) : new Set();
+        return new Set();
     });
     const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(
@@ -426,9 +450,14 @@ function AssignmentComposer({
         if (directContext && (directContext === 'personal' || directClassOptions.some((row) => row.id === directContext))) return;
         setDirectContext(directClassOptions.length === 1 ? directClassOptions[0].id : '');
     }, [directClassOptions, directContext, directStudents.length]);
-    const loadUnitProblems = useCallback(async (unitId: string, cursor: string | null = null) => {
-        if (!academyId || !bookId) return;
-        const key = unitCatalogKey(bookId, unitId);
+    const loadUnitProblems = useCallback(async (
+        unitId: string,
+        cursor: string | null = null,
+        requestedBookId: string | null = null,
+    ) => {
+        const activeBookId = requestedBookId || bookId;
+        if (!academyId || !activeBookId) return;
+        const key = unitCatalogKey(activeBookId, unitId);
         catalogControllers.current.get(key)?.abort();
         const controller = new AbortController();
         catalogControllers.current.set(key, controller);
@@ -452,7 +481,7 @@ function AssignmentComposer({
         try {
             const page = await loadAssignmentProblemCatalog({
                 academyId,
-                bookId,
+                bookId: activeBookId,
                 unitId,
                 cursor,
                 limit: 50,
@@ -501,11 +530,6 @@ function AssignmentComposer({
         for (const controller of catalogControllers.current.values()) controller.abort();
         catalogControllers.current.clear();
     }, [bookId]);
-
-    const firstSelectedUnitId = selectedBook?.units[0]?.id;
-    useEffect(() => {
-        if (firstSelectedUnitId) void loadUnitProblems(firstSelectedUnitId);
-    }, [firstSelectedUnitId, loadUnitProblems]);
 
     const orderedBookProblems = useMemo(
         () => selectedBook
@@ -580,14 +604,49 @@ function AssignmentComposer({
         [data.classes, selectedClassIds],
     );
     const materialLabel = selectedBook?.title || '문제집 미선택';
-    const problemSummary = wholeBook ? '전체 문제집' : `${selectedUnitIds.size}개 단원 범위`;
+    const selectedUnits = selectedBook?.units.filter((unit) => selectedUnitIds.has(unit.id)) || [];
+    const selectedScopeLoading = unitProblemRows.some((row) => selectedUnitIds.has(row.unit.id) && row.loading);
+    const selectedScopeHasMore = unitProblemRows.some((row) => selectedUnitIds.has(row.unit.id) && row.hasMore);
+    const problemSummary = wholeBook
+        ? '전체 문제집'
+        : selectedUnitIds.size > 0
+            ? selectedScopeLoading && previewProblemIds.length === 0
+                ? `${selectedUnitIds.size}개 중단원 · 문항 계산 중`
+                : `${selectedUnitIds.size}개 중단원 · ${previewProblemIds.length}${selectedScopeHasMore ? '+' : ''}문항`
+            : '범위 미선택';
     const dueSummary = dueAt ? formatDate(toDueIso(dueAt)) : '기한 없음';
+    const targetReady = effectiveStudents.length > 0
+        && ((initialDraft?.studentIds.length || selectedStudentIds.size) === 0 || Boolean(directContext));
+    const contentReady = Boolean(bookId && (wholeBook || selectedUnitIds.size > 0));
+    const detailsReady = Boolean(title.trim());
+    const readyStepCount = [targetReady, contentReady, detailsReady].filter(Boolean).length;
+    const suggestedTitle = selectedBook
+        ? `${selectedBook.title} ${wholeBook
+            ? '전체 복습'
+            : selectedUnits.length > 0
+                ? `${selectedUnits[0].name}${selectedUnits.length > 1 ? ` 외 ${selectedUnits.length - 1}개 단원` : ''}`
+                : '복습'}`
+        : '수학 복습 과제';
 
     const resetScope = () => {
         setWholeBook(false);
         setSelectedUnitIds(new Set());
         setSelectedTypeIds(new Set());
         setExcludedProblemIds(new Set());
+    };
+
+    const selectCatalogLeaf = (leaf: AssignmentCatalogLeaf) => {
+        const switchedBook = Boolean(bookId && bookId !== leaf.bookId && contentReady);
+        setBookId(leaf.bookId);
+        setWholeBook(false);
+        setSelectedUnitIds(new Set([leaf.unitId]));
+        setSelectedTypeIds(new Set(leaf.typeId ? [leaf.typeId] : []));
+        setExcludedProblemIds(new Set());
+        setExpandedUnitIds(new Set([leaf.unitId]));
+        void loadUnitProblems(leaf.unitId, null, leaf.bookId);
+        if (switchedBook) {
+            toast.info(`선택 교재를 ‘${leaf.bookTitle}’(으)로 전환했습니다.`);
+        }
     };
 
     const setExpandedUnit = (unitId: string, expanded: boolean) => {
@@ -713,8 +772,54 @@ function AssignmentComposer({
         });
     };
 
+    const validateComposerStep = (step: AssignmentComposerStep, showMessage = true): boolean => {
+        if (step === 2 && effectiveStudents.length === 0) {
+            if (showMessage) toast.error('과제를 받을 반 또는 학생을 선택하세요.');
+            return false;
+        }
+        if (step === 2 && (initialDraft?.studentIds.length || selectedStudentIds.size) > 0 && !directContext) {
+            if (showMessage) toast.error('개별 학생 과제가 기록될 반이나 개인 과제를 선택하세요.');
+            return false;
+        }
+        if (step === 1 && !bookId) {
+            if (showMessage) toast.error('문제집을 선택하세요.');
+            return false;
+        }
+        if (step === 1 && !wholeBook && selectedUnitIds.size === 0) {
+            if (showMessage) toast.error('배정할 단원 범위를 선택하세요.');
+            return false;
+        }
+        if (step === 3 && !title.trim()) {
+            if (showMessage) toast.error('과제명을 입력하세요.');
+            return false;
+        }
+        return true;
+    };
+
+    const moveToComposerStep = (step: AssignmentComposerStep) => {
+        if (step === 4) {
+            const firstInvalidStep = ([1, 2, 3] as AssignmentComposerStep[])
+                .find((candidate) => !validateComposerStep(candidate, false));
+            if (firstInvalidStep) {
+                setComposerStep(firstInvalidStep);
+                validateComposerStep(firstInvalidStep);
+                return;
+            }
+        }
+        setComposerStep(step);
+    };
+
+    const advanceComposer = () => {
+        if (!validateComposerStep(composerStep)) return;
+        setComposerStep((current) => Math.min(4, current + 1) as AssignmentComposerStep);
+    };
+
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
+        if (composerStep < 4) {
+            advanceComposer();
+            return;
+        }
         if (!title.trim()) {
             toast.error('과제명을 입력하세요.');
             return;
@@ -774,8 +879,59 @@ function AssignmentComposer({
     };
 
     return (
-        <form onSubmit={submit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <form onSubmit={submit} className="space-y-5">
             <div className="space-y-4">
+                    <section className="overflow-hidden rounded-xl border border-border bg-card">
+                        <div className="border-b border-border bg-muted/35 px-4 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <p className="font-semibold text-foreground">과제 배포 준비</p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">한 단계씩 선택하고 마지막에 한 번만 배포합니다.</p>
+                                </div>
+                                <StatusBadge tone={readyStepCount === 3 ? 'success' : 'neutral'} label={`${readyStepCount}/3 준비 완료`} />
+                            </div>
+                        </div>
+                        <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-4">
+                            {assignmentComposerSteps.map((step) => {
+                                const Icon = step.icon;
+                                const completed = step.id === 1
+                                    ? contentReady
+                                    : step.id === 2
+                                        ? targetReady
+                                        : step.id === 3
+                                            ? detailsReady
+                                            : readyStepCount === 3;
+                                const active = composerStep === step.id;
+                                return (
+                                    <button
+                                        key={step.id}
+                                        type="button"
+                                        className={cn(
+                                            'flex items-center gap-3 bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50',
+                                            active && 'bg-primary-soft',
+                                        )}
+                                        aria-current={active ? 'step' : undefined}
+                                        onClick={() => moveToComposerStep(step.id)}
+                                    >
+                                        <span className={cn(
+                                            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold',
+                                            active && 'border-primary bg-primary text-primary-foreground',
+                                            !active && completed && 'border-success/40 bg-success-soft text-success-foreground',
+                                            !active && !completed && 'border-border bg-muted text-muted-foreground',
+                                        )}>
+                                            {completed && !active ? <CheckCircle2 className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                                        </span>
+                                        <span className="min-w-0">
+                                            <span className={cn('block text-sm font-semibold', active ? 'text-primary-strong' : 'text-foreground')}>
+                                                {step.id}. {step.label}
+                                            </span>
+                                            <span className="block text-xs text-muted-foreground">{step.description}</span>
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </section>
                     {initialDraft && (
                         <div className="rounded-lg border border-primary/25 bg-primary-soft p-4 text-sm" role="status">
                             <p className="font-medium text-foreground">학습 분석에서 과제 초안을 불러왔습니다.</p>
@@ -788,60 +944,105 @@ function AssignmentComposer({
                             </p>
                         </div>
                     )}
-                    <FormSection title="기본 정보">
-                        <div className="grid gap-3 md:grid-cols-2">
-                            <FormField label="과제명">
-                                <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="2단원 유형 복습" />
-                            </FormField>
-                            <FormField label="기한">
-                                <Input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
-                            </FormField>
-                        </div>
-                    </FormSection>
+                    {composerStep === 3 && (
+                        <FormSection
+                            title="과제 이름과 마감일"
+                            description="학생이 과제함에서 바로 알아볼 수 있는 이름을 사용하세요."
+                            className="p-5"
+                        >
+                            <div className="grid gap-5 lg:grid-cols-2">
+                                <FormField label="과제명" description="문제집과 선택 단원을 반영한 추천 제목을 쓸 수 있습니다.">
+                                    <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 2단원 유형 복습" autoFocus />
+                                    <Button type="button" variant="ghost" size="sm" className="mt-1" onClick={() => setTitle(suggestedTitle)}>
+                                        추천 제목 사용
+                                    </Button>
+                                </FormField>
+                                <FormField label="마감 일시" description="마감을 두지 않으면 언제든 풀 수 있습니다.">
+                                    <Input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        <Button type="button" variant="outline" size="xs" onClick={() => setDueAt(duePresetValue(0))}>오늘 22시</Button>
+                                        <Button type="button" variant="outline" size="xs" onClick={() => setDueAt(duePresetValue(1))}>내일 22시</Button>
+                                        <Button type="button" variant="outline" size="xs" onClick={() => setDueAt(duePresetValue(3))}>3일 후</Button>
+                                        <Button type="button" variant="ghost" size="xs" onClick={() => setDueAt('')}>기한 없음</Button>
+                                    </div>
+                                </FormField>
+                            </div>
+                        </FormSection>
+                    )}
 
-                    <FormSection title="문제 범위" description="선택 범위는 서버에서 계산하며, 문항 목록은 50개씩 불러옵니다.">
+                    {composerStep === 1 && (
+                    <FormSection title="문제 구성" description="학년부터 자료 구분까지 선택한 뒤 필요한 세부 유형을 고르세요." className="p-5">
                             {data.books.length === 0 ? (
                                 <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-sm text-muted-foreground">
                                     등록된 문제집이 아직 없습니다. 문제집을 먼저 등록한 뒤 과제를 배포하세요.
                                 </div>
                             ) : (
-                                <FormField label="문제집">
-                                    <Select
-                                        value={bookId}
-                                        onValueChange={(value) => {
-                                            setBookId(value);
-                                            const nextBook = data.books.find((book) => book.id === value);
-                                            setExpandedUnitIds(new Set(nextBook?.units[0]?.id ? [nextBook.units[0].id] : []));
-                                            resetScope();
-                                        }}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="문제집 선택" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {data.books.map((book) => <SelectItem key={book.id} value={book.id}>{book.title}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </FormField>
-                            )}
-
-                            {selectedBook && (
+                                <div className="space-y-5">
+                                    <div className="space-y-2">
+                                        <div>
+                                            <p className="text-sm font-semibold text-foreground">문제 범위 찾기</p>
+                                            <p className="mt-0.5 text-xs text-muted-foreground">학년 → 학기/과목 → 자료 구분 순서로 선택하세요.</p>
+                                        </div>
+                                        <AssignmentCatalogTree
+                                            books={data.books}
+                                            selectedBookId={bookId}
+                                            selectedUnitIds={selectedUnitIds}
+                                            selectedTypeIds={selectedTypeIds}
+                                            onSelectLeaf={selectCatalogLeaf}
+                                        />
+                                    </div>
+                                    <div className="min-w-0 space-y-3">
+                            {selectedBook ? (
                                 <>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Button
-                                            type="button"
-                                            variant={wholeBook ? 'default' : 'outline'}
-                                            size="sm"
+                                    <div className="rounded-lg border border-border bg-muted/35 p-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                                <p className="font-semibold text-foreground">{selectedBook.title}</p>
+                                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                                    {selectedBook.grade || '학년 미분류'} · {selectedBook.units.length}개 단원 · {selectedBook.units[0]?.partName || '교재'}
+                                                </p>
+                                            </div>
+                                            <Button type="button" variant="ghost" size="xs" onClick={resetScope}>선택 초기화</Button>
+                                        </div>
+                                    </div>
+                                    <div className="grid gap-2 sm:grid-cols-2">
+                                        <SelectableCard
+                                            selected={!wholeBook}
+                                            className="p-4"
                                             onClick={() => {
-                                                setWholeBook((value) => !value);
+                                                if (!wholeBook) return;
+                                                setWholeBook(false);
                                                 setSelectedUnitIds(new Set());
                                                 setSelectedTypeIds(new Set());
                                                 setExcludedProblemIds(new Set());
                                             }}
                                         >
-                                                전체 문제집
-                                        </Button>
-                                        <Button type="button" variant="ghost" size="sm" onClick={resetScope}>범위 초기화</Button>
+                                            <span className="flex items-start justify-between gap-3">
+                                                <span>
+                                                    <span className="block font-semibold text-foreground">필요한 단원만</span>
+                                                    <span className="mt-1 block text-xs text-muted-foreground">단원을 고르고 필요하면 개별 문항을 조정합니다.</span>
+                                                </span>
+                                                {!wholeBook && <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />}
+                                            </span>
+                                        </SelectableCard>
+                                        <SelectableCard
+                                            selected={wholeBook}
+                                            className="p-4"
+                                            onClick={() => {
+                                                setWholeBook(true);
+                                                setSelectedUnitIds(new Set());
+                                                setSelectedTypeIds(new Set());
+                                                setExcludedProblemIds(new Set());
+                                            }}
+                                        >
+                                            <span className="flex items-start justify-between gap-3">
+                                                <span>
+                                                    <span className="block font-semibold text-foreground">전체 문제집</span>
+                                                    <span className="mt-1 block text-xs text-muted-foreground">이 교재의 모든 단원과 문항을 배포합니다.</span>
+                                                </span>
+                                                {wholeBook && <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />}
+                                            </span>
+                                        </SelectableCard>
                                     </div>
                                     {!wholeBook && (
                                         <div className="space-y-2">
@@ -1023,57 +1224,148 @@ function AssignmentComposer({
                                         </div>
                                     )}
                                 </>
+                            ) : (
+                                <div className="rounded-xl border border-dashed border-border bg-muted/35 p-8 text-center">
+                                    <Folder className="mx-auto h-8 w-8 text-warning" />
+                                    <p className="mt-3 font-semibold text-foreground">위에서 세부 유형을 선택하세요.</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">선택한 유형의 교재와 문제 목록이 여기에 표시됩니다.</p>
+                                </div>
+                            )}
+                                    </div>
+                                </div>
                             )}
                     </FormSection>
+                    )}
 
-                    <FormSection title="대상" description={`${[...selectedClassIds].length}개 반, ${effectiveStudents.length}명 대상`}>
-                        <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-                            <div>
-                                <div className="mb-2 text-sm font-semibold">반</div>
-                                <div className="max-h-60 space-y-1 overflow-auto rounded-lg border bg-card p-2">
-                                    {data.classes.filter((row) => row.active).map((row) => (
-                                        <label key={row.id} className="flex items-center gap-2 rounded-md p-2 text-sm hover:bg-muted">
-                                            <Checkbox checked={selectedClassIds.has(row.id)} onCheckedChange={() => toggleSetValue(setSelectedClassIds, row.id)} />
-                                            <span>{row.name}</span>
-                                        </label>
-                                    ))}
+                    {composerStep === 2 && (
+                    <FormSection title="배포 대상" description="반을 선택하면 재원 학생이 자동으로 포함됩니다." className="p-5">
+                        <div className="space-y-5">
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="text-sm font-semibold text-foreground">1. 반 선택</div>
+                                    <StatusBadge tone={selectedClassIds.size > 0 ? 'primary' : 'neutral'} label={`${selectedClassIds.size}개 반`} />
                                 </div>
-                            </div>
-                            <div>
-                                <div className="mb-2 flex items-center justify-between gap-2">
-                                    <span className="text-sm font-semibold">학생</span>
-                                    <span className="text-xs text-muted-foreground">반 학생은 자동 포함, 필요 시 제외</span>
-                                </div>
-                                <div className="relative mb-2">
-                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                    <Input className="pl-9" value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="개별 학생 검색" />
-                                </div>
-                                <div className="max-h-60 space-y-1 overflow-auto rounded-lg border bg-card p-2">
-                                    {studentCandidates.map((student) => {
-                                        const fromClass = selectedClassStudents.some((row) => row.id === student.id);
-                                        const checked = (fromClass || selectedStudentIds.has(student.id)) && !excludedStudentIds.has(student.id);
+                                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                    {data.classes.filter((row) => row.active).map((row) => {
+                                        const selected = selectedClassIds.has(row.id);
+                                        const studentCount = data.students.filter((student) => (
+                                            student.status === 'active' && student.classIds.includes(row.id)
+                                        )).length;
                                         return (
-                                            <label key={student.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-muted">
-                                                <Checkbox
-                                                    checked={checked}
-                                                    onCheckedChange={() => {
-                                                        if (fromClass) toggleSetValue(setExcludedStudentIds, student.id);
-                                                        else toggleSetValue(setSelectedStudentIds, student.id);
-                                                    }}
-                                                />
+                                            <SelectableCard
+                                                key={row.id}
+                                                selected={selected}
+                                                className="flex items-center justify-between gap-3 p-3"
+                                                onClick={() => {
+                                                    toggleSetValue(setSelectedClassIds, row.id);
+                                                    if (!selected) {
+                                                        setExcludedStudentIds((current) => {
+                                                            const next = new Set(current);
+                                                            data.students
+                                                                .filter((student) => student.classIds.includes(row.id))
+                                                                .forEach((student) => next.delete(student.id));
+                                                            return next;
+                                                        });
+                                                    }
+                                                }}
+                                            >
                                                 <span>
-                                                    {student.name}
-                                                    <span className="ml-1 text-xs text-muted-foreground">{student.classNames.join(', ') || '반 없음'}</span>
+                                                    <span className="block font-semibold text-foreground">{row.name}</span>
+                                                    <span className="mt-0.5 block text-xs text-muted-foreground">재원 {studentCount}명</span>
                                                 </span>
-                                            </label>
+                                                {selected ? (
+                                                    <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />
+                                                ) : (
+                                                    <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                )}
+                                            </SelectableCard>
                                         );
                                     })}
+                                    {data.classes.filter((row) => row.active).length === 0 && (
+                                        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
+                                            선택할 수 있는 반이 없습니다. 아래에서 개별 학생을 선택하세요.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        </div>
+
+                            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="text-sm font-semibold text-foreground">2. 학생 보정</div>
+                                        <span className="text-xs text-muted-foreground">반 학생은 자동 포함</span>
+                                    </div>
+                                    <div className="relative">
+                                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                        <Input className="pl-9" value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="이름이나 반으로 학생 검색" />
+                                    </div>
+                                    <div className="max-h-72 space-y-1 overflow-auto rounded-lg border bg-background p-2">
+                                        {studentCandidates.map((student) => {
+                                            const fromClass = selectedClassStudents.some((row) => row.id === student.id);
+                                            const checked = (fromClass || selectedStudentIds.has(student.id)) && !excludedStudentIds.has(student.id);
+                                            return (
+                                                <label key={student.id} className={cn(
+                                                    'flex items-start gap-2 rounded-md p-2 text-sm hover:bg-muted',
+                                                    checked && 'bg-primary-soft/60',
+                                                )}>
+                                                    <Checkbox
+                                                        checked={checked}
+                                                        onCheckedChange={() => {
+                                                            if (fromClass) {
+                                                                toggleSetValue(setExcludedStudentIds, student.id);
+                                                            } else if (excludedStudentIds.has(student.id)) {
+                                                                setExcludedStudentIds((current) => {
+                                                                    const next = new Set(current);
+                                                                    next.delete(student.id);
+                                                                    return next;
+                                                                });
+                                                                setSelectedStudentIds((current) => new Set([...current, student.id]));
+                                                            } else {
+                                                                toggleSetValue(setSelectedStudentIds, student.id);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="min-w-0">
+                                                        <span className="block font-medium text-foreground">{student.name}</span>
+                                                        <span className="block truncate text-xs text-muted-foreground">{student.classNames.join(', ') || '반 없음'}</span>
+                                                    </span>
+                                                    {fromClass && <span className="ml-auto shrink-0 text-[11px] text-primary-strong">반 자동</span>}
+                                                </label>
+                                            );
+                                        })}
+                                        {studentCandidates.length === 0 && (
+                                            <p className="p-3 text-center text-xs text-muted-foreground">검색 결과가 없습니다.</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl border border-primary/25 bg-primary-soft/45 p-4">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="font-semibold text-foreground">최종 대상</div>
+                                        <StatusBadge tone={effectiveStudents.length > 0 ? 'success' : 'warning'} label={`${effectiveStudents.length}명`} />
+                                    </div>
+                                    <p className="mt-1 text-xs text-muted-foreground">선택한 반과 개별 학생을 합친 실제 배포 명단입니다.</p>
+                                    <div className="mt-3 flex max-h-48 flex-wrap content-start gap-1.5 overflow-auto">
+                                        {effectiveStudents.slice(0, 24).map((student) => (
+                                            <span key={student.id} className="rounded-full border border-primary/20 bg-card px-2.5 py-1 text-xs font-medium text-foreground">
+                                                {student.name}
+                                            </span>
+                                        ))}
+                                        {effectiveStudents.length > 24 && (
+                                            <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground">
+                                                +{effectiveStudents.length - 24}명
+                                            </span>
+                                        )}
+                                        {effectiveStudents.length === 0 && (
+                                            <p className="py-6 text-sm text-muted-foreground">아직 선택된 학생이 없습니다.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
                         {directStudents.length > 0 && (
-                            <div className="rounded-lg border bg-card p-3">
-                                <div className="mb-2 text-sm font-semibold">개별 과제 학습 맥락</div>
+                            <div className="rounded-lg border border-info/25 bg-info-soft p-4">
+                                <div className="mb-2 text-sm font-semibold text-foreground">3. 개별 학생 기록 위치</div>
                                 <Select value={directContext} onValueChange={setDirectContext}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="수강 반 또는 개인 과제를 선택하세요" />
@@ -1090,56 +1382,102 @@ function AssignmentComposer({
                                 </p>
                             </div>
                         )}
-                        <div className="rounded-lg bg-muted p-3 text-sm">
-                            <div className="font-semibold text-foreground">배포 후 대상 스냅샷</div>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                                반 이동이 있어도 이 과제의 대상 수는 유지됩니다. 새 반원은 과제 상세에서 수동으로 추가할 수 있습니다.
-                            </p>
+                        <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+                            배포 시점의 학생 명단이 저장되므로, 이후 반 이동이 있어도 이 과제의 대상은 바뀌지 않습니다.
+                        </div>
                         </div>
                     </FormSection>
+                    )}
+
+                    {composerStep === 4 && (
+                        <FormSection
+                            title="최종 배포 확인"
+                            description="아래 내용이 학생에게 전송됩니다. 수정할 항목이 있으면 해당 단계로 돌아가세요."
+                            className="p-5"
+                        >
+                            <div className="rounded-lg border border-success/30 bg-success-soft p-4 text-sm text-success-foreground">
+                                <div className="flex items-center gap-2 font-semibold">
+                                    <CheckCircle2 className="h-4 w-4" />
+                                    배포 준비가 완료됐습니다.
+                                </div>
+                                <p className="mt-1 text-xs">아래의 ‘이 내용으로 배포’를 누르기 전에는 학생에게 전송되지 않습니다.</p>
+                            </div>
+                            <div className="grid gap-3 lg:grid-cols-3">
+                                <section className="rounded-xl border border-border bg-background p-4">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p className="text-xs font-medium text-muted-foreground">대상</p>
+                                            <p className="mt-1 text-lg font-bold text-foreground">{effectiveStudents.length}명</p>
+                                        </div>
+                                        <Button type="button" variant="ghost" size="xs" onClick={() => setComposerStep(2)}>수정</Button>
+                                    </div>
+                                    <p className="mt-3 line-clamp-3 text-sm text-foreground">
+                                        {selectedClassNames.length > 0 ? selectedClassNames.join(', ') : '개별 학생'}
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        {effectiveStudents.slice(0, 5).map((student) => student.name).join(', ')}
+                                        {effectiveStudents.length > 5 ? ` 외 ${effectiveStudents.length - 5}명` : ''}
+                                    </p>
+                                </section>
+                                <section className="rounded-xl border border-border bg-background p-4">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p className="text-xs font-medium text-muted-foreground">문제</p>
+                                            <p className="mt-1 text-lg font-bold text-foreground">{problemSummary}</p>
+                                        </div>
+                                        <Button type="button" variant="ghost" size="xs" onClick={() => setComposerStep(1)}>수정</Button>
+                                    </div>
+                                    <p className="mt-3 line-clamp-2 text-sm font-medium text-foreground">{materialLabel}</p>
+                                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                        {wholeBook ? '전체 문제집' : selectedUnits.map((unit) => unit.name).join(', ')}
+                                    </p>
+                                </section>
+                                <section className="rounded-xl border border-border bg-background p-4">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p className="text-xs font-medium text-muted-foreground">일정</p>
+                                            <p className="mt-1 text-base font-bold text-foreground">{dueSummary}</p>
+                                        </div>
+                                        <Button type="button" variant="ghost" size="xs" onClick={() => setComposerStep(3)}>수정</Button>
+                                    </div>
+                                    <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
+                                </section>
+                            </div>
+                        </FormSection>
+                    )}
 
             </div>
 
-            <aside className="self-start rounded-xl border border-border bg-card p-4 xl:sticky xl:top-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-3">
+                <Button type="button" variant="outline" onClick={onCancel}>
+                    취소
+                </Button>
                 <div className="flex items-center gap-2">
-                    <ClipboardList className="h-4 w-4 text-primary" />
-                    <h2 className="text-sm font-semibold text-foreground">배정 요약</h2>
+                    {composerStep > 1 && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setComposerStep((current) => Math.max(1, current - 1) as AssignmentComposerStep)}
+                        >
+                            이전
+                        </Button>
+                    )}
+                    {composerStep < 4 ? (
+                        <Button
+                            type="button"
+                            className={cn('w-full', composerStep === 1 && 'col-span-2')}
+                            onClick={advanceComposer}
+                        >
+                            다음: {assignmentComposerSteps[composerStep]?.label}
+                            <ChevronRight className="h-4 w-4" />
+                        </Button>
+                    ) : (
+                        <Button type="submit" className="w-full" disabled={submitting || readyStepCount < 3}>
+                            {submitting ? '배포 중' : '이 내용으로 배포'}
+                        </Button>
+                    )}
                 </div>
-                <div className="mt-4 space-y-3 text-sm">
-                    <div className="rounded-lg bg-muted/60 p-3">
-                        <p className="text-xs font-medium text-muted-foreground">문제집</p>
-                        <p className="mt-1 truncate font-semibold text-foreground">{materialLabel}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        <div className="rounded-lg border border-border p-3">
-                            <p className="text-xs text-muted-foreground">문항</p>
-                            <p className="mt-1 font-semibold text-foreground">{problemSummary}</p>
-                        </div>
-                        <div className="rounded-lg border border-border p-3">
-                            <p className="text-xs text-muted-foreground">대상</p>
-                            <p className="mt-1 font-semibold text-foreground">{effectiveStudents.length}명</p>
-                        </div>
-                    </div>
-                    <div className="rounded-lg border border-border p-3">
-                        <p className="text-xs text-muted-foreground">기한</p>
-                        <p className="mt-1 font-semibold text-foreground">{dueSummary}</p>
-                    </div>
-                    <div className="rounded-lg border border-border p-3">
-                        <p className="text-xs text-muted-foreground">반</p>
-                        <p className="mt-1 line-clamp-2 text-sm text-foreground">
-                            {selectedClassNames.length ? selectedClassNames.join(', ') : '개별 학생만 선택'}
-                        </p>
-                    </div>
-                </div>
-                <div className="mt-4 space-y-2">
-                    <Button type="submit" className="w-full" disabled={submitting}>
-                        {submitting ? '배포 중' : '과제 배포'}
-                    </Button>
-                    <Button type="button" variant="outline" className="w-full" onClick={onCancel}>
-                        취소
-                    </Button>
-                </div>
-            </aside>
+            </div>
         </form>
     );
 }
@@ -2156,7 +2494,7 @@ export function AssignmentCreatePage() {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [tab, setTab] = useState<AssignmentManageTab>('manage');
+    const [tab, setTab] = useState<AssignmentManageTab>('deploy');
     const [recallAssignmentId, setRecallAssignmentId] = useState('');
     const [deleteAssignmentId, setDeleteAssignmentId] = useState('');
     const [recallingAssignmentId, setRecallingAssignmentId] = useState('');

@@ -8,6 +8,10 @@ loadEnvFiles();
 const DEFAULT_GRADE_APP_DIR = resolve(process.cwd(), '..', 'grade-app');
 const PROBLEM_IMAGES_BUCKET = process.env.NEXTUM_PROBLEM_IMAGES_BUCKET || 'problem-images';
 const CHUNK_SIZE = 200;
+const UPLOAD_CONCURRENCY = Math.max(
+  1,
+  Math.min(32, Number.parseInt(process.env.NEXTUM_IMPORT_UPLOAD_CONCURRENCY || '8', 10) || 8),
+);
 
 function fail(message) {
   console.error(`Import failed: ${message}`);
@@ -118,6 +122,33 @@ async function insertChunks(table, rows) {
     const { error } = await table.insert(rowsChunk);
     if (error) throw error;
   }
+}
+
+async function runWithConcurrency(items, concurrency, worker) {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function retry(operation, { attempts = 5, initialDelayMs = 500 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) break;
+      const delayMs = initialDelayMs * 2 ** (attempt - 1);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs));
+    }
+  }
+  throw lastError;
 }
 
 async function deleteAssetsForProblems(content, problemIds) {
@@ -249,6 +280,7 @@ async function importBundle(client, bundle, options) {
 
   const problemRows = [];
   const assetRows = [];
+  const uploadJobs = [];
   let uploaded = 0;
 
   for (const item of flattened) {
@@ -262,11 +294,7 @@ async function importBundle(client, bundle, options) {
       const bytes = readImage(problem.image);
       if (bytes) {
         imagePath = `${bookKey}/${problemId.replaceAll('::', '_')}.png`;
-        const { error } = await client.storage
-          .from(PROBLEM_IMAGES_BUCKET)
-          .upload(imagePath, bytes, { contentType: 'image/png', upsert: true });
-        if (error) throw error;
-        uploaded += 1;
+        uploadJobs.push({ imagePath, bytes });
         assetRows.push({
           book_id: bookId,
           problem_id: problemId,
@@ -306,6 +334,26 @@ async function importBundle(client, bundle, options) {
           page_printed: problem.page_printed ?? null,
         },
       },
+    });
+  }
+
+  if (uploadJobs.length > 0) {
+    console.log(`  Uploading ${uploadJobs.length} images (concurrency=${UPLOAD_CONCURRENCY})...`);
+    await runWithConcurrency(uploadJobs, UPLOAD_CONCURRENCY, async ({ imagePath, bytes }) => {
+      await retry(async (attempt) => {
+        const { error } = await client.storage
+          .from(PROBLEM_IMAGES_BUCKET)
+          .upload(imagePath, bytes, { contentType: 'image/png', upsert: true });
+        if (!error) return;
+        if (attempt < 5) {
+          console.warn(`    retrying ${imagePath} after ${error.message} (attempt ${attempt}/5)`);
+        }
+        throw error;
+      });
+      uploaded += 1;
+      if (uploaded % 100 === 0 || uploaded === uploadJobs.length) {
+        console.log(`    uploaded ${uploaded}/${uploadJobs.length}`);
+      }
     });
   }
 
