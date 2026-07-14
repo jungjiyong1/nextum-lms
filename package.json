@@ -20,6 +20,7 @@
     "verify": "npm run lint && npm run typecheck && npm run test:coverage && npm run deadcode && npm run build && npm run bundle:check",
     "db:check": "node scripts/check-lms-db-health.mjs",
     "db:import-grade-fixtures": "node scripts/import-grade-app-fixtures.mjs",
+    "db:verify-gaeppul-light": "node scripts/verify-gaeppul-middle-light.mjs",
     "db:import-studyq-bank": "node scripts/import-studyq-bank.mjs",
     "db:backup-content": "node scripts/backup-grade-content.mjs",
     "db:backup-preservation": "node scripts/backup-nextum-data-preservation.mjs",

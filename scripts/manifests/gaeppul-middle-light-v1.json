@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "pipelineVersion": "gaeppul_middle_light_choice_v1",
+  "appliedAt": "2026-07-14",
+  "problemCount": 3094,
+  "requirements": {
+    "verified": true,
+    "choiceAnswer": true,
+    "answerKey": true,
+    "publicPayload": true,
+    "concept": true,
+    "problemType": true,
+    "problemImage": true,
+    "deliveryVerified": true
+  },
+  "books": [
+    { "bookKey": "gaeppul_math1_1_light", "problemCount": 500 },
+    { "bookKey": "gaeppul_math1_2_light", "problemCount": 536 },
+    { "bookKey": "gaeppul_math2_1_light", "problemCount": 526 },
+    { "bookKey": "gaeppul_math2_2_light", "problemCount": 550 },
+    { "bookKey": "gaeppul_math3_1_light", "problemCount": 628 },
+    { "bookKey": "gaeppul_math3_2_light", "problemCount": 354 }
+  ]
+}

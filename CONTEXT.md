@@ -75,3 +75,8 @@ Database changes additionally require the runbook preflight and `npm run db:chec
 - Moved protected identity/bootstrap work into the `(app)` server layout and reduced the browser auth context to session lifecycle.
 - Removed Electron/pointer/PIN/store compatibility code after importer verification.
 - Added TypeScript unused checks, Next/Promise ESLint rules, coverage thresholds, Knip, and the `npm run verify` CI gate.
+
+### 2026-07-14
+
+- Made the grade fixture importer preserve objective answer keys, student-safe public payloads, and crop/conversion metadata on re-import.
+- Added a production manifest and full DB verifier for the six middle-school Light workbooks (3,094 problems).

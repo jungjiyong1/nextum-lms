@@ -26,6 +26,39 @@ function chunk(values, size = CHUNK_SIZE) {
   return chunks;
 }
 
+function compactObject(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== null && item !== undefined),
+  );
+}
+
+function publicAnswerPart(answer) {
+  const choices = Array.isArray(answer?.choices) ? answer.choices : null;
+  const distractors = Array.isArray(answer?.distractors) ? answer.distractors : null;
+  return compactObject({
+    label: typeof answer?.label === 'string' ? answer.label : null,
+    type: typeof answer?.type === 'string' ? answer.type : null,
+    choice_count: Number.isInteger(answer?.choice_count)
+      ? answer.choice_count
+      : choices?.length,
+    choices,
+    options: choices || distractors,
+    multiple: typeof answer?.multiple === 'boolean' ? answer.multiple : null,
+    generated_choice:
+      typeof answer?.generated_choice === 'boolean' ? answer.generated_choice : null,
+    self_grade:
+      typeof answer?.self_grade === 'boolean' ? answer.self_grade : answer?.type === 'text',
+  });
+}
+
+function publicAnswerPayload(answer) {
+  return compactObject({
+    ...publicAnswerPart(answer),
+    label: undefined,
+    subs: Array.isArray(answer?.subs) ? answer.subs.map(publicAnswerPart) : null,
+  });
+}
+
 function parseArgs(argv) {
   const options = {
     academyId: null,
@@ -310,6 +343,13 @@ async function importBundle(client, bundle, options) {
     }
 
     const conceptKey = `${unitId || 'none'}::${problem.concept_name || ''}`;
+    const answer = problem.answer || { type: 'text', display: '', normalized: '', self_grade: true };
+    const answerKey = problem.answer_key || answer;
+    const publicPayload = problem.public_payload || publicAnswerPayload(answer);
+    const sourceMetadata =
+      problem.metadata && typeof problem.metadata === 'object' && !Array.isArray(problem.metadata)
+        ? problem.metadata
+        : {};
     problemRows.push({
       id: problemId,
       book_id: bookId,
@@ -319,15 +359,19 @@ async function importBundle(client, bundle, options) {
       page_printed: problem.page_printed ?? problemRows.length + 1,
       number: String(problem.number ?? problemRows.length + 1),
       image_path: imagePath,
-      answer: problem.answer || { type: 'text', display: '', normalized: '', self_grade: true },
+      answer,
+      answer_key: answerKey,
+      public_payload: publicPayload,
       position_in_type: problem.position_in_type ?? null,
       is_example: problem.is_example ?? false,
       difficulty_hint: problem.difficulty_hint ?? null,
       verified: true,
       metadata: {
-        source: 'grade_app_fixture',
+        ...sourceMetadata,
+        source: sourceMetadata.source || 'grade_app_fixture',
+        imported_by: 'nextum-lms/scripts/import-grade-app-fixtures.mjs',
         original_problem_id: problem.problem_id ?? null,
-        answer_source: problem.answer_source ?? null,
+        answer_source: sourceMetadata.answer_source ?? problem.answer_source ?? null,
         crop: {
           bbox: problem.bbox ?? null,
           bbox_pixels: problem.bbox_pixels ?? null,
