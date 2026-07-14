@@ -9,6 +9,7 @@ import {
     Search,
     Tags,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { AssignmentBookCatalogSummary } from './types';
@@ -638,11 +639,12 @@ export function AssignmentCatalogTree({
             && selectedUnitIds.has(leaf.unitId)
             && (leaf.typeId === null || selectedTypeIds.has(leaf.typeId));
         return (
-            <button
+            <Button
                 key={leaf.key}
                 type="button"
+                variant="outline"
                 className={cn(
-                    'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-primary-soft/60',
+                    'h-auto w-full justify-start gap-2 whitespace-normal rounded-lg px-3 py-2 text-left hover:border-primary/40 hover:bg-primary-soft/60',
                     selected ? 'border-primary bg-primary-soft text-primary-strong' : 'border-border bg-background',
                 )}
                 title={`${leaf.bookTitle} / ${leaf.label}`}
@@ -652,7 +654,7 @@ export function AssignmentCatalogTree({
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold">{leaf.label}</span>
                 <span className="shrink-0 text-[10px] text-muted-foreground">{leaf.partLabel}</span>
                 {selected && <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />}
-            </button>
+            </Button>
         );
     };
 
@@ -665,11 +667,13 @@ export function AssignmentCatalogTree({
                         {GRADE_ORDER.map((grade) => {
                             const selected = selectedGrades.has(grade);
                             return (
-                                <button
+                                <Button
                                     key={grade}
                                     type="button"
+                                    variant="ghost"
+                                    size="sm"
                                     className={cn(
-                                        'flex w-full items-center justify-between gap-1 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-colors',
+                                        'h-auto w-full justify-between gap-1 whitespace-normal rounded-md px-2 py-1.5 text-left text-[11px] font-semibold',
                                         selected
                                             ? 'bg-primary text-primary-foreground'
                                             : 'text-foreground hover:bg-primary-soft',
@@ -678,7 +682,7 @@ export function AssignmentCatalogTree({
                                 >
                                     <span>{grade}</span>
                                     {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
-                                </button>
+                                </Button>
                             );
                         })}
                     </div>
@@ -699,12 +703,14 @@ export function AssignmentCatalogTree({
                                 const hasData = courseHasData(course);
                                 const selected = selectedCourses.has(course);
                                 return (
-                                    <button
+                                    <Button
                                         key={course}
                                         type="button"
+                                        variant="ghost"
+                                        size="sm"
                                         disabled={!hasData}
                                         className={cn(
-                                            'flex w-full items-center justify-between gap-1 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-colors',
+                                            'h-auto w-full justify-between gap-1 whitespace-normal rounded-md px-2 py-1.5 text-left text-[11px] font-semibold',
                                             selected && 'bg-primary-soft text-primary-strong',
                                             !selected && hasData && 'text-foreground hover:bg-primary-soft/60',
                                             !hasData && 'cursor-not-allowed text-muted-foreground/35',
@@ -713,7 +719,7 @@ export function AssignmentCatalogTree({
                                     >
                                         <span className="min-w-0 break-keep">{course}</span>
                                         {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
-                                    </button>
+                                    </Button>
                                 );
                             })}
                         </div>
@@ -730,12 +736,14 @@ export function AssignmentCatalogTree({
                                 const selected = selectedMaterials.has(material.key);
                                 const Icon = material.key === 'bank' ? Database : BookOpen;
                                 return (
-                                    <button
+                                    <Button
                                         key={material.key}
                                         type="button"
+                                        variant="ghost"
+                                        size="sm"
                                         disabled={!hasData}
                                         className={cn(
-                                            'flex w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-colors',
+                                            'h-auto w-full min-w-0 justify-start gap-1.5 whitespace-normal rounded-md px-2 py-1.5 text-left text-[11px] font-semibold',
                                             selected && 'bg-primary-soft text-primary-strong',
                                             !selected && hasData && 'text-foreground hover:bg-primary-soft/60',
                                             !hasData && 'cursor-not-allowed text-muted-foreground/35',
@@ -745,7 +753,7 @@ export function AssignmentCatalogTree({
                                         <Icon className="h-4 w-4 shrink-0" />
                                         <span className="min-w-0 flex-1 truncate text-xs font-semibold">{material.label}</span>
                                         {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
-                                    </button>
+                                    </Button>
                                 );
                             })}
                         </div>
@@ -770,11 +778,13 @@ export function AssignmentCatalogTree({
                                     {section.options.map((major) => {
                                         const selected = selectedMajorKeys.has(major.key);
                                         return (
-                                            <button
+                                            <Button
                                                 key={major.key}
                                                 type="button"
+                                                variant="ghost"
+                                                size="sm"
                                                 className={cn(
-                                                    'flex w-full items-start gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold leading-snug transition-colors',
+                                                    'h-auto w-full items-start justify-start gap-1.5 whitespace-normal rounded-md px-2 py-1.5 text-left text-[11px] font-semibold leading-snug',
                                                     selected
                                                         ? 'bg-primary-soft text-primary-strong'
                                                         : 'text-foreground hover:bg-primary-soft/60',
@@ -784,7 +794,7 @@ export function AssignmentCatalogTree({
                                                 <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
                                                 <span className="min-w-0 flex-1 whitespace-normal break-keep">{major.label}</span>
                                                 {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
-                                            </button>
+                                            </Button>
                                         );
                                     })}
                                     </div>
@@ -808,11 +818,13 @@ export function AssignmentCatalogTree({
                                     {section.options.map((middle) => {
                                         const selected = selectedMiddleKeys.has(middle.key);
                                         return (
-                                            <button
+                                            <Button
                                                 key={middle.key}
                                                 type="button"
+                                                variant="ghost"
+                                                size="sm"
                                                 className={cn(
-                                                    'flex w-full items-start gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold leading-snug transition-colors',
+                                                    'h-auto w-full items-start justify-start gap-1.5 whitespace-normal rounded-md px-2 py-1.5 text-left text-[11px] font-semibold leading-snug',
                                                     selected
                                                         ? 'bg-primary-soft text-primary-strong'
                                                         : 'text-foreground hover:bg-primary-soft/60',
@@ -822,7 +834,7 @@ export function AssignmentCatalogTree({
                                                 <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
                                                 <span className="min-w-0 flex-1 whitespace-normal break-keep">{middle.label}</span>
                                                 {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
-                                            </button>
+                                            </Button>
                                         );
                                     })}
                                     </div>

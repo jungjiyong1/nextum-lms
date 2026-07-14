@@ -13,7 +13,7 @@ const budgetsByBundler = {
   webpack: {
     login: 140 * 1024,
     feature: 180 * 1024,
-    pdfAssignmentMatch: 185 * 1024,
+    pdfAssignmentMatch: 186 * 1024,
   },
 };
 

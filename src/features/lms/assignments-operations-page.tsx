@@ -903,11 +903,12 @@ function AssignmentComposer({
                                             : readyStepCount === 3;
                                 const active = composerStep === step.id;
                                 return (
-                                    <button
+                                    <Button
                                         key={step.id}
                                         type="button"
+                                        variant="ghost"
                                         className={cn(
-                                            'flex items-center gap-3 bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50',
+                                            'h-auto w-full justify-start gap-3 whitespace-normal rounded-none bg-card px-4 py-3 text-left hover:bg-muted/50',
                                             active && 'bg-primary-soft',
                                         )}
                                         aria-current={active ? 'step' : undefined}
@@ -927,7 +928,7 @@ function AssignmentComposer({
                                             </span>
                                             <span className="block text-xs text-muted-foreground">{step.description}</span>
                                         </span>
-                                    </button>
+                                    </Button>
                                 );
                             })}
                         </div>

@@ -9,6 +9,7 @@ const governedFiles = [
   'src/components/security/AccessDeniedScreen.tsx',
   'src/components/security/PasswordConfirmDialog.tsx',
   'src/features/lms/pages.tsx',
+  'src/features/lms/assignment-catalog-tree.tsx',
   'src/features/lms/assignments-operations-page.tsx',
   'src/features/lms/classrooms-operations-page.tsx',
   'src/features/lms/students-operations-page.tsx',
