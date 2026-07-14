@@ -737,6 +737,7 @@ export interface AssignmentProblemSummary {
   bookId: string;
   unitId: string;
   problemTypeId: string | null;
+  middleUnitName: string | null;
   number: string;
   pagePrinted: number;
   typeName: string | null;
@@ -748,6 +749,7 @@ export interface AssignmentProblemTypeSummary {
   unitId: string | null;
   name: string;
   problemCount: number;
+  middleUnitNames?: string[];
 }
 
 export interface AssignmentUnitSummary {
@@ -755,6 +757,8 @@ export interface AssignmentUnitSummary {
   name: string;
   partName: string | null;
   problemCount: number;
+  middleUnitNames?: string[];
+  unassignedMiddleProblemCount?: number;
 }
 
 export interface AssignmentBookCatalogSummary extends BookSummary {
@@ -850,12 +854,20 @@ export interface AssignmentManagementData {
   permissions: AssignmentOperationsPermissions;
 }
 
+export interface AssignmentProblemScope {
+  unitId: string;
+  problemTypeId: string | null;
+  middleUnitName: string | null;
+  unassignedMiddleUnit?: boolean;
+}
+
 export interface CreateLearningAssignmentInput {
   title: string;
   description?: string | null;
   bookId?: string | null;
   unitIds?: string[];
   problemTypeIds?: string[];
+  problemScopes?: AssignmentProblemScope[];
   problemIds?: string[];
   excludedProblemIds?: string[];
   classIds?: string[];

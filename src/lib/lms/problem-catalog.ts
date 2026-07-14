@@ -107,8 +107,8 @@ export async function loadProblemCatalogPage(
     let query = content
         .from('problems')
         .select(
-            'id,book_id,unit_id,concept_id,problem_type_id,type_id,page_printed,number',
-            cursor ? undefined : { count: 'planned' },
+            'id,book_id,unit_id,concept_id,problem_type_id,type_id,middle_unit:metadata->>middle_unit,page_printed,number',
+            cursor ? undefined : { count: 'exact' },
         )
         .eq('book_id', bookId)
         .eq('verified', true)

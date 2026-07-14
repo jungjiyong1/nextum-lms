@@ -33,7 +33,7 @@ describe('assignment catalog folder tree', () => {
         expect(grade.courses[0].majors[0].label).toBe('1. 소인수분해');
         expect(grade.courses[0].majors[0].middles[0].label).toBe('01 소인수분해');
         expect(grade.courses[0].majors[0].middles[0].leaves[0].label).toBe('유형1: 소수와 합성수');
-        expect(grade.courses[0].majors[0].middles[0].leaves[0].material).toBe('type');
+        expect(grade.courses[0].majors[0].middles[0].leaves[0].material).toBe('power');
     });
 
     it('개플유 중등 2학기 책을 2학기 폴더로 묶는다', () => {
@@ -102,6 +102,92 @@ describe('assignment catalog folder tree', () => {
         expect(leaf.courseLabel).toBe('1학기');
         expect(leaf.material).toBe('concept');
         expect(leaf.problemCount).toBe(4);
+    });
+
+    it('개념편의 실제 문제 메타데이터 중단원 아래에 세부 유형을 묶는다', () => {
+        const tree = buildAssignmentCatalogTree([book({
+            bookKey: 'gaeppul_math1_1_concept',
+            title: '개념플러스유형 중학수학 1-1 개념편',
+            units: [{ id: 'concept-unit', name: '소인수분해', partName: '개념편', problemCount: 10 }],
+            problemTypes: [{
+                id: 'concept-type',
+                unitId: 'concept-unit',
+                name: '공배수와 최소공배수',
+                problemCount: 10,
+                middleUnitNames: ['최대공약수와 최소공배수'],
+            }],
+        })]);
+
+        const major = tree[0].grades.find((row) => row.label === '중1')!.courses[0].majors[0];
+        expect(major.label).toBe('소인수분해');
+        expect(major.middles[0].label).toBe('최대공약수와 최소공배수');
+        expect(major.middles[0].leaves[0]).toMatchObject({
+            label: '공배수와 최소공배수',
+            middleUnitName: '최대공약수와 최소공배수',
+            material: 'concept',
+        });
+    });
+
+    it('라이트를 파워와 분리하고 DB 중단원 값을 폴더명으로 사용한다', () => {
+        const tree = buildAssignmentCatalogTree([book({
+            bookKey: 'gaeppul_math1_1_light',
+            title: '개념플러스유형 중학수학 1-1 라이트',
+            units: [{ id: 'light-unit', name: '1. 소인수분해 / 1. 소인수분해', partName: '유형편(라이트)', problemCount: 20 }],
+            problemTypes: [{
+                id: 'light-type',
+                unitId: 'light-unit',
+                name: '유형 1: 소수와 합성수',
+                problemCount: 20,
+                middleUnitNames: ['1. 소인수분해'],
+            }],
+        })]);
+
+        const leaf = tree[0].grades.find((row) => row.label === '중1')!.courses[0].majors[0].middles[0].leaves[0];
+        expect(leaf.middleLabel).toBe('1. 소인수분해');
+        expect(leaf.material).toBe('light');
+    });
+
+    it('같은 유형 ID가 여러 중단원에 있으면 중단원별 선택 항목을 만든다', () => {
+        const tree = buildAssignmentCatalogTree([book({
+            bookKey: 'gaeppul_math1_1_concept',
+            units: [{ id: 'unit-1', name: '정수와 유리수', partName: '개념편', problemCount: 2 }],
+            problemTypes: [{
+                id: 'shared-type',
+                unitId: 'unit-1',
+                name: '덧셈과 뺄셈 사이의 관계',
+                problemCount: 2,
+                middleUnitNames: ['정수와 유리수의 덧셈과 뺄셈', '정수와 유리수의 곱셈과 나눗셈'],
+            }],
+        })]);
+
+        const middles = tree[0].grades.find((row) => row.label === '중1')!.courses[0].majors[0].middles;
+        expect(middles.map((middle) => middle.label)).toEqual([
+            '정수와 유리수의 덧셈과 뺄셈',
+            '정수와 유리수의 곱셈과 나눗셈',
+        ]);
+        expect(new Set(middles.map((middle) => middle.leaves[0].key)).size).toBe(2);
+    });
+
+    it('중단원 메타데이터가 없는 개념편 종합 문제도 별도 범위로 노출한다', () => {
+        const tree = buildAssignmentCatalogTree([book({
+            bookKey: 'gaeppul_math1_1_concept',
+            units: [{
+                id: 'unit-1',
+                name: '소인수분해',
+                partName: '개념편',
+                problemCount: 20,
+                unassignedMiddleProblemCount: 8,
+            }],
+            problemTypes: [{ id: 'type-1', unitId: 'unit-1', name: '소수와 합성수', problemCount: 12 }],
+        })]);
+
+        const middles = tree[0].grades.find((row) => row.label === '중1')!.courses[0].majors[0].middles;
+        expect(middles.map((middle) => middle.label)).toEqual(['소인수분해', '단원 종합']);
+        expect(middles[1].leaves[0]).toMatchObject({
+            label: '전체 문제',
+            unassignedMiddleUnit: true,
+            problemCount: 8,
+        });
     });
 
     it('빈 학년도 폴더 구조에 유지한다', () => {
@@ -173,8 +259,8 @@ describe('assignment catalog folder tree', () => {
         expect(middles).toHaveLength(2);
         expect(sections.map((section) => section.contextLabel)).toEqual([
             '중1 · 1학기 · 개념편',
-            '중1 · 1학기 · 유형편',
-            '중2 · 1학기 · 유형편',
+            '중1 · 1학기 · 파워',
+            '중2 · 1학기 · 파워',
         ]);
     });
 });

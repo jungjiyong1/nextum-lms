@@ -7,6 +7,7 @@ export interface ProblemCatalogRow {
     concept_id?: string | null;
     problem_type_id?: string | null;
     type_id?: string | null;
+    middle_unit?: string | null;
     page_printed: number;
     number: string | number;
 }
@@ -29,6 +30,7 @@ export function toProblemCatalogSummary(
         bookId: row.book_id,
         unitId: row.unit_id,
         problemTypeId: typeId,
+        middleUnitName: row.middle_unit?.trim() || null,
         number: String(row.number),
         pagePrinted: Number(row.page_printed),
         typeName: type?.name ?? null,

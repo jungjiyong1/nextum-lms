@@ -234,11 +234,16 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
     const publishedBookIds = new Set<string>();
     const publishedUnitIds = new Set<string>();
     const publishedTypeIds = new Set<string>();
+    const problemCountsByUnit = new Map<string, number>();
+    const problemCountsByType = new Map<string, number>();
+    const middleUnitsByUnit = new Map<string, Set<string>>();
+    const middleUnitsByType = new Map<string, Set<string>>();
+    const unassignedMiddleProblemCountsByUnit = new Map<string, number>();
     const pageSize = 1_000;
     for (let from = 0; ; from += pageSize) {
         const { data, error } = await content
             .from('problems')
-            .select('id,book_id,unit_id,problem_type_id,type_id')
+            .select('id,book_id,unit_id,problem_type_id,type_id,middle_unit:metadata->>middle_unit')
             .in('book_id', bookIds)
             .eq('verified', true)
             .eq('is_example', false)
@@ -248,9 +253,35 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
         const rows = (data || []) as Row[];
         for (const row of rows) {
             if (row.book_id) publishedBookIds.add(String(row.book_id));
-            if (row.unit_id) publishedUnitIds.add(String(row.unit_id));
+            const unitId = row.unit_id ? String(row.unit_id) : null;
+            if (unitId) {
+                publishedUnitIds.add(unitId);
+                problemCountsByUnit.set(unitId, (problemCountsByUnit.get(unitId) || 0) + 1);
+            }
             const typeId = row.problem_type_id || row.type_id;
-            if (typeId) publishedTypeIds.add(String(typeId));
+            if (typeId) {
+                const normalizedTypeId = String(typeId);
+                publishedTypeIds.add(normalizedTypeId);
+                problemCountsByType.set(normalizedTypeId, (problemCountsByType.get(normalizedTypeId) || 0) + 1);
+            }
+            const middleUnit = typeof row.middle_unit === 'string' ? row.middle_unit.trim() : '';
+            if (!middleUnit && !typeId && unitId) {
+                unassignedMiddleProblemCountsByUnit.set(
+                    unitId,
+                    (unassignedMiddleProblemCountsByUnit.get(unitId) || 0) + 1,
+                );
+            }
+            if (middleUnit && unitId) {
+                const unitMiddles = middleUnitsByUnit.get(unitId) || new Set<string>();
+                unitMiddles.add(middleUnit);
+                middleUnitsByUnit.set(unitId, unitMiddles);
+            }
+            if (middleUnit && typeId) {
+                const normalizedTypeId = String(typeId);
+                const typeMiddles = middleUnitsByType.get(normalizedTypeId) || new Set<string>();
+                typeMiddles.add(middleUnit);
+                middleUnitsByType.set(normalizedTypeId, typeMiddles);
+            }
         }
         if (rows.length < pageSize) break;
     }
@@ -276,8 +307,9 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
                 id: row.id,
                 name: row.name,
                 partName: row.part_name ?? null,
-                // Counts and problem rows are intentionally loaded through the paged catalog endpoint.
-                problemCount: 0,
+                problemCount: problemCountsByUnit.get(String(row.id)) || 0,
+                middleUnitNames: [...(middleUnitsByUnit.get(String(row.id)) || [])],
+                unassignedMiddleProblemCount: unassignedMiddleProblemCountsByUnit.get(String(row.id)) || 0,
             }));
         const typeSummaries: AssignmentProblemTypeSummary[] = (typesByBook.get(book.id) || [])
             .sort((a, b) => {
@@ -291,7 +323,8 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
                 id: row.id,
                 unitId: row.unit_id ?? null,
                 name: row.name,
-                problemCount: 0,
+                problemCount: problemCountsByType.get(String(row.id)) || 0,
+                middleUnitNames: [...(middleUnitsByType.get(String(row.id)) || [])],
             }));
 
         return {

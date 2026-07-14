@@ -18,7 +18,7 @@ const GRADE_ORDER = ['중1', '중2', '중3', '고1', '고2', '고3'] as const;
 
 export type CatalogGrade = typeof GRADE_ORDER[number];
 type CatalogSource = 'gaeppul' | 'bank';
-export type AssignmentCatalogMaterial = 'concept' | 'type' | 'bank';
+export type AssignmentCatalogMaterial = 'concept' | 'power' | 'light' | 'type' | 'bank';
 
 export interface AssignmentCatalogLeaf {
     key: string;
@@ -34,6 +34,8 @@ export interface AssignmentCatalogLeaf {
     bookKey: string;
     unitId: string;
     typeId: string | null;
+    middleUnitName: string | null;
+    unassignedMiddleUnit: boolean;
     partLabel: string;
     problemCount: number;
 }
@@ -135,6 +137,8 @@ const COURSE_ORDER = [
 
 const MATERIAL_OPTIONS: Array<{ key: AssignmentCatalogMaterial; label: string }> = [
     { key: 'concept', label: '개념편' },
+    { key: 'power', label: '파워' },
+    { key: 'light', label: '라이트' },
     { key: 'type', label: '유형편' },
     { key: 'bank', label: '문제은행' },
 ];
@@ -151,7 +155,10 @@ function materialOf(book: AssignmentBookCatalogSummary, partName: string | null)
     if (sourceOf(book) === 'bank') return 'bank';
     const bookKey = book.bookKey.toLowerCase();
     const part = (partName || '').replace(/\s+/gu, '');
-    return bookKey.includes('concept') || part.includes('개념편') || part === '개념' ? 'concept' : 'type';
+    if (bookKey.endsWith('_concept') || part.includes('개념편') || part === '개념') return 'concept';
+    if (bookKey.endsWith('_power') || part.includes('파워')) return 'power';
+    if (bookKey.endsWith('_light') || part.includes('라이트')) return 'light';
+    return 'type';
 }
 
 function highCourseOf(bookKey: string): HighCourseKey | null {
@@ -306,45 +313,90 @@ export function buildAssignmentCatalogTree(books: AssignmentBookCatalogSummary[]
             const courses = sources.get(source)!.get(grade)!;
             const majors = ensureMapValue(courses, course, () => new Map<string, MiddleMap>());
             const middles = ensureMapValue(majors, major, () => new Map<string, AssignmentCatalogLeaf[]>());
-            const leaves = ensureMapValue(middles, middle, () => [] as AssignmentCatalogLeaf[]);
             const types = typesByUnit.get(unit.id) || [];
+            const unitMiddleFallback = grade.startsWith('중') ? splitUnitName(unit.name).middle : middle;
             if (types.length === 0) {
+                const unitMiddleNames = grade.startsWith('중')
+                    ? (unit.middleUnitNames || []).filter(Boolean)
+                    : [];
+                const middleVariants = unitMiddleNames.length > 0
+                    ? unitMiddleNames.map((middleUnitName) => ({ label: middleUnitName, middleUnitName }))
+                    : [{ label: unitMiddleFallback, middleUnitName: null }];
+                for (const variant of middleVariants) {
+                    const leaves = ensureMapValue(middles, variant.label, () => [] as AssignmentCatalogLeaf[]);
+                    leaves.push({
+                        key: `${book.id}:${unit.id}:all:${variant.middleUnitName || 'unit'}`,
+                        label: '전체 문제',
+                        source,
+                        grade,
+                        courseLabel: course,
+                        material: materialOf(book, unit.partName),
+                        majorLabel: major,
+                        middleLabel: variant.label,
+                        bookId: book.id,
+                        bookTitle: book.title,
+                        bookKey: book.bookKey,
+                        unitId: unit.id,
+                        typeId: null,
+                        middleUnitName: variant.middleUnitName,
+                        unassignedMiddleUnit: false,
+                        partLabel: partLabelOf(book, unit.partName),
+                        problemCount: unit.problemCount,
+                    });
+                }
+                return;
+            }
+            for (const type of types) {
+                const typeMiddleNames = grade.startsWith('중')
+                    ? (type.middleUnitNames || []).filter(Boolean)
+                    : [];
+                const middleVariants = typeMiddleNames.length > 0
+                    ? typeMiddleNames.map((middleUnitName) => ({ label: middleUnitName, middleUnitName }))
+                    : [{ label: unitMiddleFallback, middleUnitName: null }];
+                for (const variant of middleVariants) {
+                    const leaves = ensureMapValue(middles, variant.label, () => [] as AssignmentCatalogLeaf[]);
+                    leaves.push({
+                        key: `${book.id}:${unit.id}:${type.id}:${variant.middleUnitName || 'unit'}`,
+                        label: type.name,
+                        source,
+                        grade,
+                        courseLabel: course,
+                        material: materialOf(book, unit.partName),
+                        majorLabel: major,
+                        middleLabel: variant.label,
+                        bookId: book.id,
+                        bookTitle: book.title,
+                        bookKey: book.bookKey,
+                        unitId: unit.id,
+                        typeId: type.id,
+                        middleUnitName: variant.middleUnitName,
+                        unassignedMiddleUnit: false,
+                        partLabel: partLabelOf(book, unit.partName),
+                        problemCount: type.problemCount,
+                    });
+                }
+            }
+            if ((unit.unassignedMiddleProblemCount || 0) > 0) {
+                const summaryMiddle = '단원 종합';
+                const leaves = ensureMapValue(middles, summaryMiddle, () => [] as AssignmentCatalogLeaf[]);
                 leaves.push({
-                    key: `${book.id}:${unit.id}:all`,
+                    key: `${book.id}:${unit.id}:unassigned-middle`,
                     label: '전체 문제',
                     source,
                     grade,
                     courseLabel: course,
                     material: materialOf(book, unit.partName),
                     majorLabel: major,
-                    middleLabel: middle,
+                    middleLabel: summaryMiddle,
                     bookId: book.id,
                     bookTitle: book.title,
                     bookKey: book.bookKey,
                     unitId: unit.id,
                     typeId: null,
+                    middleUnitName: null,
+                    unassignedMiddleUnit: true,
                     partLabel: partLabelOf(book, unit.partName),
-                    problemCount: unit.problemCount,
-                });
-                return;
-            }
-            for (const type of types) {
-                leaves.push({
-                    key: `${book.id}:${unit.id}:${type.id}`,
-                    label: type.name,
-                    source,
-                    grade,
-                    courseLabel: course,
-                    material: materialOf(book, unit.partName),
-                    majorLabel: major,
-                    middleLabel: middle,
-                    bookId: book.id,
-                    bookTitle: book.title,
-                    bookKey: book.bookKey,
-                    unitId: unit.id,
-                    typeId: type.id,
-                    partLabel: partLabelOf(book, unit.partName),
-                    problemCount: type.problemCount,
+                    problemCount: unit.unassignedMiddleProblemCount || 0,
                 });
             }
         });
@@ -547,6 +599,7 @@ export function AssignmentCatalogTree({
     selectedBookId,
     selectedUnitIds,
     selectedTypeIds,
+    selectedLeafKeys,
     onSelectLeaf,
     onRemoveMiddle,
 }: {
@@ -554,6 +607,7 @@ export function AssignmentCatalogTree({
     selectedBookId: string;
     selectedUnitIds: Set<string>;
     selectedTypeIds: Set<string>;
+    selectedLeafKeys: Set<string>;
     onSelectLeaf: (leaf: AssignmentCatalogLeaf) => void;
     onRemoveMiddle: (leaves: AssignmentCatalogLeaf[]) => void;
 }) {
@@ -649,9 +703,11 @@ export function AssignmentCatalogTree({
     };
 
     const renderLeaf = (leaf: AssignmentCatalogLeaf) => {
-        const selected = selectedBookId === leaf.bookId
-            && selectedUnitIds.has(leaf.unitId)
-            && (leaf.typeId === null || selectedTypeIds.has(leaf.typeId));
+        const selected = selectedLeafKeys.size > 0
+            ? selectedLeafKeys.has(leaf.key)
+            : selectedBookId === leaf.bookId
+                && selectedUnitIds.has(leaf.unitId)
+                && (leaf.typeId === null || selectedTypeIds.has(leaf.typeId));
         return (
             <Button
                 key={leaf.key}

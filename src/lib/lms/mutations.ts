@@ -51,6 +51,10 @@ import {
     hasAssignedAssignmentScope,
     unresolvedAssignmentRecipientStudentIds,
 } from './assignment-scope';
+import {
+    normalizeAssignmentProblemScopes,
+    problemMatchesAssignmentScopes,
+} from './assignment-problem-scope';
 import { loadAssignedClassIdsForContext } from './class-queries';
 import { sortByProblemOrder } from './problem-order';
 import { toSeoulDate } from './seoul-date';
@@ -738,7 +742,7 @@ async function resolveAssignmentProblemIds(
     content: SchemaClient,
     input: Pick<
         CreateLearningAssignmentInput,
-        'bookId' | 'unitIds' | 'problemTypeIds' | 'problemIds' | 'excludedProblemIds'
+        'bookId' | 'unitIds' | 'problemTypeIds' | 'problemScopes' | 'problemIds' | 'excludedProblemIds'
     >,
 ): Promise<string[]> {
     const excludedProblemIds = new Set(uniqueStrings(input.excludedProblemIds || []));
@@ -748,12 +752,14 @@ async function resolveAssignmentProblemIds(
 
     const unitIds = uniqueStrings(input.unitIds || []);
     const problemTypeIds = uniqueStrings(input.problemTypeIds || []);
+    const problemScopes = normalizeAssignmentProblemScopes(input.problemScopes);
     const explicitProblemIds = uniqueStrings(input.problemIds || []);
     if (explicitProblemIds.length > 0) {
         return explicitProblemIds.filter((id) => !excludedProblemIds.has(id));
     }
     const unitIdSet = new Set(unitIds);
     const problemTypeIdSet = new Set(problemTypeIds);
+    const queryUnitIds = uniqueStrings([...unitIds, ...problemScopes.map((scope) => scope.unitId)]);
 
     const problemRows: Row[] = [];
     const pageSize = 1_000;
@@ -761,13 +767,13 @@ async function resolveAssignmentProblemIds(
     for (;;) {
         let query = content
             .from('problems')
-            .select('id,book_id,unit_id,problem_type_id,type_id,page_printed,number,is_example')
+            .select('id,book_id,unit_id,problem_type_id,type_id,middle_unit:metadata->>middle_unit,page_printed,number,is_example')
             .eq('book_id', input.bookId)
             .eq('verified', true)
             .eq('is_example', false)
             .order('id', { ascending: true })
             .limit(pageSize);
-        if (unitIds.length > 0) query = query.in('unit_id', unitIds);
+        if (queryUnitIds.length > 0) query = query.in('unit_id', queryUnitIds);
         if (lastProblemId) query = query.gt('id', lastProblemId);
         const { data, error } = await query;
         ensureNoError(error, 'Failed to load assignment problem scope');
@@ -779,19 +785,25 @@ async function resolveAssignmentProblemIds(
     }
 
     const selected = new Set<string>();
-    const wholeBook = unitIds.length === 0 && problemTypeIds.length === 0 && explicitProblemIds.length === 0;
+    const wholeBook = unitIds.length === 0
+        && problemTypeIds.length === 0
+        && problemScopes.length === 0
+        && explicitProblemIds.length === 0;
     for (const row of sortByProblemOrder(problemRows)) {
         const typeId = row.problem_type_id || row.type_id || null;
         if (excludedProblemIds.has(row.id)) continue;
         if (
-            wholeBook
+            (problemScopes.length > 0 && problemMatchesAssignmentScopes(row, problemScopes))
+            || (problemScopes.length === 0 && wholeBook)
             || (
-                unitIdSet.size > 0
+                problemScopes.length === 0
+                && unitIdSet.size > 0
                 && unitIdSet.has(row.unit_id)
                 && (problemTypeIdSet.size === 0 || (typeId && problemTypeIdSet.has(typeId)))
             )
             || (
-                unitIdSet.size === 0
+                problemScopes.length === 0
+                && unitIdSet.size === 0
                 && typeId
                 && problemTypeIdSet.has(typeId)
             )
@@ -2069,6 +2081,7 @@ export async function createLearningAssignmentForAcademy(
     const assignmentMetadata = {
         unitIds: input.unitIds || [],
         problemTypeIds: input.problemTypeIds || [],
+        problemScopes: normalizeAssignmentProblemScopes(input.problemScopes),
         directContext: studentIds.length > 0
             ? { kind: input.personal ? 'personal' : 'class', classId: input.directClassId || null }
             : null,

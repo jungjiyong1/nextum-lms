@@ -78,6 +78,7 @@ import { loadAssignmentProblemCatalog } from './problem-catalog-client';
 import type {
     AssignmentClassProgressSummary,
     AssignmentManagementData,
+    AssignmentProblemScope,
     AssignmentProblemSummary,
     AssignmentProblemTypeSummary,
     AssignmentRecipientProgress,
@@ -303,9 +304,18 @@ function selectedProblemIds(
     wholeBook: boolean,
     selectedUnitIds: Set<string>,
     selectedTypeIds: Set<string>,
+    selectedCatalogLeaves: AssignmentCatalogLeaf[],
     excludedProblemIds: Set<string>,
 ): string[] {
     if (wholeBook) return problems.filter((problem) => !excludedProblemIds.has(problem.id)).map((problem) => problem.id);
+    if (selectedCatalogLeaves.length > 0) {
+        return problems
+            .filter((problem) => (
+                selectedCatalogLeaves.some((leaf) => catalogLeafMatchesProblem(leaf, problem))
+                && !excludedProblemIds.has(problem.id)
+            ))
+            .map((problem) => problem.id);
+    }
     if (selectedUnitIds.size === 0) return [];
     return problems
         .filter((problem) => (
@@ -318,6 +328,32 @@ function selectedProblemIds(
             && !excludedProblemIds.has(problem.id)
         ))
         .map((problem) => problem.id);
+}
+
+function catalogLeafMatchesProblem(leaf: AssignmentCatalogLeaf, problem: AssignmentProblemSummary): boolean {
+    return leaf.bookId === problem.bookId
+        && leaf.unitId === problem.unitId
+        && (leaf.typeId === null || leaf.typeId === problem.problemTypeId)
+        && (leaf.unassignedMiddleUnit
+            ? problem.middleUnitName === null
+            : leaf.middleUnitName === null || leaf.middleUnitName === problem.middleUnitName);
+}
+
+function problemScopesFromLeaves(leaves: AssignmentCatalogLeaf[]): AssignmentProblemScope[] {
+    const scopes = new Map<string, AssignmentProblemScope>();
+    for (const leaf of leaves) {
+        const scope = {
+            unitId: leaf.unitId,
+            problemTypeId: leaf.typeId,
+            middleUnitName: leaf.middleUnitName,
+            unassignedMiddleUnit: leaf.unassignedMiddleUnit,
+        } satisfies AssignmentProblemScope;
+        scopes.set(
+            `${scope.unitId}\u0000${scope.problemTypeId || ''}\u0000${scope.middleUnitName || ''}\u0000${scope.unassignedMiddleUnit ? 'unassigned' : ''}`,
+            scope,
+        );
+    }
+    return [...scopes.values()];
 }
 
 function groupProblemsByPage(problems: AssignmentProblemSummary[]): Array<{ pagePrinted: number; problems: AssignmentProblemSummary[] }> {
@@ -403,6 +439,7 @@ function AssignmentComposer({
     const [wholeBook, setWholeBook] = useState(false);
     const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
     const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
+    const [selectedCatalogLeaves, setSelectedCatalogLeaves] = useState<Map<string, AssignmentCatalogLeaf>>(() => new Map());
     const [excludedProblemIds, setExcludedProblemIds] = useState<Set<string>>(new Set());
     const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(() => {
         return new Set();
@@ -529,7 +566,7 @@ function AssignmentComposer({
     useEffect(() => () => {
         for (const controller of catalogControllers.current.values()) controller.abort();
         catalogControllers.current.clear();
-    }, [bookId]);
+    }, []);
 
     const orderedBookProblems = useMemo(
         () => selectedBook
@@ -539,9 +576,24 @@ function AssignmentComposer({
             : [],
         [selectedBook, unitCatalogs],
     );
+    const selectedCatalogLeafList = useMemo(
+        () => [...selectedCatalogLeaves.values()],
+        [selectedCatalogLeaves],
+    );
+    const selectedProblemScopes = useMemo(
+        () => problemScopesFromLeaves(selectedCatalogLeafList),
+        [selectedCatalogLeafList],
+    );
     const previewProblemIds = useMemo(
-        () => selectedProblemIds(orderedBookProblems, wholeBook, selectedUnitIds, selectedTypeIds, excludedProblemIds),
-        [excludedProblemIds, orderedBookProblems, selectedTypeIds, selectedUnitIds, wholeBook],
+        () => selectedProblemIds(
+            orderedBookProblems,
+            wholeBook,
+            selectedUnitIds,
+            selectedTypeIds,
+            selectedCatalogLeafList,
+            excludedProblemIds,
+        ),
+        [excludedProblemIds, orderedBookProblems, selectedCatalogLeafList, selectedTypeIds, selectedUnitIds, wholeBook],
     );
     const previewProblemIdSet = useMemo(() => new Set(previewProblemIds), [previewProblemIds]);
     const problemTypesByUnit = useMemo(() => {
@@ -605,14 +657,17 @@ function AssignmentComposer({
     );
     const materialLabel = selectedBook?.title || '문제집 미선택';
     const selectedUnits = selectedBook?.units.filter((unit) => selectedUnitIds.has(unit.id)) || [];
+    const selectedMiddleCount = selectedCatalogLeafList.length > 0
+        ? new Set(selectedCatalogLeafList.map((leaf) => `${leaf.unitId}\u0000${leaf.middleUnitName || leaf.middleLabel}`)).size
+        : selectedUnitIds.size;
     const selectedScopeLoading = unitProblemRows.some((row) => selectedUnitIds.has(row.unit.id) && row.loading);
     const selectedScopeHasMore = unitProblemRows.some((row) => selectedUnitIds.has(row.unit.id) && row.hasMore);
     const problemSummary = wholeBook
         ? '전체 문제집'
         : selectedUnitIds.size > 0
             ? selectedScopeLoading && previewProblemIds.length === 0
-                ? `${selectedUnitIds.size}개 중단원 · 문항 계산 중`
-                : `${selectedUnitIds.size}개 중단원 · ${previewProblemIds.length}${selectedScopeHasMore ? '+' : ''}문항`
+                ? `${selectedMiddleCount}개 중단원 · 문항 계산 중`
+                : `${selectedMiddleCount}개 중단원 · ${previewProblemIds.length}${selectedScopeHasMore ? '+' : ''}문항`
             : '범위 미선택';
     const dueSummary = dueAt ? formatDate(toDueIso(dueAt)) : '기한 없음';
     const targetReady = effectiveStudents.length > 0
@@ -628,51 +683,40 @@ function AssignmentComposer({
                 : '복습'}`
         : '수학 복습 과제';
 
+    const applyCatalogLeafSelection = (next: Map<string, AssignmentCatalogLeaf>) => {
+        const leaves = [...next.values()];
+        setSelectedCatalogLeaves(next);
+        setSelectedUnitIds(new Set(leaves.map((leaf) => leaf.unitId)));
+        setSelectedTypeIds(new Set(leaves.flatMap((leaf) => leaf.typeId ? [leaf.typeId] : [])));
+    };
+
     const resetScope = () => {
         setWholeBook(false);
         setSelectedUnitIds(new Set());
         setSelectedTypeIds(new Set());
+        setSelectedCatalogLeaves(new Map());
         setExcludedProblemIds(new Set());
     };
 
     const selectCatalogLeaf = (leaf: AssignmentCatalogLeaf) => {
         const sameBook = bookId === leaf.bookId;
-        const selected = sameBook
-            && selectedUnitIds.has(leaf.unitId)
-            && (leaf.typeId === null || selectedTypeIds.has(leaf.typeId));
+        const selected = sameBook && selectedCatalogLeaves.has(leaf.key);
         const switchedBook = Boolean(bookId && !sameBook && contentReady);
+        const next = sameBook
+            ? new Map(selectedCatalogLeaves)
+            : new Map<string, AssignmentCatalogLeaf>();
 
         setWholeBook(false);
         if (!sameBook) {
+            for (const controller of catalogControllers.current.values()) controller.abort();
+            catalogControllers.current.clear();
+            setUnitCatalogs(new Map());
             setBookId(leaf.bookId);
-            setSelectedUnitIds(new Set([leaf.unitId]));
-            setSelectedTypeIds(new Set(leaf.typeId ? [leaf.typeId] : []));
             setExcludedProblemIds(new Set());
-        } else if (leaf.typeId) {
-            const nextTypeIds = new Set(selectedTypeIds);
-            if (selected) nextTypeIds.delete(leaf.typeId);
-            else nextTypeIds.add(leaf.typeId);
-            setSelectedTypeIds(nextTypeIds);
-
-            const leafBook = data.books.find((book) => book.id === leaf.bookId);
-            const unitTypeIds = new Set((leafBook?.problemTypes || [])
-                .filter((type) => type.unitId === leaf.unitId)
-                .map((type) => type.id));
-            const unitHasSelectedType = [...nextTypeIds].some((typeId) => unitTypeIds.has(typeId));
-            setSelectedUnitIds((current) => {
-                const next = new Set(current);
-                if (unitHasSelectedType) next.add(leaf.unitId);
-                else next.delete(leaf.unitId);
-                return next;
-            });
-        } else {
-            setSelectedUnitIds((current) => {
-                const next = new Set(current);
-                if (selected) next.delete(leaf.unitId);
-                else next.add(leaf.unitId);
-                return next;
-            });
         }
+        if (selected) next.delete(leaf.key);
+        else next.set(leaf.key, leaf);
+        applyCatalogLeafSelection(next);
 
         if (!selected) {
             setExpandedUnitIds((current) => new Set([...current, leaf.unitId]));
@@ -687,25 +731,15 @@ function AssignmentComposer({
         const currentBookLeaves = leaves.filter((leaf) => leaf.bookId === bookId);
         if (currentBookLeaves.length === 0) return;
 
-        const removedUnitIds = new Set(currentBookLeaves.map((leaf) => leaf.unitId));
-        const removedTypeIds = new Set(currentBookLeaves.flatMap((leaf) => leaf.typeId ? [leaf.typeId] : []));
-        const nextTypeIds = new Set([...selectedTypeIds].filter((typeId) => !removedTypeIds.has(typeId)));
-        const currentBook = data.books.find((book) => book.id === bookId);
-        setSelectedTypeIds(nextTypeIds);
-        setSelectedUnitIds((current) => {
-            const next = new Set(current);
-            for (const unitId of removedUnitIds) {
-                const unitTypeIds = new Set((currentBook?.problemTypes || [])
-                    .filter((type) => type.unitId === unitId)
-                    .map((type) => type.id));
-                const hasRemainingType = [...nextTypeIds].some((typeId) => unitTypeIds.has(typeId));
-                if (!hasRemainingType) next.delete(unitId);
-            }
-            return next;
-        });
+        const removedLeafKeys = new Set(currentBookLeaves.map((leaf) => leaf.key));
+        const next = new Map([...selectedCatalogLeaves].filter(([key]) => !removedLeafKeys.has(key)));
+        applyCatalogLeafSelection(next);
 
+        const removedUnitIds = new Set(currentBookLeaves.map((leaf) => leaf.unitId));
         const removedProblemIds = new Set([...removedUnitIds].flatMap((unitId) => (
-            unitCatalogs.get(unitCatalogKey(bookId, unitId))?.items.map((problem) => problem.id) || []
+            unitCatalogs.get(unitCatalogKey(bookId, unitId))?.items
+                .filter((problem) => currentBookLeaves.some((leaf) => catalogLeafMatchesProblem(leaf, problem)))
+                .map((problem) => problem.id) || []
         )));
         if (removedProblemIds.size > 0) {
             setExcludedProblemIds((current) => new Set([...current].filter((problemId) => !removedProblemIds.has(problemId))));
@@ -731,6 +765,7 @@ function AssignmentComposer({
         types: AssignmentProblemTypeSummary[],
     ) => {
         setWholeBook(false);
+        setSelectedCatalogLeaves(new Map());
         setExpandedUnit(unitId, true);
         setSelectedUnitIds((current) => new Set([...current, unitId]));
         setSelectedTypeIds((current) => new Set([...current, ...types.map((type) => type.id)]));
@@ -747,6 +782,7 @@ function AssignmentComposer({
         types: AssignmentProblemTypeSummary[],
     ) => {
         setWholeBook(false);
+        setSelectedCatalogLeaves(new Map());
         setSelectedUnitIds((current) => {
             const next = new Set(current);
             next.delete(unitId);
@@ -772,14 +808,19 @@ function AssignmentComposer({
     const includeProblems = (problems: AssignmentProblemSummary[]) => {
         if (problems.length === 0) return;
         setWholeBook(false);
-        setSelectedUnitIds((current) => new Set([...current, ...problems.map((problem) => problem.unitId)]));
-        setSelectedTypeIds((current) => {
-            const next = new Set(current);
-            problems.forEach((problem) => {
-                if (problem.problemTypeId) next.add(problem.problemTypeId);
+        const withinCatalogScope = selectedCatalogLeafList.length > 0
+            && problems.every((problem) => selectedCatalogLeafList.some((leaf) => catalogLeafMatchesProblem(leaf, problem)));
+        if (!withinCatalogScope) {
+            setSelectedCatalogLeaves(new Map());
+            setSelectedUnitIds((current) => new Set([...current, ...problems.map((problem) => problem.unitId)]));
+            setSelectedTypeIds((current) => {
+                const next = new Set(current);
+                problems.forEach((problem) => {
+                    if (problem.problemTypeId) next.add(problem.problemTypeId);
+                });
+                return next;
             });
-            return next;
-        });
+        }
         setExcludedProblemIds((current) => {
             const next = new Set(current);
             problems.forEach((problem) => next.delete(problem.id));
@@ -815,6 +856,7 @@ function AssignmentComposer({
 
         const conceptProblemIds = new Set(conceptProblems.map((problem) => problem.id));
         setWholeBook(false);
+        setSelectedCatalogLeaves(new Map());
         setExpandedUnit(row.unit.id, true);
         setSelectedUnitIds((current) => new Set([...current, row.unit.id]));
         setSelectedTypeIds((current) => {
@@ -926,6 +968,7 @@ function AssignmentComposer({
             bookId,
             unitIds: !wholeBook ? [...selectedUnitIds] : [],
             problemTypeIds: !wholeBook ? [...selectedTypeIds] : [],
+            problemScopes: !wholeBook ? selectedProblemScopes : [],
             problemIds: [],
             excludedProblemIds: [...excludedProblemIds],
             classIds: initialDraft ? [] : [...selectedClassIds],
@@ -1052,6 +1095,7 @@ function AssignmentComposer({
                                             selectedBookId={bookId}
                                             selectedUnitIds={selectedUnitIds}
                                             selectedTypeIds={selectedTypeIds}
+                                            selectedLeafKeys={new Set(selectedCatalogLeaves.keys())}
                                             onSelectLeaf={selectCatalogLeaf}
                                             onRemoveMiddle={removeCatalogMiddle}
                                         />
@@ -1079,6 +1123,7 @@ function AssignmentComposer({
                                                 setWholeBook(false);
                                                 setSelectedUnitIds(new Set());
                                                 setSelectedTypeIds(new Set());
+                                                setSelectedCatalogLeaves(new Map());
                                                 setExcludedProblemIds(new Set());
                                             }}
                                         >
@@ -1097,6 +1142,7 @@ function AssignmentComposer({
                                                 setWholeBook(true);
                                                 setSelectedUnitIds(new Set());
                                                 setSelectedTypeIds(new Set());
+                                                setSelectedCatalogLeaves(new Map());
                                                 setExcludedProblemIds(new Set());
                                             }}
                                         >
