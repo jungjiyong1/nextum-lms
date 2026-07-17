@@ -50,10 +50,11 @@ module.exports = {
                 destructive: {
                     DEFAULT: "hsl(var(--destructive))",
                     foreground: "hsl(var(--destructive-foreground))",
+                    soft: "hsl(var(--destructive-soft))",
                 },
                 danger: {
                     DEFAULT: "hsl(var(--destructive))",
-                    soft: "hsl(var(--destructive) / 0.1)",
+                    soft: "hsl(var(--destructive-soft))",
                     foreground: "hsl(var(--destructive-foreground))",
                 },
                 muted: {
@@ -73,10 +74,19 @@ module.exports = {
                     foreground: "hsl(var(--card-foreground))",
                 },
             },
+            /* v3 radius scale: buttons/inputs 12px, cards 18px, icon chips 13px,
+               small controls 9px (base --radius = 16px) */
             borderRadius: {
+                sm: "0.5625rem",
+                md: "0.75rem",
                 lg: "var(--radius)",
-                md: "calc(var(--radius) - 2px)",
-                sm: "calc(var(--radius) - 4px)",
+                xl: "1.125rem",
+                "2xl": "0.8125rem",
+            },
+            /* v3 elevation: soft float on raised surfaces only */
+            boxShadow: {
+                card: "var(--shadow-card)",
+                pop: "var(--shadow-pop)",
             },
             keyframes: {
                 "accordion-down": {

@@ -56,7 +56,8 @@ function ErrorState({
     return (
         <div
             className={cn(
-                "flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-xl border border-destructive/25 bg-destructive/10 p-8 text-center",
+                // v3: opaque soft tint token instead of alpha stack
+                "flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-xl border border-destructive/25 bg-destructive-soft p-8 text-center",
                 className
             )}
             {...props}

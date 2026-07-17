@@ -51,6 +51,12 @@ const hexColorAllowed = new Set([
   'src/features/lms/classrooms-operations-page.tsx',
 ]);
 
+const elevationAllowed = new Set([
+  'shadow-card',
+  'shadow-pop',
+  'focus-visible:shadow-[0_0_0_3px_hsl(var(--primary)/0.15)]',
+]);
+
 function normalize(filePath) {
   return filePath.split(path.sep).join('/');
 }
@@ -95,11 +101,14 @@ for (const legacyPath of legacyPaths) {
 const colorFamilyPattern = /(?:bg|text|border|divide|from|via|to|ring|shadow|focus:ring|hover:bg|hover:text|hover:border)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d+)?/g;
 const hexPattern = /#[0-9a-fA-F]{3,8}\b/g;
 const arbitraryColorPattern = /(?:bg|text|border|from|via|to|ring|shadow|focus:ring|hover:bg|hover:text|hover:border)-\[([^\]]+)\]/g;
-const elevationPattern = /\b(?:[\w!:[\].-]+:)?shadow(?:-(?:sm|md|lg|xl|2xl|inner|none))?\b/g;
+const elevationPattern = /\b(?:[\w!:[\].-]+:)?shadow(?:-(?:[\w./-]+|\[[^\]\s"'`]+\]))?/g;
 const strongFocusPattern = /\b(?:focus|focus-visible|data-\[state=open\]):ring-2\b|\bring-offset(?:-\d+|-background)?\b|\bactive:translate-y-px\b/g;
 
 for (const file of [...files].sort()) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
+  const scanText = text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
   const checks = [
     [colorFamilyPattern, 'Use HSL design tokens instead of Tailwind color-family classes'],
     [hexPattern, 'Use HSL design tokens instead of hex colors'],
@@ -108,7 +117,7 @@ for (const file of [...files].sort()) {
   for (const [pattern, message] of checks) {
     pattern.lastIndex = 0;
     let match;
-    while ((match = pattern.exec(text))) {
+    while ((match = pattern.exec(scanText))) {
       if (pattern === hexPattern && hexColorAllowed.has(file)) continue;
       failures.push(`${file}: ${message}: ${match[0]}`);
     }
@@ -116,7 +125,7 @@ for (const file of [...files].sort()) {
 
   arbitraryColorPattern.lastIndex = 0;
   let arbitraryMatch;
-  while ((arbitraryMatch = arbitraryColorPattern.exec(text))) {
+  while ((arbitraryMatch = arbitraryColorPattern.exec(scanText))) {
     const value = arbitraryMatch[1];
     if (/^(#|rgb|rgba|hsl|hsla|oklch|color:)/i.test(value)) {
       failures.push(`${file}: Use tokens instead of arbitrary color class: ${arbitraryMatch[0]}`);
@@ -125,13 +134,14 @@ for (const file of [...files].sort()) {
 
   elevationPattern.lastIndex = 0;
   let elevationMatch;
-  while ((elevationMatch = elevationPattern.exec(text))) {
-    failures.push(`${file}: 2D UI baseline prohibits elevation shadows: ${elevationMatch[0]}`);
+  while ((elevationMatch = elevationPattern.exec(scanText))) {
+    if (elevationAllowed.has(elevationMatch[0])) continue;
+    failures.push(`${file}: Use an approved elevation token instead of: ${elevationMatch[0]}`);
   }
 
   strongFocusPattern.lastIndex = 0;
   let strongFocusMatch;
-  while ((strongFocusMatch = strongFocusPattern.exec(text))) {
+  while ((strongFocusMatch = strongFocusPattern.exec(scanText))) {
     failures.push(`${file}: 2D UI baseline prohibits strong click/focus depth effects: ${strongFocusMatch[0]}`);
   }
 

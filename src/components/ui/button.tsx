@@ -5,7 +5,8 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "../../lib/utils"
 
 const buttonVariants = cva(
-    "inline-flex appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent text-sm font-medium leading-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45",
+    // v3: font-medium → font-semibold
+    "inline-flex appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent text-sm font-semibold leading-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45",
     {
         variants: {
             variant: {
@@ -19,13 +20,14 @@ const buttonVariants = cva(
                 ghost: "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
                 link: "h-auto rounded-none border-transparent bg-transparent p-0 text-primary underline-offset-4 hover:underline focus-visible:underline",
             },
+            // v3: larger controls — default 40px, lg 46px
             size: {
-                default: "h-9 px-3.5 py-2",
-                xs: "h-7 px-2.5 text-xs",
-                sm: "h-8 px-3 text-xs",
-                lg: "h-10 rounded-md px-4",
-                icon: "h-9 w-9",
-                "icon-sm": "h-8 w-8",
+                default: "h-10 px-4 py-2",
+                xs: "h-[30px] px-3 text-xs",
+                sm: "h-9 px-3.5",
+                lg: "h-[46px] px-[22px] text-base",
+                icon: "h-10 w-10",
+                "icon-sm": "h-9 w-9",
             },
         },
         defaultVariants: {

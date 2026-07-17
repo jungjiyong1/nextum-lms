@@ -29,7 +29,8 @@ const toneStyles: Record<PageStatusTone, string> = {
     neutral: "border-border bg-card text-muted-foreground",
     success: "border-success/30 bg-success-soft text-success-foreground",
     warning: "border-warning/30 bg-warning-soft text-warning-foreground",
-    danger: "border-destructive/30 bg-destructive/10 text-destructive",
+    // v3: opaque soft tint token instead of alpha stack
+    danger: "border-destructive/30 bg-destructive-soft text-destructive",
     info: "border-info/30 bg-info-soft text-info-foreground",
 }
 
@@ -94,7 +95,8 @@ function PageShell({
     ...props
 }: PageShellProps) {
     return (
-        <div className={cn("mx-auto flex w-full max-w-7xl flex-col gap-5 p-5 lg:p-8", className)} {...props}>
+        // v3: roomier page column — 24px section gap, 28/32/48 padding on desktop
+        <div className={cn("mx-auto flex w-full max-w-7xl flex-col gap-6 p-5 lg:px-8 lg:pb-12 lg:pt-7", className)} {...props}>
             <PageHeader title={title} icon={icon} actions={actions ?? action} />
             {status}
             {children}

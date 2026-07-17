@@ -8,7 +8,8 @@ const DataTable = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
     <div
         ref={ref}
-        className={cn("overflow-hidden rounded-xl border border-border bg-card", className)}
+        // v3: raised surface — soft floating shadow (rounded-xl = 18px)
+        className={cn("overflow-hidden rounded-xl border border-border bg-card shadow-card", className)}
         {...props}
     >
         <div className="overflow-x-auto">{children}</div>
@@ -54,7 +55,8 @@ const TableHead = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <th
         ref={ref}
-        className={cn("whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase", className)}
+        // v3: uppercase heads get wide tracking
+        className={cn("whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide", className)}
         {...props}
     />
 ))
@@ -64,7 +66,8 @@ const TableCell = React.forwardRef<
     HTMLTableCellElement,
     React.TdHTMLAttributes<HTMLTableCellElement>
 >(({ className, ...props }, ref) => (
-    <td ref={ref} className={cn("px-4 py-3 align-middle text-foreground", className)} {...props} />
+    // v3: slightly taller rows (14px vertical padding)
+    <td ref={ref} className={cn("px-4 py-3.5 align-middle text-foreground", className)} {...props} />
 ))
 TableCell.displayName = "TableCell"
 
