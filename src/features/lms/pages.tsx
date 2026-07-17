@@ -6,22 +6,23 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
   BookOpen,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
+  ChevronRight,
   ClipboardList,
   Clock,
   CreditCard,
   Download,
-  GraduationCap,
+  House,
+  LayoutGrid,
+  Megaphone,
   ReceiptText,
   RefreshCw,
   Save,
   Settings,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -52,7 +53,7 @@ import { Label } from '@/components/ui/label';
 import { PageShell } from '@/components/ui/page-shell';
 import { SelectField } from '@/components/ui/select-field';
 import { Skeleton, SkeletonPanel } from '@/components/ui/skeleton';
-import { EmptyState, ErrorState } from '@/components/ui/state';
+import { ErrorState } from '@/components/ui/state';
 import { StatCard } from '@/components/ui/stat-card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import {
@@ -89,8 +90,6 @@ import type {
 } from './types';
 
 type LmsPageLoadOptions = { force?: boolean; background?: boolean };
-
-const DEFAULT_CLASS_COLOR = '#059669';
 
 function today(): string {
   const now = new Date();
@@ -182,18 +181,8 @@ function formatShortDate(value: string): string {
   return new Intl.DateTimeFormat('ko-KR', {
     month: 'long',
     day: 'numeric',
-    weekday: 'short',
+    weekday: 'long',
   }).format(new Date(`${value}T00:00:00`));
-}
-
-function formatDueDate(value: string | null): string {
-  if (!value) return '마감 없음';
-  return new Intl.DateTimeFormat('ko-KR', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
 }
 
 function completionTone(value: number, hasAssignments: boolean): 'neutral' | 'success' | 'warning' | 'danger' | 'primary' {
@@ -220,187 +209,251 @@ function ProgressBar({ value, tone = 'primary' }: { value: number; tone?: 'neutr
 
 function DashboardSkeleton() {
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-xl border bg-card p-4">
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="mt-4 h-8 w-20" />
-            <Skeleton className="mt-3 h-3 w-32" />
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="space-y-6">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+          <div className="flex items-center justify-between border-b px-[22px] py-[18px]">
+            <Skeleton className="h-5 w-28" />
+            <Skeleton className="h-4 w-32" />
           </div>
-        ))}
-      </div>
-      <div className="space-y-3">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div key={index} className="rounded-xl border bg-card p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2">
-                <Skeleton className="h-5 w-44" />
-                <Skeleton className="h-3 w-72 max-w-full" />
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="flex items-center gap-4 border-t px-5 py-4 first:border-t-0">
+              <Skeleton className="h-8 w-32 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-56 max-w-full" />
               </div>
-              <Skeleton className="h-8 w-24" />
+              <Skeleton className="h-8 w-28" />
+              <Skeleton className="h-9 w-16" />
             </div>
-            <Skeleton className="mt-5 h-2 w-full" />
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              <Skeleton className="h-16 w-full rounded-lg" />
-              <Skeleton className="h-16 w-full rounded-lg" />
-              <Skeleton className="h-16 w-full rounded-lg" />
-            </div>
+          ))}
+        </div>
+        <div className="rounded-xl border bg-card p-[22px] shadow-card">
+          <div className="mb-4 flex items-center justify-between">
+            <Skeleton className="h-5 w-28" />
+            <Skeleton className="h-4 w-24" />
           </div>
-        ))}
+          <div className="space-y-2.5">
+            <Skeleton className="h-[72px] w-full rounded-xl" />
+            <Skeleton className="h-[72px] w-full rounded-xl" />
+          </div>
+        </div>
+      </div>
+      <div className="space-y-4">
+        <Skeleton className="h-5 w-24" />
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="flex h-[111px] flex-col items-center justify-center gap-2 rounded-xl border bg-card">
+              <Skeleton className="h-11 w-11 rounded-xl" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+          ))}
+        </div>
+        <div className="rounded-xl border bg-card p-5 shadow-card">
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="mt-4 h-11 w-full" />
+          <Skeleton className="mt-3 h-9 w-full" />
+          <Skeleton className="mt-2 h-9 w-full" />
+        </div>
       </div>
     </div>
   );
 }
 
-function ClassMetric({ label, value, tone }: { label: string; value: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'primary' }) {
-  return (
-    <div className="rounded-lg border bg-background px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
-      {tone && <div className={`mt-2 h-1 rounded-full ${tone === 'danger' ? 'bg-destructive' : tone === 'warning' ? 'bg-warning' : tone === 'success' ? 'bg-success' : 'bg-primary'}`} />}
-    </div>
-  );
+type HomeClassRowData = DashboardData['classes'][number];
+
+interface HomeLearningStudentSummary {
+  studentId: string;
+  studentName: string;
+  missingAssignmentCount: number;
+  weakTypeCount: number;
+  assignmentTitles: string[];
+  weakTypeNames: string[];
+  priorityScore: number;
 }
 
-function lessonTimeText(classRow: DashboardData['classes'][number]): string {
+function collectHomeLearningStudents(classes: DashboardData['classes']): HomeLearningStudentSummary[] {
+  const byStudent = new Map<string, HomeLearningStudentSummary>();
+
+  classes.forEach((classRow) => {
+    classRow.actionStudents.forEach((student) => {
+      const current = byStudent.get(student.studentId) || {
+        studentId: student.studentId,
+        studentName: student.studentName,
+        missingAssignmentCount: 0,
+        weakTypeCount: 0,
+        assignmentTitles: [],
+        weakTypeNames: [],
+        priorityScore: 0,
+      };
+
+      current.missingAssignmentCount = Math.max(current.missingAssignmentCount, student.missingAssignmentCount);
+      current.weakTypeCount = Math.max(current.weakTypeCount, student.weakTypeCount);
+      current.assignmentTitles = Array.from(new Set([...current.assignmentTitles, ...student.assignmentTitles]));
+      current.weakTypeNames = Array.from(new Set([
+        ...current.weakTypeNames,
+        ...student.weakTypes.map((weakType) => weakType.typeName),
+      ]));
+      current.priorityScore = Math.max(current.priorityScore, student.priorityScore);
+      byStudent.set(student.studentId, current);
+    });
+  });
+
+  return Array.from(byStudent.values()).sort((left, right) => (
+    right.priorityScore - left.priorityScore
+    || left.studentName.localeCompare(right.studentName, 'ko-KR')
+  ));
+}
+
+function summarizeStudentNames(students: HomeLearningStudentSummary[]): string {
+  if (students.length === 0) return '';
+  return students.length === 1
+    ? students[0].studentName
+    : `${students[0].studentName} 외 ${students.length - 1}명`;
+}
+
+function summarizeItems(items: string[], fallback: string): string {
+  const uniqueItems = Array.from(new Set(items.filter(Boolean)));
+  if (uniqueItems.length === 0) return fallback;
+  return uniqueItems.length === 1
+    ? uniqueItems[0]
+    : `${uniqueItems[0]} 외 ${uniqueItems.length - 1}개`;
+}
+
+function firstLessonStart(classes: DashboardData['classes']): string | null {
+  const starts = classes.flatMap((classRow) => classRow.lessons.map((lesson) => lesson.startTime));
+  return starts.sort((left, right) => left.localeCompare(right))[0] || null;
+}
+
+function lessonTimeText(classRow: HomeClassRowData): string {
   if (classRow.lessons.length === 0) return '수업 시간 없음';
   return classRow.lessons
     .map((lesson) => `${lesson.startTime}-${lesson.endTime}`)
     .join(', ');
 }
 
-function ActionStudentRow({ student }: { student: DashboardData['classes'][number]['actionStudents'][number] }) {
+function HomeClassRow({ classRow, date }: { classRow: HomeClassRowData; date: string }) {
+  const progress = classRow.assignmentProgress;
+  const hasAssignments = progress.assignmentCount > 0;
+  const tone = completionTone(progress.completionRate, hasAssignments);
+  const details = [
+    classRow.instructorName ? `강사 ${classRow.instructorName}` : null,
+    classRow.classroomName,
+    `${classRow.studentCount}명`,
+  ].filter((detail): detail is string => Boolean(detail));
+
   return (
-    <div className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-medium text-foreground">{student.studentName}</p>
-        <div className="flex flex-wrap gap-1.5">
-          {student.missingAssignmentCount > 0 && <StatusBadge tone="warning" label={`과제 ${student.missingAssignmentCount}`} />}
-          {student.weakTypeCount > 0 && <StatusBadge tone="danger" label={`취약 ${student.weakTypeCount}`} />}
-          {student.attendanceIssueCount > 0 && <StatusBadge tone="info" label={`출결 ${student.attendanceIssueCount}`} />}
+    <div className="flex flex-col gap-3 border-t px-5 py-[13px] first:border-t-0 md:flex-row md:items-center md:gap-3.5">
+      <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-bold tabular-nums text-primary-strong">
+        <Clock className="h-[15px] w-[15px]" />
+        {lessonTimeText(classRow)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <strong className="truncate text-[15px] font-bold text-foreground">{classRow.className}</strong>
+          {classRow.grade && <StatusBadge tone="neutral" icon={false} label={classRow.grade} />}
         </div>
+        <p className="mt-[3px] truncate text-[13px] text-muted-foreground">
+          {details.map((detail, index) => (
+            <React.Fragment key={detail}>
+              {index > 0 && ' · '}
+              {index === 0 && classRow.instructorName ? (
+                <>강사 <strong className="font-semibold text-foreground">{classRow.instructorName}</strong></>
+              ) : detail}
+            </React.Fragment>
+          ))}
+        </p>
       </div>
-      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-        {student.assignmentTitles.length > 0 && <p>미완료 과제: {student.assignmentTitles.join(', ')}</p>}
-        {student.weakTypes.length > 0 && <p>취약 유형: {student.weakTypes.map((row) => `${row.typeName}${row.score === null ? '' : ` ${row.score}%`}`).join(', ')}</p>}
-        {student.attendanceStatuses.length > 0 && <p>출결 확인: {student.attendanceStatuses.join(', ')}</p>}
+      <div className="flex shrink-0 flex-col items-start gap-1.5 md:items-end">
+        <span className="text-xs text-muted-foreground">
+          {hasAssignments ? (
+            <>과제 <strong className="font-bold tabular-nums text-foreground">{progress.completedCount}/{progress.targetStudentCount}</strong></>
+          ) : '과제 없음'}
+        </span>
+        <span className="block w-[90px]">
+          <ProgressBar value={progress.completionRate} tone={tone} />
+        </span>
       </div>
+      <Button asChild variant="outline" size="sm" className="w-full shrink-0 md:w-auto">
+        <Link href={`/classrooms/attendance?classId=${encodeURIComponent(classRow.classId)}&date=${encodeURIComponent(date)}`}>
+          출결
+        </Link>
+      </Button>
     </div>
   );
 }
 
-function HomeClassCard({ classRow }: { classRow: DashboardData['classes'][number] }) {
-  const [expanded, setExpanded] = useState(false);
-  const progress = classRow.assignmentProgress;
-  const hasAssignments = progress.assignmentCount > 0;
-  const tone = completionTone(progress.completionRate, hasAssignments);
-  const attendanceIssueCount = classRow.attendance.missing + classRow.attendance.absent + classRow.attendance.late + classRow.attendance.makeup;
+function LearningTaskRow({
+  tone,
+  icon: Icon,
+  title,
+  description,
+  cta,
+  href,
+}: {
+  tone: 'danger' | 'warning';
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  cta: string;
+  href: string;
+}) {
+  const iconTone = tone === 'danger'
+    ? 'bg-destructive-soft text-destructive'
+    : 'bg-warning-soft text-warning-foreground';
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="border-b pb-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: classRow.color || DEFAULT_CLASS_COLOR }} />
-              <CardTitle className="truncate text-lg">{classRow.className}</CardTitle>
-              {classRow.grade && <StatusBadge tone="neutral" label={classRow.grade} />}
-              <StatusBadge tone={tone} label={hasAssignments ? `과제 ${progress.completionRate}%` : '과제 없음'} />
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{lessonTimeText(classRow)}</span>
-              {classRow.instructorName && <span>강사 {classRow.instructorName}</span>}
-              {classRow.classroomName && <span>강의실 {classRow.classroomName}</span>}
-              <span>{classRow.studentCount}명</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/assignments">과제 현황</Link>
-            </Button>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/classrooms">
-                반 운영
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 pt-4">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="font-medium text-foreground">과제 완료율</span>
-            <span className="tabular-nums text-muted-foreground">
-              {progress.completedCount}/{progress.targetStudentCount}명 과제
-            </span>
-          </div>
-          <ProgressBar value={progress.completionRate} tone={tone} />
-          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <span>진행 과제 {progress.assignmentCount}개</span>
-            <span>미시작 {progress.notStartedCount}명</span>
-            <span>진행중 {progress.inProgressCount}명</span>
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          <ClassMetric label="조치 필요" value={`${classRow.actionStudents.length}명`} tone={classRow.actionStudents.length > 0 ? 'warning' : 'success'} />
-          <ClassMetric label="취약 학생" value={`${classRow.weakStudentCount}명 / ${classRow.weakTypeCount}개`} tone={classRow.weakStudentCount > 0 ? 'danger' : 'success'} />
-          <ClassMetric label="출결 확인" value={`${attendanceIssueCount}건`} tone={attendanceIssueCount > 0 ? 'warning' : 'success'} />
-        </div>
-
-        {classRow.assignments.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground">확인할 과제</p>
-            <div className="grid gap-2 lg:grid-cols-2">
-              {classRow.assignments.map((assignment) => (
-                <div key={assignment.id} className="rounded-lg border bg-background p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{assignment.title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{assignment.bookTitle || '교재 미지정'} · {formatDueDate(assignment.dueAt)}</p>
-                    </div>
-                    <StatusBadge tone={assignment.overdue ? 'danger' : assignment.dueSoon ? 'warning' : 'primary'} label={`${assignment.completionRate}%`} />
-                  </div>
-                  <ProgressBar value={assignment.completionRate} tone={assignment.overdue ? 'danger' : assignment.dueSoon ? 'warning' : 'primary'} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between border-t pt-3">
-          <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded((value) => !value)}>
-            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            조치 학생 {classRow.actionStudents.length}명
-          </Button>
-          <Button asChild variant="link" size="sm">
-            <Link href="/students">학생 상세 보기</Link>
-          </Button>
-        </div>
-
-        {expanded && (
-          <div className="space-y-2">
-            {classRow.actionStudents.length === 0 ? (
-              <div className="rounded-lg border bg-success-soft p-3 text-sm text-success-foreground">
-                오늘 바로 확인할 과제/취약/출결 이슈가 없습니다.
-              </div>
-            ) : (
-              classRow.actionStudents.map((student) => (
-                <ActionStudentRow key={student.studentId} student={student} />
-              ))
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <Link
+      href={href}
+      className="flex w-full items-center gap-3.5 rounded-xl border bg-card px-4 py-3.5 text-left transition-colors hover:border-primary/50 hover:bg-muted focus-visible:border-primary/50 focus-visible:bg-muted focus-visible:outline-none"
+    >
+      <span className={`flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-lg ${iconTone}`}>
+        <Icon className="h-[21px] w-[21px]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold text-foreground">{title}</span>
+        <span className="mt-0.5 block truncate text-sm text-muted-foreground">{description}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-bold text-primary-strong">
+        {cta}
+        <ChevronRight className="h-4 w-4" />
+      </span>
+    </Link>
   );
 }
 
-function AdminAlertsPanel({ alerts }: { alerts: NonNullable<DashboardData['adminAlerts']> }) {
-  if (alerts.unpaidBillingCount === 0) {
+function QuickAction({
+  icon: Icon,
+  label,
+  href,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex flex-col items-center justify-center gap-[9px] rounded-[14px] border bg-card px-2.5 py-[18px] text-center shadow-card transition-colors hover:border-primary/50 hover:bg-muted focus-visible:border-primary/50 focus-visible:bg-muted focus-visible:outline-none"
+    >
+      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-soft text-primary">
+        <Icon className="h-[22px] w-[22px]" />
+      </span>
+      <span className="text-sm font-semibold text-foreground">{label}</span>
+    </Link>
+  );
+}
+
+function AdminAlertsPanel({
+  alerts,
+  serviceMonth,
+}: {
+  alerts: DashboardData['adminAlerts'];
+  serviceMonth: string;
+}) {
+  if (!alerts || alerts.unpaidBillingCount === 0) {
     return (
-      <Card>
+      <Card id="admin-alerts" className="scroll-mt-6">
         <CardHeader>
           <CardTitle className="text-base">관리자 알림</CardTitle>
         </CardHeader>
@@ -413,27 +466,25 @@ function AdminAlertsPanel({ alerts }: { alerts: NonNullable<DashboardData['admin
   }
 
   return (
-    <Card>
+    <Card id="admin-alerts" className="scroll-mt-6">
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">관리자 알림</CardTitle>
           <StatusBadge tone="warning" label={`${alerts.unpaidBillingCount}건`} />
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="flex flex-col gap-3">
         <div className="rounded-lg bg-warning-soft p-3 text-sm text-warning-foreground">
           미납/미발행 합계 {currency(alerts.unpaidBillingAmount)}
         </div>
-        <div className="space-y-2">
-          {alerts.unpaidBillingStudents.map((student) => (
-            <div key={student.studentId} className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
-              <span className="truncate font-medium">{student.studentName}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">{currency(student.amount)}</span>
-            </div>
-          ))}
-        </div>
+        {alerts.unpaidBillingStudents.map((student) => (
+          <div key={student.studentId} className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+            <span className="truncate font-medium">{student.studentName}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">{currency(student.amount)}</span>
+          </div>
+        ))}
         <Button asChild variant="outline" size="sm">
-          <Link href="/accounting">회계에서 확인</Link>
+          <Link href={`/accounting/payments?month=${encodeURIComponent(serviceMonth)}`}>회계에서 확인</Link>
         </Button>
       </CardContent>
     </Card>
@@ -448,6 +499,23 @@ export function LearningHomePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const serviceMonth = monthFromDate(selectedDate);
+  const homeView = useMemo(() => {
+    const classes = data?.classes || [];
+    const learningStudents = collectHomeLearningStudents(classes);
+    const missingAssignmentStudents = learningStudents.filter((student) => student.missingAssignmentCount > 0);
+    const weakTypeStudents = learningStudents.filter((student) => student.weakTypeCount > 0);
+    const managedStudentIds = new Set([
+      ...missingAssignmentStudents.map((student) => student.studentId),
+      ...weakTypeStudents.map((student) => student.studentId),
+    ]);
+
+    return {
+      firstLessonStart: firstLessonStart(classes),
+      missingAssignmentStudents,
+      weakTypeStudents,
+      managedStudentCount: managedStudentIds.size,
+    };
+  }, [data]);
 
   const load = useCallback(async (options: LmsPageLoadOptions = {}) => {
     if (!academyId) return;
@@ -483,16 +551,29 @@ export function LearningHomePage() {
 
   return (
     <PageShell
-      title="오늘 수업 대시보드"
-      icon={BarChart3}
+      title="홈"
+      subtitle={data
+        ? `${formatShortDate(data.date)} · 수업 ${data.summary.todayLessonCount}회 · ${data.summary.todayClassCount}개 반`
+        : formatShortDate(selectedDate)}
+      icon={House}
       action={
         <div className="flex items-center gap-2">
-          <Input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value || today())} className="w-40" />
+          <Input
+            type="date"
+            value={selectedDate}
+            aria-label="홈 기준 날짜"
+            onChange={(event) => setSelectedDate(event.target.value || today())}
+            className="w-[150px]"
+          />
           <Button variant="outline" onClick={() => setSelectedDate(today())}>
             오늘
           </Button>
-          <Button variant="outline" onClick={() => void load({ force: true })}>
-            <RefreshCw className="mr-2 h-4 w-4" />
+          <Button
+            variant="outline"
+            disabled={loading || refreshing}
+            onClick={() => void load({ force: true, background: Boolean(data) })}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             새로고침
           </Button>
         </div>
@@ -507,52 +588,114 @@ export function LearningHomePage() {
       {loading && <DashboardSkeleton />}
       {error && !loading && <ErrorBlock message={error} onRetry={() => void load({ force: true })} />}
       {data && !loading && !error && (
-        <div className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="오늘 수업" value={`${data.summary.todayLessonCount}회`} hint={`${formatShortDate(data.date)} · ${data.summary.todayClassCount}개 반`} icon={CalendarDays} />
-            <MetricCard label="대상 학생" value={`${data.summary.activeStudentCount}명`} hint="오늘 수업 반 재원생" icon={GraduationCap} />
-            <MetricCard label="조치 필요" value={`${data.summary.actionStudentCount}명`} hint="과제/취약/출결 확인" icon={AlertTriangle} />
-            <MetricCard label="관리 알림" value={`${data.summary.unpaidBillingCount}건`} hint="관리자 전용 회계 알림" icon={ClipboardList} />
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex flex-col gap-6">
+            <Card className="overflow-hidden">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-[19px] w-[19px] text-primary" />
+                    <CardTitle className="text-[17px]">오늘 수업</CardTitle>
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {data.summary.todayClassCount}개 반 · 첫 수업 {homeView.firstLessonStart || '-'}
+                  </span>
+                </div>
+              </CardHeader>
+              <div className="pb-1.5">
+                {data.classes.length > 0 ? (
+                  data.classes.map((classRow) => (
+                    <HomeClassRow key={classRow.classId} classRow={classRow} date={data.date} />
+                  ))
+                ) : (
+                  <div className="flex flex-col items-center gap-3 border-t px-5 py-8 text-center">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary-soft text-primary">
+                      <CalendarDays className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">예정된 수업이 없습니다</p>
+                      <p className="mt-1 text-xs text-muted-foreground">날짜를 바꾸거나 시간표에서 수업 일정을 확인하세요.</p>
+                    </div>
+                    <Button asChild variant="outline" size="sm">
+                      <Link href="/classrooms/schedule">시간표 보기</Link>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            <Card className="p-[22px]">
+              <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-[19px] w-[19px] text-primary" />
+                  <h2 className="text-[17px] font-extrabold text-foreground">학습 관리</h2>
+                </div>
+                <span className="text-sm text-muted-foreground">관리 필요 {homeView.managedStudentCount}명</span>
+              </div>
+              {homeView.managedStudentCount > 0 ? (
+                <div className="flex flex-col gap-2.5">
+                  {homeView.missingAssignmentStudents.length > 0 && (
+                    <LearningTaskRow
+                      tone="danger"
+                      icon={AlertTriangle}
+                      title={`미완료 과제 확인 ${homeView.missingAssignmentStudents.length}명`}
+                      description={`${summarizeStudentNames(homeView.missingAssignmentStudents)} · ${summarizeItems(
+                        homeView.missingAssignmentStudents.flatMap((student) => student.assignmentTitles),
+                        '미완료 과제 확인 필요',
+                      )}`}
+                      cta="과제 확인"
+                      href="/assignments"
+                    />
+                  )}
+                  {homeView.weakTypeStudents.length > 0 && (
+                    <LearningTaskRow
+                      tone="warning"
+                      icon={BookOpen}
+                      title={`취약 유형 보강 필요 ${homeView.weakTypeStudents.length}명`}
+                      description={`${summarizeStudentNames(homeView.weakTypeStudents)} · ${summarizeItems(
+                        homeView.weakTypeStudents.flatMap((student) => student.weakTypeNames),
+                        '취약 유형 학습 보강 필요',
+                      )}`}
+                      cta="보충 배정"
+                      href="/assignments/new?source=home"
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 rounded-xl border border-dashed bg-background px-4 py-4">
+                  <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-lg bg-success-soft text-success">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">학습 관리 상태가 좋습니다</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">오늘 확인할 미완료 과제나 취약 유형이 없습니다.</p>
+                  </div>
+                </div>
+              )}
+            </Card>
           </div>
 
-          {data.classes.length === 0 ? (
-            <EmptyState
-              icon={CalendarDays}
-              title="오늘 예정된 수업이 없습니다"
-              description="날짜를 바꾸거나 반/시간표에서 반복 수업과 실제 수업 일정을 확인하세요."
-              action={<Button asChild variant="outline"><Link href="/classrooms">반/시간표 확인</Link></Button>}
-            />
-          ) : (
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="space-y-4">
-                {data.classes.map((classRow) => (
-                  <HomeClassCard key={classRow.classId} classRow={classRow} />
-                ))}
-              </div>
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">오늘 운영 흐름</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <div className="flex items-center gap-2 rounded-lg bg-primary-soft p-3 text-primary-strong">
-                      <Clock className="h-4 w-4" />
-                      {data.classes[0]?.lessons[0]?.startTime || '-'} 첫 수업 시작
-                    </div>
-                    <div className="flex items-center justify-between rounded-lg border bg-background p-3">
-                      <span className="text-muted-foreground">과제 확인 반</span>
-                      <strong>{data.classes.filter((row) => row.assignmentProgress.assignmentCount > 0).length}개</strong>
-                    </div>
-                    <div className="flex items-center justify-between rounded-lg border bg-background p-3">
-                      <span className="text-muted-foreground">출결 확인 필요</span>
-                      <strong>{data.classes.reduce((sum, row) => sum + row.attendance.missing + row.attendance.absent + row.attendance.late + row.attendance.makeup, 0)}건</strong>
-                    </div>
-                  </CardContent>
-                </Card>
-                {data.adminAlerts && <AdminAlertsPanel alerts={data.adminAlerts} />}
-              </div>
+          <aside className="flex flex-col gap-4">
+            <div className="flex items-center gap-2 px-0.5 pt-1">
+              <Sparkles className="h-[19px] w-[19px] text-primary" />
+              <h2 className="text-lg font-bold text-foreground">빠른 실행</h2>
             </div>
-          )}
+            <div className="grid grid-cols-2 gap-3">
+              <QuickAction
+                icon={ClipboardList}
+                label="과제 배정"
+                href={`/assignments/new?source=home&date=${encodeURIComponent(data.date)}`}
+              />
+              <QuickAction icon={LayoutGrid} label="시간표 보기" href="/classrooms/schedule" />
+              <QuickAction icon={Megaphone} label="공지/알림" href="#admin-alerts" />
+              <QuickAction
+                icon={CalendarDays}
+                label="출결 입력"
+                href={`/classrooms/attendance?date=${encodeURIComponent(data.date)}`}
+              />
+            </div>
+            <AdminAlertsPanel alerts={data.adminAlerts} serviceMonth={data.serviceMonth} />
+          </aside>
         </div>
       )}
     </PageShell>
