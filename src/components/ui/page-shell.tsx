@@ -8,6 +8,7 @@ type PageStatusTone = "neutral" | "success" | "warning" | "danger" | "info"
 
 interface PageShellProps extends React.HTMLAttributes<HTMLDivElement> {
     title: string
+    subtitle?: React.ReactNode
     icon?: LucideIcon
     action?: React.ReactNode
     actions?: React.ReactNode
@@ -16,6 +17,7 @@ interface PageShellProps extends React.HTMLAttributes<HTMLDivElement> {
 
 interface PageHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
     title: string
+    subtitle?: React.ReactNode
     icon?: LucideIcon
     actions?: React.ReactNode
 }
@@ -36,6 +38,7 @@ const toneStyles: Record<PageStatusTone, string> = {
 
 function PageHeader({
     title,
+    subtitle,
     icon: Icon,
     actions,
     className,
@@ -55,7 +58,10 @@ function PageHeader({
                         <Icon className="h-5 w-5" aria-hidden="true" />
                     </div>
                 )}
-                <h1 className="min-w-0 truncate text-2xl font-bold text-foreground">{title}</h1>
+                <div className="min-w-0">
+                    <h1 className="truncate text-2xl font-bold text-foreground">{title}</h1>
+                    {subtitle && <p className="mt-1 truncate text-sm text-muted-foreground">{subtitle}</p>}
+                </div>
             </div>
             {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
         </div>
@@ -86,6 +92,7 @@ function PageStatusBar({
 
 function PageShell({
     title,
+    subtitle,
     icon,
     action,
     actions,
@@ -97,7 +104,7 @@ function PageShell({
     return (
         // v3: roomier page column — 24px section gap, 28/32/48 padding on desktop
         <div className={cn("mx-auto flex w-full max-w-7xl flex-col gap-6 p-5 lg:px-8 lg:pb-12 lg:pt-7", className)} {...props}>
-            <PageHeader title={title} icon={icon} actions={actions ?? action} />
+            <PageHeader title={title} subtitle={subtitle} icon={icon} actions={actions ?? action} />
             {status}
             {children}
         </div>

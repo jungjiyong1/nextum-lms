@@ -75,9 +75,19 @@ import {
     type AssignmentCatalogLeaf,
 } from './assignment-catalog-tree';
 import { loadAssignmentProblemCatalog } from './problem-catalog-client';
+import {
+    assignmentListGroup,
+    assignmentListGroupLabels,
+    assignmentListGroupOrder,
+    buildAssignmentPerformanceComparison,
+    buildAssignmentTypeInsights,
+    type AssignmentListGroup,
+    type AssignmentTypeInsight,
+} from './assignment-status-view';
 import type {
     AssignmentClassProgressSummary,
     AssignmentManagementData,
+    AssignmentProblemProgress,
     AssignmentProblemScope,
     AssignmentProblemSummary,
     AssignmentProblemTypeSummary,
@@ -196,10 +206,23 @@ function toggleSetValue(setter: React.Dispatch<React.SetStateAction<Set<string>>
     });
 }
 
-function ProgressLine({ value }: { value: number }) {
+type ProgressTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral';
+
+const progressToneClasses: Record<ProgressTone, string> = {
+    primary: 'bg-primary',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    danger: 'bg-destructive',
+    neutral: 'bg-muted-foreground',
+};
+
+function ProgressLine({ value, tone = 'primary' }: { value: number; tone?: ProgressTone }) {
     return (
         <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+            <div
+                className={cn('h-full rounded-full', progressToneClasses[tone])}
+                style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+            />
         </div>
     );
 }
@@ -208,37 +231,19 @@ function metricText(value: number | null): string {
     return value === null ? '-' : `${value}%`;
 }
 
-function classLabel(classProgress: AssignmentClassProgressSummary): string {
-    return classProgress.className || '개별 학생';
-}
-
-
-
-function AssignmentProgressSummary({ assignment }: { assignment: LearningAssignmentSummary }) {
-    const progress = assignment.progress;
-    return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{progress.completedCount}/{progress.targetStudentCount}명 완료</span>
-                <span>{progress.completionRate}%</span>
-            </div>
-            <ProgressLine value={progress.completionRate} />
-            <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="rounded-lg bg-muted px-2 py-1.5">
-                    <p className="text-muted-foreground">미시작</p>
-                    <p className="font-semibold text-foreground">{progress.notStartedCount}</p>
-                </div>
-                <div className="rounded-lg bg-muted px-2 py-1.5">
-                    <p className="text-muted-foreground">진행중</p>
-                    <p className="font-semibold text-foreground">{progress.inProgressCount}</p>
-                </div>
-                <div className="rounded-lg bg-muted px-2 py-1.5">
-                    <p className="text-muted-foreground">정답률</p>
-                    <p className="font-semibold text-foreground">{metricText(progress.correctRate)}</p>
-                </div>
-            </div>
-        </div>
-    );
+function comparisonDelta(
+    current: number | null,
+    baseline: number | null,
+): { label: string; tone: 'success' | 'danger' | 'neutral' } {
+    if (current === null || baseline === null) {
+        return { label: '비교 불가', tone: 'neutral' };
+    }
+    const delta = current - baseline;
+    if (delta === 0) return { label: '같음', tone: 'neutral' };
+    return {
+        label: `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)}%p`,
+        tone: delta > 0 ? 'success' : 'danger',
+    };
 }
 
 function AssignmentCard({
@@ -259,7 +264,7 @@ function AssignmentCard({
             selected={selected}
             onClick={onSelect}
             className={cn(
-                'space-y-3 border-l-4 p-3',
+                'space-y-2 border-l-4 p-3',
                 selected ? 'border-l-primary' : 'border-l-transparent',
             )}
         >
@@ -269,31 +274,22 @@ function AssignmentCard({
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                         <span>{assignment.bookTitle || '외부 학습지'}</span>
                         <span>·</span>
-                        <span>{assignment.problemCount}문항</span>
-                        <span>·</span>
                         <span>{formatDate(assignment.dueAt)}</span>
                     </div>
                 </div>
-                <StatusBadge className="shrink-0 whitespace-nowrap" tone={dueTone(status)} label={dueLabel(status)} />
+                <StatusBadge
+                    className="shrink-0 whitespace-nowrap"
+                    tone={dueTone(status)}
+                    label={`${progress.completionRate}%`}
+                />
             </div>
-            {classContext && (
-                <StatusBadge tone="primary" label={classLabel(classContext)} />
-            )}
             <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>{progress.completedCount}/{progress.targetStudentCount}명 완료</span>
-                    <span>{progress.completionRate}%</span>
+                    <span>{assignment.problemCount}문항</span>
                 </div>
                 <ProgressLine value={progress.completionRate} />
             </div>
-            {!classContext && assignment.classProgress.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                    {assignment.classProgress.slice(0, 3).map((row) => (
-                        <StatusBadge key={row.classId || row.className} tone="neutral" label={`${classLabel(row)} ${row.completedCount}/${row.targetStudentCount}`} />
-                    ))}
-                    {assignment.classProgress.length > 3 && <StatusBadge tone="neutral" label={`+${assignment.classProgress.length - 3}`} />}
-                </div>
-            )}
         </SelectableCard>
     );
 }
@@ -1599,6 +1595,21 @@ function statusBadgeForRecipient(row: AssignmentRecipientProgress) {
     return <StatusBadge tone="neutral" label="미시작" />;
 }
 
+function accuracyTone(value: number | null): ProgressTone {
+    if (value === null) return 'neutral';
+    if (value >= 70) return 'success';
+    if (value >= 50) return 'warning';
+    return 'danger';
+}
+
+function typeInsightTone(insight: AssignmentTypeInsight): ProgressTone {
+    return accuracyTone(insight.correctRate);
+}
+
+function problemInsightTone(problem: AssignmentProblemProgress): ProgressTone {
+    return accuracyTone(problem.correctRate);
+}
+
 
 
 function AssignmentManagementList({
@@ -1702,6 +1713,7 @@ function AssignmentManagementList({
 
 function AssignmentDetailPanel({
     detail,
+    assignments,
     loading,
     error,
     classContextId,
@@ -1716,8 +1728,10 @@ function AssignmentDetailPanel({
     onAddRecipients,
     onRemoveRecipient,
     onRecall,
+    onStudentProgressFilterChange,
 }: {
     detail: LearningAssignmentDetail | null;
+    assignments: LearningAssignmentSummary[];
     loading: boolean;
     error: string | null;
     classContextId?: string | null;
@@ -1732,13 +1746,20 @@ function AssignmentDetailPanel({
     onAddRecipients: (studentIds: string[]) => Promise<void>;
     onRemoveRecipient: (studentId: string) => Promise<void>;
     onRecall: () => void;
+    onStudentProgressFilterChange: (value: ProgressStatusFilter) => void;
 }) {
     const [candidateIds, setCandidateIds] = useState<Set<string>>(new Set());
     const [candidateQuery, setCandidateQuery] = useState('');
+    const [detailTab, setDetailTab] = useState('overview');
+    const [expandedTypeKey, setExpandedTypeKey] = useState('');
+    const [expandedStudentId, setExpandedStudentId] = useState('');
 
     useEffect(() => {
         setCandidateIds(new Set());
         setCandidateQuery('');
+        setDetailTab('overview');
+        setExpandedTypeKey('');
+        setExpandedStudentId('');
     }, [detail?.assignment.id]);
 
     if (loading) return <SkeletonPanel rows={6} />;
@@ -1760,6 +1781,22 @@ function AssignmentDetailPanel({
     const displayedRecipients = studentProgressFilter === 'all'
         ? scopedRecipients
         : scopedRecipients.filter((row) => row.status === studentProgressFilter);
+    const typeInsights = buildAssignmentTypeInsights(detail.problems);
+    const performanceComparison = buildAssignmentPerformanceComparison(
+        assignment,
+        assignments,
+        classContextId || null,
+    );
+    const previousDelta = comparisonDelta(
+        performanceComparison.currentCorrectRate,
+        performanceComparison.previousAssignment?.correctRate ?? null,
+    );
+    const classAverageDelta = comparisonDelta(
+        performanceComparison.currentCorrectRate,
+        performanceComparison.recentClassAverage,
+    );
+    const weakTypeCount = typeInsights.filter((row) => row.correctRate !== null && row.correctRate < 50).length;
+    const incompleteRecipients = scopedRecipients.filter((row) => row.status !== 'completed');
     const candidates = detail.candidateStudents
         .filter((student) => {
             const query = candidateQuery.trim().toLowerCase();
@@ -1773,11 +1810,15 @@ function AssignmentDetailPanel({
         <Card className="self-start overflow-hidden">
             <CardHeader className="border-b bg-muted/25">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
+                    <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                            <CardTitle>{assignment.title}</CardTitle>
+                            <CardTitle className="text-lg">{assignment.title}</CardTitle>
                             <StatusBadge tone={dueTone(dueStatus(assignment))} label={dueLabel(dueStatus(assignment))} />
                             {classScoped && <StatusBadge tone="primary" label={classContextName || '선택 반'} />}
+                            <StatusBadge
+                                tone="info"
+                                label={assignment.sourceType === 'worksheet' ? 'PDF 과제' : '문제은행'}
+                            />
                         </div>
                         <p className="mt-1 text-sm text-muted-foreground">
                             {assignment.bookTitle || '외부 학습지'} · {assignment.problemCount}문항 · {formatDate(assignment.dueAt)}
@@ -1793,53 +1834,170 @@ function AssignmentDetailPanel({
                                 {recalling ? '회수 중' : '과제 회수'}
                             </Button>
                         )}
-                        <div className="grid min-w-[260px] grid-cols-3 gap-2 text-xs">
-                            <div className="rounded-lg bg-muted px-3 py-2">
-                                <p className="text-muted-foreground">대상</p>
-                                <p className="font-semibold text-foreground">{scopedProgress.targetStudentCount}명</p>
-                            </div>
-                            <div className="rounded-lg bg-muted px-3 py-2">
-                                <p className="text-muted-foreground">완료</p>
-                                <p className="font-semibold text-foreground">{scopedProgress.completedCount}명</p>
-                            </div>
-                            <div className="rounded-lg bg-muted px-3 py-2">
-                                <p className="text-muted-foreground">정답률</p>
-                                <p className="font-semibold text-foreground">{metricText(scopedProgress.correctRate)}</p>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </CardHeader>
+            <div className="space-y-2 border-b px-5 py-4">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                    <span className="font-semibold text-foreground">제출률</span>
+                    <span className="text-muted-foreground">
+                        <strong className="text-foreground">{scopedProgress.completedCount}</strong>
+                        /{scopedProgress.targetStudentCount}명 완료 · {scopedProgress.completionRate}%
+                    </span>
+                </div>
+                <ProgressLine
+                    value={scopedProgress.completionRate}
+                    tone={accuracyTone(scopedProgress.completionRate)}
+                />
+            </div>
             <CardContent className="p-4">
-                <Tabs defaultValue="overview" variant="underline">
+                <Tabs
+                    value={detailTab}
+                    onValueChange={(value) => setDetailTab(value)}
+                    variant="underline"
+                >
                     <TabsList className="flex h-auto w-full flex-wrap justify-start overflow-x-auto">
                         <TabsTrigger value="overview"><BarChart3 className="mr-2 h-4 w-4" />개요</TabsTrigger>
-                        <TabsTrigger value="students"><Users className="mr-2 h-4 w-4" />대상 학생</TabsTrigger>
-                        <TabsTrigger value="problems"><FileText className="mr-2 h-4 w-4" />문제</TabsTrigger>
+                        <TabsTrigger value="analysis"><FileText className="mr-2 h-4 w-4" />유형·문항 분석</TabsTrigger>
+                        <TabsTrigger value="students"><Users className="mr-2 h-4 w-4" />학생별 결과</TabsTrigger>
                     </TabsList>
                     <TabsContent value="overview">
-                        <div className="space-y-4">
-                            <AssignmentProgressSummary assignment={assignment} />
-                            <div className="grid gap-3 md:grid-cols-2">
-                                {classProgressRows.map((row) => (
-                                    <div key={row.classId || row.className} className="rounded-lg border bg-card p-3">
-                                        <div className="mb-2 flex items-center justify-between gap-2">
-                                            <p className="font-semibold text-foreground">{classLabel(row)}</p>
-                                            <span className="text-xs text-muted-foreground">{row.completedCount}/{row.targetStudentCount}</span>
+                        <div className="space-y-5">
+                            <div className="grid gap-3 sm:grid-cols-3">
+                                <div className="rounded-lg border bg-muted p-3">
+                                    <p className="text-xs text-muted-foreground">문항 수</p>
+                                    <p className="mt-1 text-base font-bold text-foreground">{assignment.problemCount}문항</p>
+                                </div>
+                                <div className="rounded-lg border bg-muted p-3">
+                                    <p className="text-xs text-muted-foreground">평균 정답률</p>
+                                    <p className="mt-1 text-base font-bold text-foreground">{metricText(scopedProgress.correctRate)}</p>
+                                </div>
+                                <div className="rounded-lg border bg-muted p-3">
+                                    <p className="text-xs text-muted-foreground">미완료</p>
+                                    <p className="mt-1 text-base font-bold text-foreground">{incompleteRecipients.length}명</p>
+                                </div>
+                            </div>
+                            {weakTypeCount > 0 && (
+                                <PageStatusBar tone="warning">
+                                    정답률 50% 미만 유형이 {weakTypeCount}개 있습니다. 분석 탭에서 보강할 문항을 확인하세요.
+                                </PageStatusBar>
+                            )}
+                            <section className="space-y-3">
+                                <div>
+                                    <h3 className="text-sm font-bold text-foreground">성취도 비교</h3>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        {classContextName || '개별 배정'}의 바로 이전 과제와 최근 과제 평균을 비교합니다.
+                                    </p>
+                                </div>
+                                <div className="grid gap-3 md:grid-cols-3">
+                                    <div className="rounded-lg border border-primary/20 bg-primary-soft p-3">
+                                        <p className="text-xs font-medium text-primary-strong">현재 과제</p>
+                                        <p className="mt-2 text-2xl font-bold text-foreground">
+                                            {metricText(performanceComparison.currentCorrectRate)}
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted-foreground">평균 정답률</p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <p className="text-xs font-medium text-muted-foreground">이전 과제</p>
+                                            {performanceComparison.previousAssignment && (
+                                                <StatusBadge
+                                                    tone={previousDelta.tone}
+                                                    label={previousDelta.label}
+                                                    icon={false}
+                                                />
+                                            )}
                                         </div>
-                                        <ProgressLine value={row.completionRate} />
-                                        <div className="mt-2 flex flex-wrap gap-1.5">
-                                            <StatusBadge tone="neutral" label={`미시작 ${row.notStartedCount}`} />
-                                            <StatusBadge tone="warning" label={`진행 ${row.inProgressCount}`} />
-                                            <StatusBadge tone="success" label={`완료 ${row.completedCount}`} />
+                                        <p className="mt-2 text-2xl font-bold text-foreground">
+                                            {metricText(performanceComparison.previousAssignment?.correctRate ?? null)}
+                                        </p>
+                                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                                            {performanceComparison.previousAssignment?.title || '비교할 풀이 기록 없음'}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-lg border bg-card p-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <p className="text-xs font-medium text-muted-foreground">최근 반 평균</p>
+                                            {performanceComparison.recentClassAverage !== null && (
+                                                <StatusBadge
+                                                    tone={classAverageDelta.tone}
+                                                    label={classAverageDelta.label}
+                                                    icon={false}
+                                                />
+                                            )}
                                         </div>
+                                        <p className="mt-2 text-2xl font-bold text-foreground">
+                                            {metricText(performanceComparison.recentClassAverage)}
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            최근 {performanceComparison.recentAssignmentCount || 0}개 과제 기준
+                                        </p>
+                                    </div>
+                                </div>
+                            </section>
+                            <section className="space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <h3 className="text-sm font-bold text-foreground">유형별 정답률</h3>
+                                    {classScoped && <span className="text-xs text-muted-foreground">과제 전체 대상 기준</span>}
+                                </div>
+                                {typeInsights.slice(0, 4).map((row) => (
+                                    <div key={row.key} className="grid gap-2 sm:grid-cols-[minmax(120px,0.7fr)_minmax(160px,1fr)_48px] sm:items-center">
+                                        <span className="truncate text-sm font-medium text-foreground">{row.name}</span>
+                                        <ProgressLine value={row.correctRate || 0} tone={typeInsightTone(row)} />
+                                        <strong className={cn(
+                                            'text-right text-sm',
+                                            row.correctRate !== null && row.correctRate < 50 ? 'text-destructive' : 'text-foreground',
+                                        )}>
+                                            {metricText(row.correctRate)}
+                                        </strong>
                                     </div>
                                 ))}
-                            </div>
+                                {typeInsights.length === 0 && (
+                                    <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                                        아직 유형별 분석에 사용할 풀이 기록이 없습니다.
+                                    </p>
+                                )}
+                            </section>
+                            <section className="space-y-3">
+                                <h3 className="text-sm font-bold text-foreground">미완료 학생 · {incompleteRecipients.length}명</h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {incompleteRecipients.slice(0, 12).map((row) => (
+                                        <StatusBadge key={row.id} tone={row.status === 'in_progress' ? 'warning' : 'neutral'} label={row.studentName} />
+                                    ))}
+                                    {incompleteRecipients.length > 12 && (
+                                        <StatusBadge tone="neutral" label={`+${incompleteRecipients.length - 12}명`} />
+                                    )}
+                                    {incompleteRecipients.length === 0 && (
+                                        <span className="flex items-center gap-2 text-sm text-success-foreground">
+                                            <CheckCircle2 className="h-4 w-4" />
+                                            모든 학생이 완료했습니다.
+                                        </span>
+                                    )}
+                                </div>
+                            </section>
                         </div>
                     </TabsContent>
                     <TabsContent value="students">
                         <div className="space-y-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h3 className="text-sm font-bold text-foreground">학생별 진행 결과</h3>
+                                    <p className="mt-1 text-xs text-muted-foreground">학생을 누르면 풀이 요약과 상세 이동이 펼쳐집니다.</p>
+                                </div>
+                                <Select
+                                    value={studentProgressFilter}
+                                    onValueChange={(value) => onStudentProgressFilterChange(value as ProgressStatusFilter)}
+                                >
+                                    <SelectTrigger className="w-full sm:w-40">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {progressStatusOptions.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                             {canManageRecipients && !recalled && (
                                 <FormSection title="새 대상 추가" description="과제 생성 이후 반에 들어온 학생을 수동으로 추가합니다.">
                                     <div className="grid gap-2 md:grid-cols-[1fr_auto]">
@@ -1868,87 +2026,152 @@ function AssignmentDetailPanel({
                                 </FormSection>
                             )}
 
-                            <DataTable>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>학생</TableHead>
-                                            <TableHead>반</TableHead>
-                                            <TableHead>상태</TableHead>
-                                            <TableHead>풀이</TableHead>
-                                            <TableHead>정답률</TableHead>
-                                            <TableHead>최근</TableHead>
-                                            <TableHead>상세</TableHead>
-                                            {canManageRecipients && !recalled && <TableHead>관리</TableHead>}
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {displayedRecipients.map((row) => (
-                                            <TableRow key={row.id}>
-                                                <TableCell className="font-medium">{row.studentName}</TableCell>
-                                                <TableCell>{row.className || '-'}</TableCell>
-                                                <TableCell>{statusBadgeForRecipient(row)}</TableCell>
-                                                <TableCell>{row.attemptedProblemCount}/{row.requiredProblemCount}</TableCell>
-                                                <TableCell>{metricText(row.correctRate)}</TableCell>
-                                                <TableCell>{shortDate(row.lastActivityAt)}</TableCell>
-                                                <TableCell>
-                                                    <Button asChild variant="ghost" size="sm">
-                                                        <Link href={`/students/${encodeURIComponent(row.studentId)}`}>
-                                                            학생 상세
-                                                        </Link>
-                                                    </Button>
-                                                </TableCell>
-                                                {canManageRecipients && !recalled && (
-                                                    <TableCell>
-                                                        <Button
-                                                            type="button"
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            disabled={removingStudentId === row.studentId}
-                                                            onClick={() => void onRemoveRecipient(row.studentId)}
-                                                        >
-                                                            <UserMinus className="mr-2 h-4 w-4" />
-                                                            제외
+                            <div className="space-y-2">
+                                {displayedRecipients.map((row) => {
+                                    const expanded = expandedStudentId === row.id;
+                                    return (
+                                        <div key={row.id} className="overflow-hidden rounded-lg border border-border bg-card">
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                className="h-auto w-full justify-start rounded-none px-4 py-3 text-left"
+                                                aria-expanded={expanded}
+                                                onClick={() => setExpandedStudentId(expanded ? '' : row.id)}
+                                            >
+                                                <span className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                                                    <strong className="min-w-24 truncate text-sm text-foreground">{row.studentName}</strong>
+                                                    {statusBadgeForRecipient(row)}
+                                                    <span className="text-xs text-muted-foreground">{row.className || '반 미지정'}</span>
+                                                    <span className="flex-1" />
+                                                    <span className="text-xs text-muted-foreground">
+                                                        정답률 <strong className={cn(
+                                                            row.correctRate !== null && row.correctRate < 50 ? 'text-destructive' : 'text-foreground',
+                                                        )}>{metricText(row.correctRate)}</strong>
+                                                    </span>
+                                                    {expanded
+                                                        ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                        : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                                                </span>
+                                            </Button>
+                                            {expanded && (
+                                                <div className="border-t border-border bg-muted/35 p-4">
+                                                    <div className="grid gap-2 text-sm sm:grid-cols-3">
+                                                        <div>
+                                                            <p className="text-xs text-muted-foreground">풀이 문항</p>
+                                                            <p className="mt-1 font-semibold text-foreground">{row.attemptedProblemCount}/{row.requiredProblemCount}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-xs text-muted-foreground">총 시도</p>
+                                                            <p className="mt-1 font-semibold text-foreground">{row.attemptCount}회</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-xs text-muted-foreground">최근 활동</p>
+                                                            <p className="mt-1 font-semibold text-foreground">{shortDate(row.lastActivityAt)}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                        <Button asChild variant="outline" size="sm">
+                                                            <Link href={`/students/${encodeURIComponent(row.studentId)}`}>
+                                                                학생 상세
+                                                            </Link>
                                                         </Button>
-                                                    </TableCell>
-                                                )}
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </DataTable>
+                                                        {canManageRecipients && !recalled && (
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                disabled={removingStudentId === row.studentId}
+                                                                onClick={() => void onRemoveRecipient(row.studentId)}
+                                                            >
+                                                                <UserMinus className="mr-2 h-4 w-4" />
+                                                                대상에서 제외
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                             {displayedRecipients.length === 0 && (
                                 <EmptyState title="조건에 맞는 학생 현황이 없습니다." className="min-h-[140px]" />
                             )}
                         </div>
                     </TabsContent>
-                    <TabsContent value="problems">
-                        <DataTable>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>문제</TableHead>
-                                        <TableHead>단원</TableHead>
-                                        <TableHead>유형</TableHead>
-                                        <TableHead>시도</TableHead>
-                                        <TableHead>푼 학생</TableHead>
-                                        <TableHead>정답률</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {detail.problems.map((row) => (
-                                        <TableRow key={row.problemId}>
-                                            <TableCell className="font-medium">{row.label}</TableCell>
-                                            <TableCell>{row.unitName || '-'}</TableCell>
-                                            <TableCell>{row.typeName || '-'}</TableCell>
-                                            <TableCell>{row.attemptCount}</TableCell>
-                                            <TableCell>{row.attemptedStudentCount}</TableCell>
-                                            <TableCell>{metricText(row.correctRate)}</TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </DataTable>
+                    <TabsContent value="analysis">
+                        <div className="space-y-3">
+                            <div>
+                                <h3 className="text-sm font-bold text-foreground">유형·문항별 정답률</h3>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    유형을 누르면 어려웠던 문항부터 펼쳐집니다.
+                                    {classScoped && ' 문항 통계는 과제 전체 대상 기준입니다.'}
+                                </p>
+                            </div>
+                            {typeInsights.map((insight) => {
+                                const expanded = expandedTypeKey === insight.key;
+                                return (
+                                    <div key={insight.key} className="overflow-hidden rounded-lg border border-border bg-card">
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            className="h-auto w-full justify-start rounded-none px-4 py-3 text-left"
+                                            aria-expanded={expanded}
+                                            onClick={() => setExpandedTypeKey(expanded ? '' : insight.key)}
+                                        >
+                                            <span className="flex w-full min-w-0 flex-col gap-2 md:flex-row md:items-center">
+                                                <span className="min-w-0 md:w-44">
+                                                    <strong className="block truncate text-sm text-foreground">{insight.name}</strong>
+                                                    <span className="text-xs text-muted-foreground">{insight.problemCount}문항</span>
+                                                </span>
+                                                <span className="min-w-28 flex-1">
+                                                    <ProgressLine value={insight.correctRate || 0} tone={typeInsightTone(insight)} />
+                                                </span>
+                                                <strong className={cn(
+                                                    'w-12 text-right text-sm',
+                                                    insight.correctRate !== null && insight.correctRate < 50 ? 'text-destructive' : 'text-foreground',
+                                                )}>
+                                                    {metricText(insight.correctRate)}
+                                                </strong>
+                                                {insight.correctRate !== null && insight.correctRate < 50 && (
+                                                    <StatusBadge tone="danger" label="보강 필요" />
+                                                )}
+                                                {expanded
+                                                    ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                    : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                                            </span>
+                                        </Button>
+                                        {expanded && (
+                                            <div className="space-y-2 border-t border-border bg-muted/35 p-3">
+                                                {insight.problems.map((problem) => (
+                                                    <div
+                                                        key={problem.problemId}
+                                                        className="grid gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm sm:grid-cols-[minmax(120px,0.8fr)_minmax(120px,1fr)_80px_48px] sm:items-center"
+                                                    >
+                                                        <span className="truncate font-medium text-foreground">{problem.label}</span>
+                                                        <ProgressLine value={problem.correctRate || 0} tone={problemInsightTone(problem)} />
+                                                        <span className="text-xs text-muted-foreground">{problem.attemptedStudentCount}명 풀이</span>
+                                                        <strong className={cn(
+                                                            'text-right',
+                                                            problem.correctRate !== null && problem.correctRate < 50 ? 'text-destructive' : 'text-foreground',
+                                                        )}>
+                                                            {metricText(problem.correctRate)}
+                                                        </strong>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {typeInsights.length === 0 && (
+                                <EmptyState
+                                    title="아직 분석할 풀이 기록이 없습니다."
+                                    description="학생이 문제를 풀면 유형·문항별 정답률이 표시됩니다."
+                                    className="min-h-[180px]"
+                                />
+                            )}
+                        </div>
                     </TabsContent>
                 </Tabs>
             </CardContent>
@@ -2122,42 +2345,27 @@ function AssignmentClassSelector({
     onSelect: (key: string) => void;
 }) {
     return (
-        <div className="space-y-2">
-            {options.map((option) => (
-                <SelectableCard
-                    key={option.key}
-                    selected={selectedKey === option.key}
-                    onClick={() => onSelect(option.key)}
-                    className="p-3"
-                >
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                                <p className="truncate font-semibold text-foreground">{option.name}</p>
-                                {option.overdueCount > 0 && <StatusBadge tone="danger" label={`기한 지남 ${option.overdueCount}`} />}
-                                {option.overdueCount === 0 && option.dueSoonCount > 0 && <StatusBadge tone="warning" label={`임박 ${option.dueSoonCount}`} />}
-                            </div>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                                학생 {option.studentCount}명 · 표시 {option.visibleAssignmentCount}/{option.assignmentCount}개 과제
-                            </p>
-                        </div>
-                        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    </div>
-                    <div className="mt-3 space-y-1.5">
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>평균 완료율</span>
-                            <span>{option.completionRate}%</span>
-                        </div>
-                        <ProgressLine value={option.completionRate} />
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                        <StatusBadge tone={option.incompleteStudentCount > 0 ? 'warning' : 'success'} label={`미완료 ${option.incompleteStudentCount}명`} />
-                        <StatusBadge tone="neutral" label={`진행 과제 ${option.assignmentCount}개`} />
-                    </div>
-                </SelectableCard>
-            ))}
-        </div>
+        <Select value={selectedKey} onValueChange={onSelect} disabled={options.length === 0}>
+            <SelectTrigger>
+                <SelectValue placeholder="반을 선택하세요" />
+            </SelectTrigger>
+            <SelectContent>
+                {options.map((option) => (
+                    <SelectItem key={option.key} value={option.key}>
+                        {option.name} · {option.visibleAssignmentCount}개
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     );
+}
+
+function assignmentGroupTone(group: AssignmentListGroup): 'neutral' | 'success' | 'warning' | 'danger' | 'primary' {
+    if (group === 'overdue') return 'danger';
+    if (group === 'today' || group === 'this_week') return 'warning';
+    if (group === 'completed') return 'success';
+    if (group === 'recalled') return 'neutral';
+    return 'primary';
 }
 
 function ClassAssignmentList({
@@ -2172,24 +2380,44 @@ function ClassAssignmentList({
     onSelect: (assignmentId: string) => void;
 }) {
     if (assignments.length === 0) {
-        return <EmptyState title="조건에 맞는 과제가 없습니다." description="완료 포함을 켜거나 검색/상태 필터를 조정하세요." />;
+        return <EmptyState title="조건에 맞는 과제가 없습니다." description="진행/완료 탭이나 검색·상태 필터를 조정하세요." />;
     }
 
+    const groups = assignmentListGroupOrder
+        .map((group) => ({
+            group,
+            assignments: assignments.filter((assignment) => assignmentListGroup(assignment) === group),
+        }))
+        .filter((row) => row.assignments.length > 0);
+
     return (
-        <div className="space-y-2">
-            {assignments.map((assignment) => {
-                const progress = progressForClass(assignment, classId);
-                if (!progress) return null;
-                return (
-                    <AssignmentCard
-                        key={`${assignment.id}-${assignmentClassKey(classId)}`}
-                        assignment={assignment}
-                        selected={assignment.id === selectedAssignmentId}
-                        classContext={progress}
-                        onSelect={() => onSelect(assignment.id)}
-                    />
-                );
-            })}
+        <div className="space-y-5">
+            {groups.map((row) => (
+                <section key={row.group} className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 px-1">
+                        <StatusBadge
+                            tone={assignmentGroupTone(row.group)}
+                            label={assignmentListGroupLabels[row.group]}
+                        />
+                        <span className="text-xs font-medium text-muted-foreground">{row.assignments.length}건</span>
+                    </div>
+                    <div className="space-y-2">
+                        {row.assignments.map((assignment) => {
+                            const progress = progressForClass(assignment, classId);
+                            if (!progress) return null;
+                            return (
+                                <AssignmentCard
+                                    key={`${assignment.id}-${assignmentClassKey(classId)}`}
+                                    assignment={assignment}
+                                    selected={assignment.id === selectedAssignmentId}
+                                    classContext={progress}
+                                    onSelect={() => onSelect(assignment.id)}
+                                />
+                            );
+                        })}
+                    </div>
+                </section>
+            ))}
         </div>
     );
 }
@@ -2256,10 +2484,12 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
+        const requestedStatus = (params.get('status') as AssignmentStatusFilter | null) || 'all';
+        const completedView = params.get('completed') === '1' || requestedStatus === 'completed';
         if (!initialAssignmentId) setSelectedAssignmentId(params.get('assignmentId') || '');
         setSearchQuery(params.get('q') || '');
-        setStatusFilter((params.get('status') as AssignmentStatusFilter | null) || 'all');
-        setIncludeCompleted(params.get('completed') === '1');
+        setStatusFilter(completedView ? 'completed' : requestedStatus);
+        setIncludeCompleted(completedView);
         setFiltersHydrated(true);
     }, [initialAssignmentId]);
 
@@ -2336,6 +2566,18 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
     const selectedAssignment = useMemo(() => (
         visibleAssignments.find((assignment) => assignment.id === selectedAssignmentId) || null
     ), [selectedAssignmentId, visibleAssignments]);
+
+    const assignmentCounts = useMemo(() => {
+        const assignments = data?.assignments || [];
+        return {
+            ongoing: assignments.filter((assignment) => {
+                const group = assignmentListGroup(assignment);
+                return group !== 'completed' && group !== 'recalled';
+            }).length,
+            completed: assignments.filter((assignment) => assignmentListGroup(assignment) === 'completed').length,
+            today: assignments.filter((assignment) => assignmentListGroup(assignment) === 'today').length,
+        };
+    }, [data]);
 
     useEffect(() => {
         void loadDetail(selectedAssignmentId);
@@ -2417,15 +2659,24 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
 
     return (
         <PageShell
-            title="과제 현황"
+            title="과제"
+            subtitle={`진행 중 ${assignmentCounts.ongoing}건 · 오늘 마감 ${assignmentCounts.today}건`}
             icon={ClipboardList}
             actions={data?.permissions.canCreate ? (
-                <Button asChild>
-                    <Link href="/assignments/new">
-                        <SlidersHorizontal className="mr-2 h-4 w-4" />
-                        과제 관리
-                    </Link>
-                </Button>
+                <>
+                    <Button asChild variant="outline">
+                        <Link href="/assignments/pdf-match">
+                            <FileText className="mr-2 h-4 w-4" />
+                            PDF 과제 배정
+                        </Link>
+                    </Button>
+                    <Button asChild>
+                        <Link href="/assignments/new">
+                            <Plus className="mr-2 h-4 w-4" />
+                            과제 만들기
+                        </Link>
+                    </Button>
+                </>
             ) : undefined}
         >
             {!loading && refreshing && (
@@ -2443,61 +2694,37 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
             )}
             {!loading && !error && data && (
                 <div className="space-y-4">
-                    <section className="rounded-xl border border-border bg-card p-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                            <div className="min-w-0">
-                                <h2 className="text-base font-semibold text-foreground">반별 과제 진행</h2>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                    담당 반 {classOptions.length}개 · 완료 과제는 기본 숨김
-                                </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                {data.permissions.scopedToAssignedClasses && <StatusBadge tone="neutral" label="내 반만" />}
-                                <label className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm text-foreground">
-                                    <Checkbox checked={includeCompleted} onCheckedChange={(checked) => setIncludeCompleted(Boolean(checked))} />
-                                    완료 포함
-                                </label>
-                            </div>
-                        </div>
-                        <div className="mt-4 grid gap-2 lg:grid-cols-[minmax(240px,1fr)_220px_220px]">
-                            <div className="relative">
-                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                <Input
-                                    className="pl-9"
-                                    value={searchQuery}
-                                    onChange={(event) => setSearchQuery(event.target.value)}
-                                    placeholder="과제명, 교재, 대상 검색"
-                                />
-                            </div>
-                            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as AssignmentStatusFilter)}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {statusFilterOptions.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <Select value={studentProgressFilter} onValueChange={(value) => setStudentProgressFilter(value as ProgressStatusFilter)}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {progressStatusOptions.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </section>
-                    <div className="grid min-h-[640px] gap-5 xl:grid-cols-[minmax(260px,0.7fr)_minmax(320px,0.9fr)_minmax(560px,1.35fr)]">
-                        <section className="overflow-hidden rounded-xl border border-border bg-card">
+                    <div className="grid min-h-[640px] gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+                        <section className="self-start overflow-hidden rounded-xl border border-border bg-card shadow-card">
                             <div className="border-b p-4">
-                                <h2 className="text-base font-semibold text-foreground">반</h2>
-                                <p className="mt-1 text-xs text-muted-foreground">담당중인 전체 반</p>
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <ClipboardList className="h-4 w-4 shrink-0 text-primary" />
+                                            <h2 className="truncate text-base font-bold text-foreground">과제 목록</h2>
+                                        </div>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {selectedClass?.name || '반 선택'} · {visibleAssignments.length}건 표시
+                                        </p>
+                                    </div>
+                                    {selectedClass && <StatusBadge tone="primary" label={`${selectedClass.completionRate}%`} />}
+                                </div>
                             </div>
-                            <div className="max-h-[calc(100vh-20rem)] overflow-auto p-4">
+                            <div className="space-y-3 border-b p-4">
+                                <Tabs
+                                    value={includeCompleted ? 'completed' : 'ongoing'}
+                                    onValueChange={(value) => {
+                                        const completed = value === 'completed';
+                                        setIncludeCompleted(completed);
+                                        setStatusFilter(completed ? 'completed' : 'all');
+                                        setSelectedAssignmentId('');
+                                    }}
+                                >
+                                    <TabsList className="grid w-full grid-cols-2">
+                                        <TabsTrigger value="ongoing">진행 중 {assignmentCounts.ongoing}</TabsTrigger>
+                                        <TabsTrigger value="completed">완료 {assignmentCounts.completed}</TabsTrigger>
+                                    </TabsList>
+                                </Tabs>
                                 <AssignmentClassSelector
                                     options={classOptions}
                                     selectedKey={selectedClassKey}
@@ -2506,22 +2733,29 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
                                         setSelectedAssignmentId('');
                                     }}
                                 />
-                            </div>
-                        </section>
-
-                        <section className="overflow-hidden rounded-xl border border-border bg-card">
-                            <div className="border-b p-4">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <h2 className="truncate text-base font-semibold text-foreground">{selectedClass?.name || '반 선택'}</h2>
-                                        <p className="mt-1 text-xs text-muted-foreground">
-                                            {visibleAssignments.length}개 과제 표시 · 기한 임박/미완료 우선
-                                        </p>
-                                    </div>
-                                    {selectedClass && <StatusBadge tone="primary" label={`${selectedClass.completionRate}%`} />}
+                                <div className="relative">
+                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        className="pl-9"
+                                        value={searchQuery}
+                                        onChange={(event) => setSearchQuery(event.target.value)}
+                                        placeholder="과제명·교재 검색"
+                                    />
                                 </div>
+                                {!includeCompleted && (
+                                    <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as AssignmentStatusFilter)}>
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {statusFilterOptions.filter((option) => option.value !== 'completed').map((option) => (
+                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
                             </div>
-                            <div className="max-h-[calc(100vh-20rem)] overflow-auto p-4">
+                            <div className="max-h-[calc(100vh-18rem)] overflow-auto p-4">
                                 <ClassAssignmentList
                                     assignments={visibleAssignments}
                                     classId={selectedClassId}
@@ -2534,6 +2768,7 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
                         {selectedAssignment ? (
                             <AssignmentDetailPanel
                                 detail={detail}
+                                assignments={data.assignments}
                                 loading={detailLoading}
                                 error={detailError}
                                 classContextId={selectedClassId}
@@ -2548,6 +2783,7 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
                                 onAddRecipients={addRecipients}
                                 onRemoveRecipient={removeRecipient}
                                 onRecall={() => setRecallOpen(true)}
+                                onStudentProgressFilterChange={setStudentProgressFilter}
                             />
                         ) : (
                             <Card>
@@ -2555,7 +2791,7 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
                                     <CheckCircle2 className="h-9 w-9 text-muted-foreground" />
                                     <div>
                                         <p className="text-sm font-medium text-foreground">과제를 선택하세요.</p>
-                                        <p className="mt-1 text-xs text-muted-foreground">반과 과제를 선택하면 학생별 진행 현황이 표시됩니다.</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">왼쪽 목록에서 과제를 선택하면 분석과 학생별 결과가 표시됩니다.</p>
                                     </div>
                                     {data.permissions.canCreate && (
                                         <Button asChild variant="outline" size="sm">
