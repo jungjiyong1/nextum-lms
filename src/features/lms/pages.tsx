@@ -10,13 +10,10 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronRight,
-  ClipboardList,
   Clock,
   CreditCard,
   Download,
   House,
-  LayoutGrid,
-  Megaphone,
   ReceiptText,
   RefreshCw,
   Save,
@@ -422,12 +419,62 @@ function LearningTaskRow({
   );
 }
 
+type HomeQuickActionIconName = 'clipboard' | 'grid' | 'megaphone' | 'calendar';
+
+function HomeQuickActionIcon({ name }: { name: HomeQuickActionIconName }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {name === 'clipboard' && (
+        <>
+          <rect x="8" y="2" width="8" height="4" rx="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <path d="M12 11h4" />
+          <path d="M12 16h4" />
+          <path d="M8 11h.01" />
+          <path d="M8 16h.01" />
+        </>
+      )}
+      {name === 'grid' && (
+        <>
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+        </>
+      )}
+      {name === 'megaphone' && (
+        <>
+          <path d="m3 11 18-5v12L3 14v-3z" />
+          <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+        </>
+      )}
+      {name === 'calendar' && (
+        <>
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <path d="M16 2v4M8 2v4M3 10h18" />
+          <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 function QuickAction({
-  icon: Icon,
+  icon,
   label,
   href,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: HomeQuickActionIconName;
   label: string;
   href: string;
 }) {
@@ -437,7 +484,7 @@ function QuickAction({
       className="flex flex-col items-center justify-center gap-[9px] rounded-[14px] border bg-card px-2.5 py-[18px] text-center shadow-card transition-colors hover:border-primary/50 hover:bg-muted focus-visible:border-primary/50 focus-visible:bg-muted focus-visible:outline-none"
     >
       <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-soft text-primary">
-        <Icon className="h-[22px] w-[22px]" />
+        <HomeQuickActionIcon name={icon} />
       </span>
       <span className="text-sm font-semibold text-foreground">{label}</span>
     </Link>
@@ -682,14 +729,14 @@ export function LearningHomePage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <QuickAction
-                icon={ClipboardList}
+                icon="clipboard"
                 label="과제 배정"
                 href={`/assignments/new?source=home&date=${encodeURIComponent(data.date)}`}
               />
-              <QuickAction icon={LayoutGrid} label="시간표 보기" href="/classrooms/schedule" />
-              <QuickAction icon={Megaphone} label="공지/알림" href="#admin-alerts" />
+              <QuickAction icon="grid" label="시간표 보기" href="/classrooms/schedule" />
+              <QuickAction icon="megaphone" label="공지/알림" href="#admin-alerts" />
               <QuickAction
-                icon={CalendarDays}
+                icon="calendar"
                 label="출결 입력"
                 href={`/classrooms/attendance?date=${encodeURIComponent(data.date)}`}
               />
