@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    assignmentListDueLabel,
     assignmentListGroup,
     buildAssignmentPerformanceComparison,
     buildAssignmentTypeInsights,
@@ -62,6 +63,26 @@ describe('assignmentListGroup', () => {
             },
         }), now)).toBe('completed');
         expect(assignmentListGroup(assignment({ active: false }), now)).toBe('recalled');
+    });
+});
+
+describe('assignmentListDueLabel', () => {
+    const now = new Date('2026-07-17T09:00:00+09:00');
+
+    it('uses the compact deadline language from the assignment list design', () => {
+        expect(assignmentListDueLabel(assignment(), now)).toBe('오늘 마감');
+        expect(assignmentListDueLabel(assignment({ dueAt: '2026-07-18T18:00:00+09:00' }), now)).toBe('마감 7/18 토');
+        expect(assignmentListDueLabel(assignment({ dueAt: null }), now)).toBe('기한 없음');
+    });
+
+    it('labels completed assignments without presenting them as still due', () => {
+        expect(assignmentListDueLabel(assignment({
+            progress: {
+                ...assignment().progress,
+                completedCount: 10,
+                completionRate: 100,
+            },
+        }), now)).toBe('7/17 금 완료');
     });
 });
 
@@ -188,6 +209,46 @@ describe('buildAssignmentPerformanceComparison', () => {
             previousAssignment: null,
             recentClassAverage: null,
             recentAssignmentCount: 0,
+        });
+    });
+
+    it('uses overall progress while still matching prior assignments to the same target classes', () => {
+        const current = classAssignment('current', '2026-07-17T09:00:00+09:00', 80, {
+            progress: {
+                ...assignment().progress,
+                correctRate: 82,
+            },
+        });
+        const previous = classAssignment('previous', '2026-07-10T09:00:00+09:00', 70, {
+            progress: {
+                ...assignment().progress,
+                correctRate: 74,
+            },
+        });
+        const otherClass = classAssignment('other', '2026-07-12T09:00:00+09:00', 90, {
+            classIds: ['class-2'],
+            classProgress: [{
+                ...classAssignment('source', '2026-07-01T09:00:00+09:00', 90).classProgress[0],
+                classId: 'class-2',
+                className: '중등 2반',
+            }],
+            progress: {
+                ...assignment().progress,
+                correctRate: 95,
+            },
+        });
+
+        expect(buildAssignmentPerformanceComparison(
+            current,
+            [current, previous, otherClass],
+        )).toMatchObject({
+            currentCorrectRate: 82,
+            previousAssignment: {
+                assignmentId: 'previous',
+                correctRate: 74,
+            },
+            recentClassAverage: 74,
+            recentAssignmentCount: 1,
         });
     });
 });

@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
     ArrowLeft,
     ArchiveX,
-    BarChart3,
     CheckCircle2,
     ChevronDown,
     ChevronRight,
@@ -77,11 +76,11 @@ import {
 import { loadAssignmentProblemCatalog } from './problem-catalog-client';
 import {
     assignmentListGroup,
+    assignmentListDueLabel,
     assignmentListGroupLabels,
     assignmentListGroupOrder,
     buildAssignmentPerformanceComparison,
     buildAssignmentTypeInsights,
-    type AssignmentListGroup,
     type AssignmentTypeInsight,
 } from './assignment-status-view';
 import type {
@@ -91,6 +90,7 @@ import type {
     AssignmentProblemScope,
     AssignmentProblemSummary,
     AssignmentProblemTypeSummary,
+    AssignmentProgressSummary,
     AssignmentRecipientProgress,
     AssignmentUnitSummary,
     CreateLearningAssignmentInput,
@@ -103,15 +103,6 @@ type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
 type AssignmentStatusFilter = 'all' | 'open' | 'due_soon' | 'overdue' | 'completed' | 'recalled';
 type ProgressStatusFilter = 'all' | 'not_started' | 'in_progress' | 'completed';
 type AssignmentManageTab = 'manage' | 'deploy';
-
-const statusFilterOptions: Array<{ value: AssignmentStatusFilter; label: string }> = [
-    { value: 'all', label: '전체' },
-    { value: 'open', label: '진행중' },
-    { value: 'due_soon', label: '기한 임박' },
-    { value: 'overdue', label: '기한 지남' },
-    { value: 'completed', label: '완료' },
-    { value: 'recalled', label: '회수됨' },
-];
 
 const progressStatusOptions: Array<{ value: ProgressStatusFilter; label: string }> = [
     { value: 'all', label: '전체' },
@@ -249,48 +240,43 @@ function comparisonDelta(
 function AssignmentCard({
     assignment,
     selected,
-    classContext,
+    progress,
+    className,
     onSelect,
 }: {
     assignment: LearningAssignmentSummary;
     selected: boolean;
-    classContext?: AssignmentClassProgressSummary | null;
+    progress: AssignmentProgressSummary;
+    className?: string;
     onSelect: () => void;
 }) {
     const status = dueStatus(assignment);
-    const progress = classContext || assignment.progress;
+    const targetLabel = className
+        || assignment.targetLabels.slice(0, 2).join(', ')
+        || '개별 배정';
     return (
-        <SelectableCard
-            selected={selected}
+        <Button
+            type="button"
+            variant="ghost"
             onClick={onSelect}
             className={cn(
-                'space-y-2 border-l-4 p-3',
-                selected ? 'border-l-primary' : 'border-l-transparent',
+                'h-auto w-full justify-start gap-3 rounded-lg border border-transparent px-3.5 py-2.5 text-left text-sm font-normal',
+                selected ? 'bg-primary-soft' : 'bg-transparent hover:bg-muted',
             )}
+            aria-pressed={selected}
         >
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <div className="truncate font-semibold text-foreground">{assignment.title}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        <span>{assignment.bookTitle || '외부 학습지'}</span>
-                        <span>·</span>
-                        <span>{formatDate(assignment.dueAt)}</span>
-                    </div>
-                </div>
-                <StatusBadge
-                    className="shrink-0 whitespace-nowrap"
-                    tone={dueTone(status)}
-                    label={`${progress.completionRate}%`}
-                />
-            </div>
-            <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{progress.completedCount}/{progress.targetStudentCount}명 완료</span>
-                    <span>{assignment.problemCount}문항</span>
-                </div>
-                <ProgressLine value={progress.completionRate} />
-            </div>
-        </SelectableCard>
+            <span className="min-w-0 flex-1">
+                <span className="block truncate font-bold text-foreground">{assignment.title}</span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    {targetLabel} · {assignmentListDueLabel(assignment)} · {progress.completedCount}/{progress.targetStudentCount}명
+                </span>
+            </span>
+            <StatusBadge
+                className="shrink-0 whitespace-nowrap"
+                tone={dueTone(status)}
+                label={`${progress.completionRate}%`}
+            />
+        </Button>
     );
 }
 
@@ -1785,7 +1771,7 @@ function AssignmentDetailPanel({
     const performanceComparison = buildAssignmentPerformanceComparison(
         assignment,
         assignments,
-        classContextId || null,
+        classContextId,
     );
     const previousDelta = comparisonDelta(
         performanceComparison.currentCorrectRate,
@@ -1808,13 +1794,16 @@ function AssignmentDetailPanel({
 
     return (
         <Card className="self-start overflow-hidden">
-            <CardHeader className="border-b bg-muted/25">
+            <CardHeader className="border-b">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <CardTitle className="text-lg">{assignment.title}</CardTitle>
+                        <CardTitle className="text-lg">{assignment.title}</CardTitle>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
                             <StatusBadge tone={dueTone(dueStatus(assignment))} label={dueLabel(dueStatus(assignment))} />
                             {classScoped && <StatusBadge tone="primary" label={classContextName || '선택 반'} />}
+                            {!classScoped && assignment.targetLabels.slice(0, 2).map((label) => (
+                                <StatusBadge key={label} tone="neutral" label={label} icon={false} />
+                            ))}
                             <StatusBadge
                                 tone="info"
                                 label={assignment.sourceType === 'worksheet' ? 'PDF 과제' : '문제은행'}
@@ -1857,9 +1846,9 @@ function AssignmentDetailPanel({
                     variant="underline"
                 >
                     <TabsList className="flex h-auto w-full flex-wrap justify-start overflow-x-auto">
-                        <TabsTrigger value="overview"><BarChart3 className="mr-2 h-4 w-4" />개요</TabsTrigger>
-                        <TabsTrigger value="analysis"><FileText className="mr-2 h-4 w-4" />유형·문항 분석</TabsTrigger>
-                        <TabsTrigger value="students"><Users className="mr-2 h-4 w-4" />학생별 결과</TabsTrigger>
+                        <TabsTrigger value="overview">개요</TabsTrigger>
+                        <TabsTrigger value="analysis">유형·문항 분석</TabsTrigger>
+                        <TabsTrigger value="students">학생별 결과</TabsTrigger>
                     </TabsList>
                     <TabsContent value="overview">
                         <div className="space-y-5">
@@ -1886,7 +1875,7 @@ function AssignmentDetailPanel({
                                 <div>
                                     <h3 className="text-sm font-bold text-foreground">성취도 비교</h3>
                                     <p className="mt-1 text-xs text-muted-foreground">
-                                        {classContextName || '개별 배정'}의 바로 이전 과제와 최근 과제 평균을 비교합니다.
+                                        {classScoped ? classContextName || '개별 배정' : '같은 대상 반'}의 바로 이전 과제와 최근 과제 평균을 비교합니다.
                                     </p>
                                 </div>
                                 <div className="grid gap-3 md:grid-cols-3">
@@ -2179,6 +2168,7 @@ function AssignmentDetailPanel({
     );
 }
 
+const ALL_CLASS_KEY = '__all__';
 const INDIVIDUAL_CLASS_KEY = '__individual__';
 
 type AssignmentClassOption = {
@@ -2206,11 +2196,18 @@ function progressForClass(assignment: LearningAssignmentSummary, classId: string
     return assignment.classProgress.find((row) => (row.classId || null) === (classId || null)) || null;
 }
 
-function isClassAssignmentComplete(progress: AssignmentClassProgressSummary | null): boolean {
+function progressForAssignmentFilter(
+    assignment: LearningAssignmentSummary,
+    classId: string | null | undefined,
+): AssignmentProgressSummary | null {
+    return classId === undefined ? assignment.progress : progressForClass(assignment, classId);
+}
+
+function isClassAssignmentComplete(progress: AssignmentProgressSummary | null): boolean {
     return Boolean(progress && progress.targetStudentCount > 0 && progress.completedCount >= progress.targetStudentCount);
 }
 
-function classAssignmentSortScore(assignment: LearningAssignmentSummary, progress: AssignmentClassProgressSummary | null): number {
+function classAssignmentSortScore(assignment: LearningAssignmentSummary, progress: AssignmentProgressSummary | null): number {
     const status = dueStatus(assignment);
     if (status === 'overdue') return 0;
     if (status === 'due_soon' && !isClassAssignmentComplete(progress)) return 1;
@@ -2220,10 +2217,13 @@ function classAssignmentSortScore(assignment: LearningAssignmentSummary, progres
     return 3;
 }
 
-function sortClassAssignments(classId: string | null, assignments: LearningAssignmentSummary[]): LearningAssignmentSummary[] {
+function sortClassAssignments(
+    classId: string | null | undefined,
+    assignments: LearningAssignmentSummary[],
+): LearningAssignmentSummary[] {
     return [...assignments].sort((a, b) => {
-        const aProgress = progressForClass(a, classId);
-        const bProgress = progressForClass(b, classId);
+        const aProgress = progressForAssignmentFilter(a, classId);
+        const bProgress = progressForAssignmentFilter(b, classId);
         const scoreDiff = classAssignmentSortScore(a, aProgress) - classAssignmentSortScore(b, bProgress);
         if (scoreDiff !== 0) return scoreDiff;
         const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
@@ -2233,7 +2233,11 @@ function sortClassAssignments(classId: string | null, assignments: LearningAssig
     });
 }
 
-function assignmentMatchesStatus(assignment: LearningAssignmentSummary, progress: AssignmentClassProgressSummary | null, statusFilter: AssignmentStatusFilter): boolean {
+function assignmentMatchesStatus(
+    assignment: LearningAssignmentSummary,
+    progress: AssignmentProgressSummary | null,
+    statusFilter: AssignmentStatusFilter,
+): boolean {
     if (statusFilter === 'all') return true;
     if (statusFilter === 'completed') return isClassAssignmentComplete(progress);
     return dueStatus(assignment) === statusFilter;
@@ -2241,16 +2245,23 @@ function assignmentMatchesStatus(assignment: LearningAssignmentSummary, progress
 
 function visibleAssignmentsForClass(input: {
     assignments: LearningAssignmentSummary[];
-    classId: string | null;
+    classId: string | null | undefined;
     searchQuery: string;
     statusFilter: AssignmentStatusFilter;
     includeCompleted: boolean;
 }): LearningAssignmentSummary[] {
     const query = input.searchQuery.trim().toLowerCase();
     return sortClassAssignments(input.classId, input.assignments).filter((assignment) => {
-        const progress = progressForClass(assignment, input.classId);
+        const progress = progressForAssignmentFilter(assignment, input.classId);
         if (!progress) return false;
         if (!input.includeCompleted && isClassAssignmentComplete(progress)) return false;
+        if (
+            !input.includeCompleted
+            && input.statusFilter === 'all'
+            && (!assignment.active || assignment.status === 'archived')
+        ) {
+            return false;
+        }
         if (!assignmentMatchesStatus(assignment, progress, input.statusFilter)) return false;
         if (!query) return true;
         return `${assignment.title} ${assignment.bookTitle || ''} ${assignment.targetLabels.join(' ')}`.toLowerCase().includes(query);
@@ -2337,19 +2348,22 @@ function buildAssignmentClassOptions(
 
 function AssignmentClassSelector({
     options,
+    allAssignmentCount,
     selectedKey,
     onSelect,
 }: {
     options: AssignmentClassOption[];
+    allAssignmentCount: number;
     selectedKey: string;
     onSelect: (key: string) => void;
 }) {
     return (
-        <Select value={selectedKey} onValueChange={onSelect} disabled={options.length === 0}>
+        <Select value={selectedKey} onValueChange={onSelect}>
             <SelectTrigger>
-                <SelectValue placeholder="반을 선택하세요" />
+                <SelectValue />
             </SelectTrigger>
             <SelectContent>
+                <SelectItem value={ALL_CLASS_KEY}>전체 반 · {allAssignmentCount}개</SelectItem>
                 {options.map((option) => (
                     <SelectItem key={option.key} value={option.key}>
                         {option.name} · {option.visibleAssignmentCount}개
@@ -2360,27 +2374,25 @@ function AssignmentClassSelector({
     );
 }
 
-function assignmentGroupTone(group: AssignmentListGroup): 'neutral' | 'success' | 'warning' | 'danger' | 'primary' {
-    if (group === 'overdue') return 'danger';
-    if (group === 'today' || group === 'this_week') return 'warning';
-    if (group === 'completed') return 'success';
-    if (group === 'recalled') return 'neutral';
-    return 'primary';
-}
-
 function ClassAssignmentList({
     assignments,
     classId,
+    className,
     selectedAssignmentId,
     onSelect,
 }: {
     assignments: LearningAssignmentSummary[];
-    classId: string | null;
+    classId: string | null | undefined;
+    className?: string;
     selectedAssignmentId: string;
     onSelect: (assignmentId: string) => void;
 }) {
     if (assignments.length === 0) {
-        return <EmptyState title="조건에 맞는 과제가 없습니다." description="진행/완료 탭이나 검색·상태 필터를 조정하세요." />;
+        return (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                검색 결과가 없어요
+            </p>
+        );
     }
 
     const groups = assignmentListGroupOrder
@@ -2391,32 +2403,27 @@ function ClassAssignmentList({
         .filter((row) => row.assignments.length > 0);
 
     return (
-        <div className="space-y-5">
+        <div className="flex flex-col gap-0.5">
             {groups.map((row) => (
-                <section key={row.group} className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 px-1">
-                        <StatusBadge
-                            tone={assignmentGroupTone(row.group)}
-                            label={assignmentListGroupLabels[row.group]}
-                        />
-                        <span className="text-xs font-medium text-muted-foreground">{row.assignments.length}건</span>
+                <React.Fragment key={row.group}>
+                    <div className="mx-0.5 mb-0.5 mt-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        {assignmentListGroupLabels[row.group]} · {row.assignments.length}
                     </div>
-                    <div className="space-y-2">
-                        {row.assignments.map((assignment) => {
-                            const progress = progressForClass(assignment, classId);
-                            if (!progress) return null;
-                            return (
-                                <AssignmentCard
-                                    key={`${assignment.id}-${assignmentClassKey(classId)}`}
-                                    assignment={assignment}
-                                    selected={assignment.id === selectedAssignmentId}
-                                    classContext={progress}
-                                    onSelect={() => onSelect(assignment.id)}
-                                />
-                            );
-                        })}
-                    </div>
-                </section>
+                    {row.assignments.map((assignment) => {
+                        const progress = progressForAssignmentFilter(assignment, classId);
+                        if (!progress) return null;
+                        return (
+                            <AssignmentCard
+                                key={`${assignment.id}-${classId === undefined ? ALL_CLASS_KEY : assignmentClassKey(classId)}`}
+                                assignment={assignment}
+                                selected={assignment.id === selectedAssignmentId}
+                                progress={progress}
+                                className={className}
+                                onSelect={() => onSelect(assignment.id)}
+                            />
+                        );
+                    })}
+                </React.Fragment>
             ))}
         </div>
     );
@@ -2427,7 +2434,7 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
     const academyId = academyIdOf(profile?.current_academy_id);
     const [data, setData] = useState<AssignmentManagementData | null>(null);
     const [detail, setDetail] = useState<LearningAssignmentDetail | null>(null);
-    const [selectedClassKey, setSelectedClassKey] = useState('');
+    const [selectedClassKey, setSelectedClassKey] = useState(ALL_CLASS_KEY);
     const [selectedAssignmentId, setSelectedAssignmentId] = useState(initialAssignmentId);
     const initialSelectionApplied = useRef(false);
     const [filtersHydrated, setFiltersHydrated] = useState(false);
@@ -2502,8 +2509,6 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
         setStatusFilter('all');
         setIncludeCompleted(true);
         setSelectedAssignmentId(initialAssignmentId);
-        const classId = assignment.classProgress[0]?.classId ?? null;
-        setSelectedClassKey(assignmentClassKey(classId));
     }, [data, initialAssignmentId]);
 
     useEffect(() => {
@@ -2526,25 +2531,40 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
     ), [data, includeCompleted, searchQuery, statusFilter]);
 
     useEffect(() => {
-        if (classOptions.length === 0) {
-            setSelectedClassKey('');
-            return;
-        }
         setSelectedClassKey((current) => (
-            current && classOptions.some((option) => option.key === current)
+            current === ALL_CLASS_KEY || classOptions.some((option) => option.key === current)
                 ? current
-                : classOptions.find((option) => option.visibleAssignmentCount > 0)?.key || classOptions[0].key
+                : ALL_CLASS_KEY
         ));
     }, [classOptions]);
 
     const selectedClass = useMemo(() => (
-        classOptions.find((option) => option.key === selectedClassKey) || null
+        selectedClassKey === ALL_CLASS_KEY
+            ? null
+            : classOptions.find((option) => option.key === selectedClassKey) || null
     ), [classOptions, selectedClassKey]);
 
-    const selectedClassId = selectedClass ? assignmentClassIdFromKey(selectedClass.key) : null;
+    const selectedClassId = selectedClassKey === ALL_CLASS_KEY
+        ? undefined
+        : selectedClass
+            ? assignmentClassIdFromKey(selectedClass.key)
+            : undefined;
+
+    const allVisibleAssignments = useMemo(() => (
+        data
+            ? visibleAssignmentsForClass({
+                assignments: data.assignments,
+                classId: undefined,
+                searchQuery,
+                statusFilter,
+                includeCompleted,
+            })
+            : []
+    ), [data, includeCompleted, searchQuery, statusFilter]);
 
     const visibleAssignments = useMemo(() => {
-        if (!data || !selectedClass) return [];
+        if (!data) return [];
+        if (selectedClassId === undefined) return allVisibleAssignments;
         const classAssignments = data.assignments.filter((assignment) => progressForClass(assignment, selectedClassId));
         return visibleAssignmentsForClass({
             assignments: classAssignments,
@@ -2553,7 +2573,7 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
             statusFilter,
             includeCompleted,
         });
-    }, [data, includeCompleted, searchQuery, selectedClass, selectedClassId, statusFilter]);
+    }, [allVisibleAssignments, data, includeCompleted, searchQuery, selectedClassId, statusFilter]);
 
     useEffect(() => {
         setSelectedAssignmentId((current) => (
@@ -2694,74 +2714,59 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
             )}
             {!loading && !error && data && (
                 <div className="space-y-4">
-                    <div className="grid min-h-[640px] gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-                        <section className="self-start overflow-hidden rounded-xl border border-border bg-card shadow-card">
-                            <div className="border-b p-4">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2">
-                                            <ClipboardList className="h-4 w-4 shrink-0 text-primary" />
-                                            <h2 className="truncate text-base font-bold text-foreground">과제 목록</h2>
-                                        </div>
-                                        <p className="mt-1 text-xs text-muted-foreground">
-                                            {selectedClass?.name || '반 선택'} · {visibleAssignments.length}건 표시
-                                        </p>
-                                    </div>
-                                    {selectedClass && <StatusBadge tone="primary" label={`${selectedClass.completionRate}%`} />}
+                    <div className="grid min-h-[640px] items-start gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+                        <section className="flex flex-col gap-3 self-start">
+                            <div className="flex items-center justify-between gap-3 px-1">
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <ClipboardList className="h-5 w-5 shrink-0 text-primary" />
+                                    <h2 className="truncate text-base font-bold text-foreground">과제 목록</h2>
                                 </div>
+                                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                                    {visibleAssignments.length}건 표시
+                                </span>
                             </div>
-                            <div className="space-y-3 border-b p-4">
-                                <Tabs
-                                    value={includeCompleted ? 'completed' : 'ongoing'}
-                                    onValueChange={(value) => {
-                                        const completed = value === 'completed';
-                                        setIncludeCompleted(completed);
-                                        setStatusFilter(completed ? 'completed' : 'all');
-                                        setSelectedAssignmentId('');
-                                    }}
-                                >
-                                    <TabsList className="grid w-full grid-cols-2">
-                                        <TabsTrigger value="ongoing">진행 중 {assignmentCounts.ongoing}</TabsTrigger>
-                                        <TabsTrigger value="completed">완료 {assignmentCounts.completed}</TabsTrigger>
-                                    </TabsList>
-                                </Tabs>
-                                <AssignmentClassSelector
-                                    options={classOptions}
-                                    selectedKey={selectedClassKey}
-                                    onSelect={(key) => {
-                                        setSelectedClassKey(key);
-                                        setSelectedAssignmentId('');
-                                    }}
-                                />
-                                <div className="relative">
+                            <Tabs
+                                value={includeCompleted ? 'completed' : 'ongoing'}
+                                onValueChange={(value) => {
+                                    const completed = value === 'completed';
+                                    setIncludeCompleted(completed);
+                                    setStatusFilter(completed ? 'completed' : 'all');
+                                    setSelectedAssignmentId('');
+                                }}
+                            >
+                                <TabsList className="grid w-full grid-cols-2">
+                                    <TabsTrigger value="ongoing">진행 중 {assignmentCounts.ongoing}</TabsTrigger>
+                                    <TabsTrigger value="completed">완료 {assignmentCounts.completed}</TabsTrigger>
+                                </TabsList>
+                            </Tabs>
+                            <AssignmentClassSelector
+                                options={classOptions}
+                                allAssignmentCount={allVisibleAssignments.length}
+                                selectedKey={selectedClassKey}
+                                onSelect={(key) => {
+                                    setSelectedClassKey(key);
+                                    setSelectedAssignmentId('');
+                                }}
+                            />
+                            <div className="rounded-2xl border border-border bg-card p-2.5 shadow-card">
+                                <div className="relative mb-2">
                                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                     <Input
-                                        className="pl-9"
+                                        className="h-10 pl-9"
                                         value={searchQuery}
                                         onChange={(event) => setSearchQuery(event.target.value)}
-                                        placeholder="과제명·교재 검색"
+                                        placeholder="과제명·반 검색"
                                     />
                                 </div>
-                                {!includeCompleted && (
-                                    <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as AssignmentStatusFilter)}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {statusFilterOptions.filter((option) => option.value !== 'completed').map((option) => (
-                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                )}
-                            </div>
-                            <div className="max-h-[calc(100vh-18rem)] overflow-auto p-4">
-                                <ClassAssignmentList
-                                    assignments={visibleAssignments}
-                                    classId={selectedClassId}
-                                    selectedAssignmentId={selectedAssignmentId}
-                                    onSelect={setSelectedAssignmentId}
-                                />
+                                <div className="max-h-[480px] overflow-y-auto">
+                                    <ClassAssignmentList
+                                        assignments={visibleAssignments}
+                                        classId={selectedClassId}
+                                        className={selectedClass?.name}
+                                        selectedAssignmentId={selectedAssignmentId}
+                                        onSelect={setSelectedAssignmentId}
+                                    />
+                                </div>
                             </div>
                         </section>
 

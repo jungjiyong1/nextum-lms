@@ -82,6 +82,30 @@ export function assignmentListGroup(
     return due.getTime() <= weekBoundary.getTime() ? 'this_week' : 'later';
 }
 
+function compactDate(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const weekday = new Intl.DateTimeFormat('ko-KR', { weekday: 'short' }).format(date);
+    return `${date.getMonth() + 1}/${date.getDate()} ${weekday}`;
+}
+
+export function assignmentListDueLabel(
+    assignment: LearningAssignmentSummary,
+    now = new Date(),
+): string {
+    const group = assignmentListGroup(assignment, now);
+    if (group === 'today') return '오늘 마감';
+    if (group === 'overdue') return '기한 지남';
+    if (group === 'recalled') return '회수됨';
+    if (group === 'completed') {
+        const date = assignment.dueAt ? compactDate(assignment.dueAt) : '';
+        return date ? `${date} 완료` : '완료';
+    }
+    if (!assignment.dueAt) return '기한 없음';
+    const date = compactDate(assignment.dueAt);
+    return date ? `마감 ${date}` : '기한 없음';
+}
+
 export function buildAssignmentTypeInsights(
     problems: AssignmentProblemProgress[],
 ): AssignmentTypeInsight[] {
@@ -130,26 +154,39 @@ export function buildAssignmentTypeInsights(
 export function buildAssignmentPerformanceComparison(
     currentAssignment: LearningAssignmentSummary,
     assignments: LearningAssignmentSummary[],
-    classId: string | null,
+    classId?: string | null,
 ): AssignmentPerformanceComparison {
-    const currentClassProgress = currentAssignment.classProgress.find(
-        (row) => (row.classId || null) === classId,
+    const currentClassProgress = classId === undefined
+        ? null
+        : currentAssignment.classProgress.find((row) => (row.classId || null) === classId);
+    const currentCorrectRate = classId === undefined
+        ? currentAssignment.progress.correctRate
+        : (currentClassProgress || currentAssignment.progress).correctRate;
+    const currentTargetKeys = new Set(
+        currentAssignment.classProgress.map((row) => row.classId || '__individual__'),
     );
-    const currentCorrectRate = (currentClassProgress || currentAssignment.progress).correctRate;
     const currentCreatedAt = Date.parse(currentAssignment.createdAt);
     const history = assignments
         .filter((assignment) => {
             if (assignment.id === currentAssignment.id) return false;
             if (!assignment.active || assignment.status === 'archived') return false;
+            if (
+                classId === undefined
+                && !assignment.classProgress.some(
+                    (row) => currentTargetKeys.has(row.classId || '__individual__'),
+                )
+            ) {
+                return false;
+            }
             const createdAt = Date.parse(assignment.createdAt);
             return Number.isFinite(createdAt)
                 && Number.isFinite(currentCreatedAt)
                 && createdAt < currentCreatedAt;
         })
         .map((assignment) => {
-            const classProgress = assignment.classProgress.find(
-                (row) => (row.classId || null) === classId,
-            );
+            const classProgress = classId === undefined
+                ? assignment.progress
+                : assignment.classProgress.find((row) => (row.classId || null) === classId);
             if (
                 !classProgress
                 || classProgress.correctRate === null
