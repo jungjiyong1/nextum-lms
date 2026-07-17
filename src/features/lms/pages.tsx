@@ -19,7 +19,6 @@ import {
   Save,
   Settings,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -72,6 +71,7 @@ import {
 } from './service';
 import { calculatePayrollDraft } from './payroll';
 import { accountingHref, accountingMonthRange, type AccountingSection } from './accounting-month';
+import { QuickActionSparkIcon } from './home/quick-action-spark-icon';
 import type {
   AdminExportType,
   AdminResetTarget,
@@ -724,7 +724,7 @@ export function LearningHomePage() {
 
           <aside className="flex flex-col gap-4">
             <div className="flex items-center gap-2 px-0.5 pt-1">
-              <Sparkles className="h-[19px] w-[19px] text-primary" />
+              <QuickActionSparkIcon className="h-[19px] w-[19px] text-primary" />
               <h2 className="text-lg font-bold text-foreground">빠른 실행</h2>
             </div>
             <div className="grid grid-cols-2 gap-3">
