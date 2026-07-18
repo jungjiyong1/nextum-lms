@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { BookOpen } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { csrfHeaders } from '../lib/lms/csrf-client';
 import { createClient } from '../lib/supabase/client';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -44,8 +45,14 @@ export function LoginPage() {
         console.error('Login error:', error);
         toast.error('로그인 실패: 아이디 또는 비밀번호를 확인하세요.');
       } else {
+        await fetch('/api/lms/academy-selection', {
+          method: 'DELETE',
+          headers: csrfHeaders(),
+        }).catch(() => undefined);
+
+        const normalizedLoginId = loginId.trim().split('@')[0]?.toLowerCase();
         toast.success('로그인되었습니다.');
-        router.replace('/');
+        router.replace(normalizedLoginId === 'admin' ? '/select-academy' : '/');
         router.refresh();
       }
     } catch (err) {

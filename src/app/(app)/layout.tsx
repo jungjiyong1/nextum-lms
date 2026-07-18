@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { LmsAuthError } from '@/lib/lms/auth';
 import { isPdfAssignmentMatchEnabled } from '@/lib/lms/pdf-assignment-match-feature';
-import { loadAppShellContext } from '@/lib/lms/shell-context';
+import { AcademySelectionRequiredError, loadAppShellContext } from '@/lib/lms/shell-context';
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
     try {
@@ -12,6 +12,7 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
         return (
             <AppShell
                 academyName={context.academyName}
+                academyCount={context.academyCount}
                 profile={context.profile}
                 pdfAssignmentMatchEnabled={isPdfAssignmentMatchEnabled()}
             >
@@ -19,6 +20,9 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
             </AppShell>
         );
     } catch (error) {
+        if (error instanceof AcademySelectionRequiredError) {
+            redirect('/select-academy');
+        }
         if (error instanceof LmsAuthError && error.status === 401) {
             redirect('/login');
         }

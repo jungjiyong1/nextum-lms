@@ -142,7 +142,7 @@ export async function assertLmsRoleForAcademy(
     const core = admin.schema('core');
     const { data: account, error: accountError } = await core
         .from('user_accounts')
-        .select('id,person_id,status')
+        .select('id,person_id,status,metadata')
         .eq('auth_user_id', userId)
         .maybeSingle();
 
@@ -150,6 +150,27 @@ export async function assertLmsRoleForAcademy(
     const accountRow = account as Row | null;
     if (!accountRow || accountRow.status !== 'active') {
         throw new LmsAuthError('Active LMS account is required.', 403);
+    }
+
+    if (accountRow.metadata?.super_admin === true && allowedRoles.includes('admin')) {
+        const { data: activeAcademy, error: academyError } = await core
+            .from('academies')
+            .select('id')
+            .eq('id', academyId)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        if (academyError) throw academyError;
+        if (activeAcademy?.id) {
+            return {
+                userId,
+                accountId: accountRow.id,
+                personId: accountRow.person_id,
+                academyId: activeAcademy.id,
+                role: 'admin',
+                authIssuedAt: getNumberClaim(claims, 'iat'),
+            };
+        }
     }
 
     const { data: member, error: memberError } = await core

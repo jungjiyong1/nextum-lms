@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 import type { AppProfile } from '@/core/auth/profile';
+import { csrfHeaders } from '@/lib/lms/csrf-client';
 import { createClient } from '@/lib/supabase/client';
 
 export type Profile = AppProfile;
@@ -25,6 +26,11 @@ export function AuthProvider({
     const router = useRouter();
 
     const signOut = useCallback(async () => {
+        await fetch('/api/lms/academy-selection', {
+            method: 'DELETE',
+            headers: csrfHeaders(),
+        }).catch(() => undefined);
+
         const supabase = createClient();
         await supabase.auth.signOut();
         router.replace('/login');

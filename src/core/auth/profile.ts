@@ -14,4 +14,5 @@ export interface AppProfile {
 export interface AppShellContext {
     profile: AppProfile;
     academyName: string;
+    academyCount: number;
 }

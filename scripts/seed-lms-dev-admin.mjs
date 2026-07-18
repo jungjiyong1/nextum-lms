@@ -7,7 +7,7 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 const loginId = process.env.LMS_DEV_ADMIN_LOGIN_ID || 'admin';
 const password = process.env.LMS_DEV_ADMIN_PASSWORD || '1234';
-const academyName = process.env.LMS_DEV_ACADEMY_NAME || 'NEXTUM Academy';
+const academyName = process.env.LMS_DEV_ACADEMY_NAME || '\uD50C\uB9BD\uC218\uD559 \uC885\uC554';
 const emailDomain = process.env.LMS_LOGIN_EMAIL_DOMAIN || 'nextum.local';
 const email = `${loginId}@${emailDomain}`;
 

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
+    Building2,
     Calculator,
     ChevronDown,
     ClipboardList,
@@ -24,6 +25,7 @@ interface SidebarProps {
     onSignOut?: () => void;
     userProfile?: Profile | null;
     academyName?: string | null;
+    canSwitchAcademy?: boolean;
     pdfAssignmentMatchEnabled: boolean;
 }
 
@@ -107,6 +109,7 @@ export function Sidebar({
     onSignOut,
     userProfile,
     academyName,
+    canSwitchAcademy = false,
     pdfAssignmentMatchEnabled,
 }: SidebarProps) {
     const pathname = usePathname();
@@ -242,6 +245,21 @@ export function Sidebar({
             </nav>
 
             <div className="mt-auto border-t border-border px-2 pb-2 pt-2">
+                {canSwitchAcademy && (
+                    <Link
+                        href="/select-academy"
+                        className={cn(
+                            'mb-2 flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium text-primary-strong no-underline transition-colors hover:bg-primary-soft',
+                            visuallyCollapsed && 'justify-center px-2',
+                        )}
+                        title={'\uD559\uC6D0 \uBCC0\uACBD'}
+                    >
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                            <Building2 size={20} />
+                        </span>
+                        {!visuallyCollapsed && <span className="truncate">{'\uD559\uC6D0 \uBCC0\uACBD'}</span>}
+                    </Link>
+                )}
                 {userProfile && !visuallyCollapsed && (
                     <div className="mb-2 rounded-xl bg-muted/70 px-2 py-2 text-xs text-muted-foreground">
                         <div className="truncate font-medium text-foreground">

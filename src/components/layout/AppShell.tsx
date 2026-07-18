@@ -19,10 +19,12 @@ import { AccessDeniedScreen } from '../security/AccessDeniedScreen';
 import { Sidebar } from './Sidebar';
 
 function AppShellContent({
+    academyCount,
     academyName,
     children,
     pdfAssignmentMatchEnabled,
 }: {
+    academyCount: number;
     academyName: string;
     children: ReactNode;
     pdfAssignmentMatchEnabled: boolean;
@@ -73,6 +75,7 @@ function AppShellContent({
                 onSignOut={handleSignOut}
                 userProfile={profile}
                 academyName={academyName}
+                canSwitchAcademy={academyCount > 1}
                 pdfAssignmentMatchEnabled={pdfAssignmentMatchEnabled}
             />
             <main className="relative flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
@@ -83,11 +86,13 @@ function AppShellContent({
 }
 
 export function AppShell({
+    academyCount,
     academyName,
     children,
     profile,
     pdfAssignmentMatchEnabled,
 }: {
+    academyCount: number;
     academyName: string;
     children: ReactNode;
     profile: AppProfile;
@@ -96,6 +101,7 @@ export function AppShell({
     return (
         <AuthProvider profile={profile}>
             <AppShellContent
+                academyCount={academyCount}
                 academyName={academyName}
                 pdfAssignmentMatchEnabled={pdfAssignmentMatchEnabled}
             >
