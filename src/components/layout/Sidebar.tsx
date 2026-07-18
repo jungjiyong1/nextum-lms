@@ -116,6 +116,7 @@ export function Sidebar({
     const [expandedSections, setExpandedSections] = React.useState<Set<string>>(new Set([activePage]));
     const role = userProfile?.role as AppRole | null | undefined;
     const visibleNavItems = navItems
+        .filter((item) => item.id !== 'accounting')
         .filter((item) => canAccessAppPage(role, item.id))
         .map((item) => ({
             ...item,
