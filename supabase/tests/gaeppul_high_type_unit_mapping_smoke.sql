@@ -1,5 +1,27 @@
 do $smoke$
+declare
+  imported_book_count bigint;
 begin
+  select count(*)
+  into imported_book_count
+  from content.books book
+  where book.book_key in (
+      'gaeppul_high_algebra_type',
+      'gaeppul_high_calculus1_type',
+      'gaeppul_high_calculus2_type',
+      'gaeppul_high_common1_type',
+      'gaeppul_high_common2_type',
+      'gaeppul_high_geometry_type',
+      'gaeppul_high_probability_type'
+    );
+
+  -- 빈 DB(로컬 reset, CI)에는 gaeppul 고교 유형책 import가 없다.
+  -- 보정 마이그레이션도 같은 조건에서 스킵하므로 검사 대상이 없다.
+  if imported_book_count = 0 then
+    raise notice 'No gaeppul high-type books imported; skipping smoke.';
+    return;
+  end if;
+
   if (
     select count(*)
     from content.books book
