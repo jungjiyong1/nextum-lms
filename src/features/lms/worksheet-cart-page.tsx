@@ -18,13 +18,14 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState, ErrorState } from '@/components/ui/state';
-import { createWorksheetDraft, loadWorksheetCart } from './worksheet-service';
+import { createWorksheetDraft, loadWorksheetCart, renderWorksheetDraft } from './worksheet-service';
 import type {
     WorksheetCart,
     WorksheetCartItem,
     WorksheetCartProblem,
     WorksheetDraftCreated,
     WorksheetDraftSelectionChange,
+    WorksheetRenderResult,
 } from './worksheet-types';
 
 function academyIdOf(value: unknown): string | null {
@@ -125,6 +126,8 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
     const [pendingReason, setPendingReason] = useState<string>('image_quality');
     const [creating, setCreating] = useState(false);
     const [created, setCreated] = useState<WorksheetDraftCreated | null>(null);
+    const [rendering, setRendering] = useState(false);
+    const [renderResult, setRenderResult] = useState<WorksheetRenderResult | null>(null);
 
     const loadCart = useCallback(async () => {
         if (!academyId || !studentId) return;
@@ -271,20 +274,80 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
     }
 
     if (created) {
+        const studentPdf = renderResult?.artifacts.find((artifact) => artifact.kind === 'student_pdf');
+        const answerKey = renderResult?.artifacts.find((artifact) => artifact.kind === 'answer_key');
         return (
             <PageShell title="학습지 만들기" subtitle={`${cart.studentName} 학생`}>
                 <Card>
                     <CardHeader>
-                        <CardTitle>학습지 초안이 저장되었습니다</CardTitle>
+                        <CardTitle>
+                            {renderResult ? 'PDF가 준비되었습니다 — 검수 후 인쇄하세요' : '학습지 초안이 저장되었습니다'}
+                        </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm text-muted-foreground">
                         <p>버전 코드 <span className="font-medium text-foreground">{created.versionCode}</span> · {created.itemCount}문항</p>
-                        <p>PDF 생성과 검수·배포는 다음 단계에서 이어집니다.</p>
-                        <div className="flex gap-2 pt-2">
+                        {renderResult ? (
+                            <>
+                                {renderResult.warnings.map((warning) => (
+                                    <p key={warning} className="text-warning-foreground">⚠ {warning}</p>
+                                ))}
+                                <p>
+                                    학생용 {studentPdf?.pageCount ?? '-'}페이지 · 열기 후 실제 인쇄 상태를 확인하고 배부하세요.
+                                    링크는 10분 뒤 만료됩니다.
+                                </p>
+                            </>
+                        ) : (
+                            <p>PDF를 생성하면 검수용 미리보기와 교사용 정답지가 함께 만들어집니다.</p>
+                        )}
+                        <div className="flex flex-wrap gap-2 pt-2">
+                            {renderResult ? (
+                                <>
+                                    {studentPdf?.url ? (
+                                        <Button asChild>
+                                            <a href={studentPdf.url} target="_blank" rel="noreferrer">
+                                                학생용 PDF 검수·인쇄
+                                            </a>
+                                        </Button>
+                                    ) : null}
+                                    {answerKey?.url ? (
+                                        <Button asChild variant="outline">
+                                            <a href={answerKey.url} target="_blank" rel="noreferrer">
+                                                정답지 (교사용)
+                                            </a>
+                                        </Button>
+                                    ) : null}
+                                </>
+                            ) : (
+                                <Button
+                                    disabled={rendering}
+                                    onClick={async () => {
+                                        if (!academyId) return;
+                                        setRendering(true);
+                                        try {
+                                            setRenderResult(await renderWorksheetDraft(academyId, created.draftId));
+                                            toast.success('PDF가 생성되었습니다.');
+                                        } catch (error) {
+                                            console.error('학습지 렌더 실패:', error);
+                                            toast.error(error instanceof Error ? error.message : 'PDF 생성에 실패했습니다.');
+                                        } finally {
+                                            setRendering(false);
+                                        }
+                                    }}
+                                >
+                                    {rendering ? 'PDF 생성 중… (최대 수십 초)' : 'PDF 생성'}
+                                </Button>
+                            )}
                             <Button asChild variant="outline">
                                 <Link href={`/students/${cart.studentId}`}>학생 상세로</Link>
                             </Button>
-                            <Button onClick={() => { setCreated(null); void loadCart(); }}>
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setCreated(null);
+                                    setRenderResult(null);
+                                    void loadCart();
+                                }}
+                            >
                                 새 학습지 만들기
                             </Button>
                         </div>

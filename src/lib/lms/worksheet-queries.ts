@@ -210,7 +210,7 @@ async function loadEvidenceRows(studentId: string): Promise<EvidenceBaseRow[]> {
     });
 }
 
-async function loadSkillNames(skillIds: string[]): Promise<Map<string, string>> {
+export async function loadSkillNames(skillIds: string[]): Promise<Map<string, string>> {
     const admin = createAdminClient();
     const rows = await loadRowsForChunks(skillIds, (ids, from, to) => admin
         .schema('content')

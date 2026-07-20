@@ -6,6 +6,7 @@ import type {
   ProblemBankGrantOverview,
   WorksheetCart,
   WorksheetDraftCreated,
+  WorksheetRenderResult,
 } from './worksheet-types';
 
 export async function loadWorksheetCart(
@@ -24,6 +25,13 @@ export async function createWorksheetDraft(
   input: Omit<CreateWorksheetDraftInput, 'academyId'>,
 ): Promise<WorksheetDraftCreated> {
   return postLmsMutation<WorksheetDraftCreated>('/api/lms/worksheets/drafts', { academyId, ...input });
+}
+
+export async function renderWorksheetDraft(
+  academyId: string,
+  draftId: string,
+): Promise<WorksheetRenderResult> {
+  return postLmsMutation<WorksheetRenderResult>('/api/lms/worksheets/render', { academyId, draftId });
 }
 
 export async function loadProblemBankGrants(): Promise<ProblemBankGrantOverview> {

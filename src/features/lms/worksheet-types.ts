@@ -88,6 +88,23 @@ export interface WorksheetDraftCreated {
     itemCount: number;
 }
 
+export interface WorksheetRenderArtifact {
+    kind: 'student_pdf' | 'answer_key' | 'zip';
+    variantId: string | null;
+    versionCode: string | null;
+    pageCount: number | null;
+    byteSize: number;
+    /** 짧은 만료의 서명 URL (검수·인쇄용) */
+    url: string | null;
+}
+
+export interface WorksheetRenderResult {
+    draftId: string;
+    status: 'ready';
+    artifacts: WorksheetRenderArtifact[];
+    warnings: string[];
+}
+
 export interface ProblemBankGrantSummary {
     id: string;
     academyId: string;

@@ -47,6 +47,10 @@ const nextConfig: NextConfig = {
             './node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm',
             './public/tesseract/lang/**/*',
         ],
+        // PDF 임베드용 한글 TTF는 fs로 읽으므로 함수 번들에 명시적으로 포함한다.
+        '/api/lms/worksheets/render': [
+            './src/lib/lms/render/fonts/*.ttf',
+        ],
     },
     async headers() {
         return [
