@@ -529,7 +529,7 @@ export function subscribeLmsInvalidations(academyId: string): () => void {
   };
 }
 
-async function postLmsMutation<T = undefined>(
+export async function postLmsMutation<T = undefined>(
   path: string,
   payload: Record<string, unknown>,
   options: LmsMutationOptions = {},
@@ -586,7 +586,7 @@ async function patchLmsMutation<T>(path: string, payload: Record<string, unknown
   return result as T;
 }
 
-async function getLmsJson<T>(path: string, options: LmsRequestOptions = {}): Promise<T> {
+export async function getLmsJson<T>(path: string, options: LmsRequestOptions = {}): Promise<T> {
   const policy = options.policy ?? 'operational';
   const ttl = CACHE_TTL_MS[policy];
   if (options.signal || policy === 'live') {

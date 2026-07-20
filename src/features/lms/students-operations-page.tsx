@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
     BarChart3,
     CalendarDays,
     Copy,
     CreditCard,
+    FileText,
     GraduationCap,
     KeyRound,
     Pencil,
@@ -1386,6 +1388,12 @@ export function StudentsOperationsPage({ initialStudentId = '' }: { initialStude
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
+                                        <Button type="button" variant="outline" size="sm" asChild>
+                                            <Link href={`/worksheets/new?studentId=${detail.summary.id}`}>
+                                                <FileText className="mr-2 h-4 w-4" />
+                                                학습지 만들기
+                                            </Link>
+                                        </Button>
                                         {detail.permissions.canEdit && formMode !== 'edit' && (
                                             <Button
                                                 type="button"

@@ -256,11 +256,23 @@ export function selectWorksheetProblems(
     );
 
     if (picked.length < input.itemCount) {
+        // 기본 분배가 남긴 부족분은 목표 난이도에서 먼저 다시 채운다.
+        takeFromBand(
+            freshPool,
+            input.targetChallengeBand,
+            input.itemCount - picked.length,
+            picked,
+            pickedIds,
+            pickedGroups,
+        );
+        let filledFromOtherBands = 0;
         for (const band of bandFillOrder(input.targetChallengeBand)) {
             if (picked.length >= input.itemCount) break;
-            takeFromBand(freshPool, band, input.itemCount - picked.length, picked, pickedIds, pickedGroups);
+            filledFromOtherBands += takeFromBand(
+                freshPool, band, input.itemCount - picked.length, picked, pickedIds, pickedGroups,
+            );
         }
-        if (picked.length > 0) {
+        if (filledFromOtherBands > 0) {
             warnings.push({
                 code: 'band_shortage',
                 detail: `목표 난이도 ${input.targetChallengeBand} 문항이 부족해 가까운 난이도로 보충했습니다.`,

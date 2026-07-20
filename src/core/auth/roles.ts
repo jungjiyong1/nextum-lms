@@ -68,6 +68,8 @@ export function appPageFromPath(pathname: string): AppPage {
     if (pathname.startsWith('/classrooms')) return 'classrooms';
     if (pathname.startsWith('/instructors')) return 'instructors';
     if (pathname.startsWith('/students')) return 'students';
+    // 학습지 만들기는 학생 관리와 같은 접근 정책을 쓴다 (별도 메뉴 없음).
+    if (pathname.startsWith('/worksheets')) return 'students';
     if (pathname.startsWith('/accounting')) return 'accounting';
     if (pathname.startsWith('/settings')) return 'settings';
     return 'home';
