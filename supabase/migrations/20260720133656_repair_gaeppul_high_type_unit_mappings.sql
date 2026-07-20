@@ -46,6 +46,13 @@ begin
     and book.pipeline_version = 'gaeppul-text-coordinate-v2:high-type';
 
   select count(*) into actual_count from _high_type_books;
+  if actual_count = 0 then
+    -- Fresh databases (local reset, CI) never ran the affected importer, so
+    -- there is nothing to repair. Only environments with partial data are an
+    -- error state.
+    raise notice 'No gaeppul high-type books found; skipping repair.';
+    return;
+  end if;
   if actual_count <> 7 then
     raise exception 'Expected 7 affected high-school type books, found %', actual_count;
   end if;
