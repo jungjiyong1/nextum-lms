@@ -22,3 +22,21 @@ jobs:
       - run: npm run verify
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+
+  db-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Apply every migration to a clean database
+        run: supabase db start
+      - name: Run SQL smoke tests
+        run: |
+          for file in supabase/tests/*_smoke.sql; do
+            echo "== ${file}"
+            psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+              -v ON_ERROR_STOP=1 -q -f "${file}"
+          done

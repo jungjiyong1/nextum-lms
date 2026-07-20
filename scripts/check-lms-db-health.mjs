@@ -37,7 +37,8 @@ const checks = [
   ['content', 'problem_types', ['id', 'book_id', 'unit_id', 'concept_id', 'name']],
   ['content', 'problems', ['id', 'book_id', 'unit_id', 'problem_type_id', 'page_printed', 'number', 'public_payload']],
   ['content', 'student_problems', ['id', 'book_id', 'unit_id', 'problem_type_id', 'page_printed', 'number', 'public_payload']],
-  ['content', 'assets', ['id', 'book_id', 'problem_id', 'kind', 'storage_path']],
+  ['content', 'assets', ['id', 'book_id', 'problem_id', 'kind', 'storage_path', 'width', 'height', 'byte_size', 'sha256']],
+  ['content', 'problem_bank_grants', ['id', 'academy_id', 'book_id', 'status', 'granted_by', 'granted_at', 'revoked_at']],
   ['content', 'problem_reports', ['id', 'academy_id', 'core_student_id', 'problem_id', 'reason', 'status']],
 
   ['lms', 'classrooms', ['id', 'academy_id', 'name', 'capacity', 'color', 'active']],
@@ -63,6 +64,12 @@ const checks = [
   ['learning', 'assignment_items', ['id', 'assignment_id', 'book_id', 'unit_id', 'problem_id', 'sort_order']],
   ['learning', 'assignment_files', ['id', 'assignment_id', 'storage_path', 'file_name', 'media_type', 'display_order']],
   ['learning', 'wrong_notes', ['academy_id', 'core_student_id', 'problem_id', 'status']],
+  ['learning', 'worksheet_drafts', ['id', 'academy_id', 'class_id', 'created_by', 'status', 'selection_seed', 'layout_version', 'render_revision']],
+  ['learning', 'worksheet_variants', ['id', 'draft_id', 'academy_id', 'student_id', 'version_code', 'status', 'manifest', 'assignment_id']],
+  ['learning', 'worksheet_items', ['id', 'variant_id', 'academy_id', 'seq', 'problem_id', 'role', 'evidence_eligible', 'similarity_group_id', 'assignment_item_id']],
+  ['learning', 'worksheet_artifacts', ['id', 'academy_id', 'draft_id', 'variant_id', 'kind', 'render_revision', 'storage_bucket', 'storage_path', 'sha256', 'byte_size']],
+  ['learning', 'worksheet_render_jobs', ['id', 'academy_id', 'draft_id', 'variant_id', 'kind', 'render_revision', 'idempotency_key', 'status', 'attempts']],
+  ['learning', 'worksheet_recommendation_logs', ['id', 'academy_id', 'draft_id', 'variant_id', 'student_id', 'event', 'role', 'reason_code']],
   ['learning', 'reports', ['id', 'academy_id', 'core_student_id', 'report_type', 'status', 'generated_at', 'payload']],
 
   ['ai', 'conversations', ['id', 'academy_id', 'student_id', 'core_student_id', 'title', 'created_at']],
