@@ -5,7 +5,7 @@ export default defineConfig({
     test: {
         environment: 'node',
         globals: true,
-        include: ['src/**/*.test.{ts,tsx}'],
+        include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
         env: {
             NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
             NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'test-publishable-key',

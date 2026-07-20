@@ -17,6 +17,7 @@ import type {
     StudentSummary,
 } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { loadAllRowsById } from '@/lib/supabase/load-all-rows-by-id';
 import type { LmsRoleContext } from './auth';
 import { loadAssignedClassIdsForContext } from './class-queries';
 import { sortByProblemOrder } from './problem-order';
@@ -213,23 +214,60 @@ async function loadStudents(
 }
 
 async function loadAssignmentBookCatalog(content: SchemaClient, academyId: string): Promise<AssignmentBookCatalogSummary[]> {
-    const { data: books, error: bookError } = await content
-        .from('books')
-        .select('id,book_key,title,subject,grade,metadata,academy_id')
-        .or(`academy_id.is.null,academy_id.eq.${academyId}`)
-        .order('title');
-    ensureNoError(bookError, 'Failed to load assignment books');
+    const books = await loadAllRowsById<Row>((afterId, limit) => {
+        let query = content
+            .from('books')
+            .select('id,book_key,title,subject,grade,metadata,academy_id')
+            .or(`academy_id.is.null,academy_id.eq.${academyId}`)
+            .order('id', { ascending: true })
+            .limit(limit);
+        if (afterId) query = query.gt('id', afterId);
+        return query;
+    }, 'Failed to load assignment books');
 
-    const bookRows = ((books || []) as Row[]).filter((row) => row.metadata?.visibility === 'catalog');
+    const bookRows = books
+        .filter((row) => row.metadata?.visibility === 'catalog')
+        .sort((a, b) => {
+            const titleOrder = String(a.title ?? '').localeCompare(String(b.title ?? ''), 'ko', { numeric: true });
+            return titleOrder || String(a.id).localeCompare(String(b.id));
+        });
     const bookIds = bookRows.map((row) => row.id);
     if (bookIds.length === 0) return [];
 
-    const [unitResult, typeResult] = await Promise.all([
-        content.from('units').select('id,book_id,name,part_name,sort_order').in('book_id', bookIds).order('sort_order'),
-        content.from('problem_types').select('id,book_id,unit_id,concept_id,name,sort_order').in('book_id', bookIds).order('sort_order'),
+    const [unitRows, typeRows, problemRows] = await Promise.all([
+        loadAllRowsById<Row>((afterId, limit) => {
+            let query = content
+                .from('units')
+                .select('id,book_id,name,part_name,sort_order')
+                .in('book_id', bookIds)
+                .order('id', { ascending: true })
+                .limit(limit);
+            if (afterId) query = query.gt('id', afterId);
+            return query;
+        }, 'Failed to load units'),
+        loadAllRowsById<Row>((afterId, limit) => {
+            let query = content
+                .from('problem_types')
+                .select('id,book_id,unit_id,concept_id,name,sort_order')
+                .in('book_id', bookIds)
+                .order('id', { ascending: true })
+                .limit(limit);
+            if (afterId) query = query.gt('id', afterId);
+            return query;
+        }, 'Failed to load problem types'),
+        loadAllRowsById<Row>((afterId, limit) => {
+            let query = content
+                .from('problems')
+                .select('id,book_id,unit_id,problem_type_id,type_id,middle_unit:metadata->>middle_unit')
+                .in('book_id', bookIds)
+                .eq('verified', true)
+                .eq('is_example', false)
+                .order('id', { ascending: true })
+                .limit(limit);
+            if (afterId) query = query.gt('id', afterId);
+            return query;
+        }, 'Failed to load published assignment catalog facets'),
     ]);
-    ensureNoError(unitResult.error, 'Failed to load units');
-    ensureNoError(typeResult.error, 'Failed to load problem types');
 
     const publishedBookIds = new Set<string>();
     const publishedUnitIds = new Set<string>();
@@ -239,55 +277,41 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
     const middleUnitsByUnit = new Map<string, Set<string>>();
     const middleUnitsByType = new Map<string, Set<string>>();
     const unassignedMiddleProblemCountsByUnit = new Map<string, number>();
-    const pageSize = 1_000;
-    for (let from = 0; ; from += pageSize) {
-        const { data, error } = await content
-            .from('problems')
-            .select('id,book_id,unit_id,problem_type_id,type_id,middle_unit:metadata->>middle_unit')
-            .in('book_id', bookIds)
-            .eq('verified', true)
-            .eq('is_example', false)
-            .order('id', { ascending: true })
-            .range(from, from + pageSize - 1);
-        ensureNoError(error, 'Failed to load published assignment catalog facets');
-        const rows = (data || []) as Row[];
-        for (const row of rows) {
-            if (row.book_id) publishedBookIds.add(String(row.book_id));
-            const unitId = row.unit_id ? String(row.unit_id) : null;
-            if (unitId) {
-                publishedUnitIds.add(unitId);
-                problemCountsByUnit.set(unitId, (problemCountsByUnit.get(unitId) || 0) + 1);
-            }
-            const typeId = row.problem_type_id || row.type_id;
-            if (typeId) {
-                const normalizedTypeId = String(typeId);
-                publishedTypeIds.add(normalizedTypeId);
-                problemCountsByType.set(normalizedTypeId, (problemCountsByType.get(normalizedTypeId) || 0) + 1);
-            }
-            const middleUnit = typeof row.middle_unit === 'string' ? row.middle_unit.trim() : '';
-            if (!middleUnit && !typeId && unitId) {
-                unassignedMiddleProblemCountsByUnit.set(
-                    unitId,
-                    (unassignedMiddleProblemCountsByUnit.get(unitId) || 0) + 1,
-                );
-            }
-            if (middleUnit && unitId) {
-                const unitMiddles = middleUnitsByUnit.get(unitId) || new Set<string>();
-                unitMiddles.add(middleUnit);
-                middleUnitsByUnit.set(unitId, unitMiddles);
-            }
-            if (middleUnit && typeId) {
-                const normalizedTypeId = String(typeId);
-                const typeMiddles = middleUnitsByType.get(normalizedTypeId) || new Set<string>();
-                typeMiddles.add(middleUnit);
-                middleUnitsByType.set(normalizedTypeId, typeMiddles);
-            }
+    for (const row of problemRows) {
+        if (row.book_id) publishedBookIds.add(String(row.book_id));
+        const unitId = row.unit_id ? String(row.unit_id) : null;
+        if (unitId) {
+            publishedUnitIds.add(unitId);
+            problemCountsByUnit.set(unitId, (problemCountsByUnit.get(unitId) || 0) + 1);
         }
-        if (rows.length < pageSize) break;
+        const typeId = row.problem_type_id || row.type_id;
+        if (typeId) {
+            const normalizedTypeId = String(typeId);
+            publishedTypeIds.add(normalizedTypeId);
+            problemCountsByType.set(normalizedTypeId, (problemCountsByType.get(normalizedTypeId) || 0) + 1);
+        }
+        const middleUnit = typeof row.middle_unit === 'string' ? row.middle_unit.trim() : '';
+        if (!middleUnit && !typeId && unitId) {
+            unassignedMiddleProblemCountsByUnit.set(
+                unitId,
+                (unassignedMiddleProblemCountsByUnit.get(unitId) || 0) + 1,
+            );
+        }
+        if (middleUnit && unitId) {
+            const unitMiddles = middleUnitsByUnit.get(unitId) || new Set<string>();
+            unitMiddles.add(middleUnit);
+            middleUnitsByUnit.set(unitId, unitMiddles);
+        }
+        if (middleUnit && typeId) {
+            const normalizedTypeId = String(typeId);
+            const typeMiddles = middleUnitsByType.get(normalizedTypeId) || new Set<string>();
+            typeMiddles.add(middleUnit);
+            middleUnitsByType.set(normalizedTypeId, typeMiddles);
+        }
     }
 
-    const units = ((unitResult.data || []) as Row[]).filter((row) => publishedUnitIds.has(String(row.id)));
-    const types = ((typeResult.data || []) as Row[]).filter((row) => publishedTypeIds.has(String(row.id)));
+    const units = unitRows.filter((row) => publishedUnitIds.has(String(row.id)));
+    const types = typeRows.filter((row) => publishedTypeIds.has(String(row.id)));
     const unitsByBook = new Map<string, Row[]>();
     const typesByBook = new Map<string, Row[]>();
     for (const unit of units) {
@@ -303,6 +327,13 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
 
     return bookRows.filter((book) => publishedBookIds.has(String(book.id))).map((book) => {
         const unitSummaries: AssignmentUnitSummary[] = (unitsByBook.get(book.id) || [])
+            .sort((a, b) => {
+                const sortA = typeof a.sort_order === 'number' ? a.sort_order : Number.MAX_SAFE_INTEGER;
+                const sortB = typeof b.sort_order === 'number' ? b.sort_order : Number.MAX_SAFE_INTEGER;
+                if (sortA !== sortB) return sortA - sortB;
+
+                return String(a.id).localeCompare(String(b.id));
+            })
             .map((row) => ({
                 id: row.id,
                 name: row.name,

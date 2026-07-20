@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { loadEnvFiles } from './_load-env.mjs';
+import { validateGaeppulHighTypeUnitBoundaries } from './lib/grade-app-fixture-validation.mjs';
 
 loadEnvFiles();
 
@@ -202,6 +203,9 @@ async function importBundle(client, bundle, options) {
   if (!exportJson.book_id || !exportJson.parts?.length) {
     fail(`${input}: book_id/parts are required`);
   }
+  validateGaeppulHighTypeUnitBoundaries(exportJson, {
+    includeUnverified: options.includeUnverified,
+  });
 
   const content = client.schema('content');
   const bookKey = exportJson.book_id;
@@ -346,6 +350,9 @@ async function importBundle(client, bundle, options) {
     }
 
     const conceptKey = `${unitId || 'none'}::${problem.concept_name || ''}`;
+    const problemTypeId = problem.type_name
+      ? typeIdByKey.get(`${unitId}::${problem.type_name}`) ?? null
+      : null;
     const answer = problem.answer || { type: 'text', display: '', normalized: '', self_grade: true };
     const answerKey = problem.answer_key || answer;
     const publicPayload = problem.public_payload || publicAnswerPayload(answer);
@@ -358,7 +365,8 @@ async function importBundle(client, bundle, options) {
       book_id: bookId,
       unit_id: unitId,
       concept_id: problem.concept_name ? conceptIdByKey.get(conceptKey) ?? null : null,
-      problem_type_id: problem.type_name ? typeIdByKey.get(`${unitId}::${problem.type_name}`) ?? null : null,
+      problem_type_id: problemTypeId,
+      type_id: problemTypeId,
       page_printed: problem.page_printed ?? problemRows.length + 1,
       number: String(problem.number ?? problemRows.length + 1),
       image_path: imagePath,
