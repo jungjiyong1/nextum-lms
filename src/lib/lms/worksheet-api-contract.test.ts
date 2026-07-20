@@ -32,6 +32,24 @@ describe('worksheet API contract', () => {
         expect(route).toContain('assertCsrfToken');
     });
 
+    it('publish route enforces origin, CSRF, academy role, and invalidation', () => {
+        const route = readRoute('worksheets', 'publish', 'route.ts');
+        expect(route).toContain('assertSameOrigin');
+        expect(route).toContain('assertCsrfToken');
+        expect(route).toContain('assertLmsRoleForAcademy');
+        expect(route).toContain('invalidation');
+    });
+
+    it('publish mutation verifies academy ownership before invoking the RPC', () => {
+        const mutations = readFileSync(
+            join(process.cwd(), 'src', 'lib', 'lms', 'worksheet-mutations.ts'),
+            'utf8',
+        );
+        const publishSection = mutations.slice(mutations.indexOf('publishWorksheetDraft'));
+        expect(publishSection).toContain("academy_id !== actor.academyId");
+        expect(publishSection).toContain("rpc('publish_worksheet_v1'");
+    });
+
     it('draft mutation recomputes roles server-side instead of trusting the client', () => {
         const mutations = readFileSync(
             join(process.cwd(), 'src', 'lib', 'lms', 'worksheet-mutations.ts'),

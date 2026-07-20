@@ -4,7 +4,9 @@ import type {
     CreateWorksheetDraftInput,
     ProblemBankGrantOverview,
     WorksheetDraftCreated,
+    WorksheetPublishResult,
 } from '@/features/lms/worksheet-types';
+import { toSeoulDate } from './seoul-date';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { LmsAuthError, type LmsRoleContext } from './auth';
@@ -170,6 +172,56 @@ export async function setProblemBankGrant(
         .eq('id', existingRow.id);
     ensureNoError(error, '문제은행 승인을 회수하지 못했습니다');
     return { academyId: input.academyId, status: 'revoked' };
+}
+
+/**
+ * 배포는 되돌릴 수 없는 1회 트랜잭션이다. RPC가 초안·학생·산출물 상태를
+ * 재검증하고 variant를 기존 학생 단일 target 과제로 물질화한다. Grade App은
+ * 새 계약 없이 기존 과제 경로로 이 학습지를 소비한다.
+ */
+export async function publishWorksheetDraft(
+    actor: LmsRoleContext,
+    input: { draftId: string; title?: string },
+): Promise<WorksheetPublishResult> {
+    if (!input.draftId.trim()) throw new WorksheetInputError('학습지 초안을 찾을 수 없습니다.');
+    const admin = createAdminClient();
+    const learning = admin.schema('learning');
+
+    const { data: draft, error: draftError } = await learning
+        .from('worksheet_drafts')
+        .select('id,academy_id')
+        .eq('id', input.draftId)
+        .maybeSingle();
+    ensureNoError(draftError, '학습지 초안을 확인하지 못했습니다');
+    if (!(draft as Row | null)?.id || (draft as Row).academy_id !== actor.academyId) {
+        throw new LmsAuthError('학습지 초안을 찾을 수 없습니다.', 403);
+    }
+
+    const title = input.title?.trim() || `맞춤 학습지 ${toSeoulDate(new Date())}`;
+    const { data, error } = await learning.rpc('publish_worksheet_v1', {
+        p_draft_id: input.draftId,
+        p_actor_person_id: actor.personId,
+        p_title: title,
+    });
+    if (error) {
+        if (error.code === '22023') throw new WorksheetInputError(error.message);
+        throw new Error(`학습지 배포에 실패했습니다: ${error.message}`);
+    }
+
+    const result = data as Row | null;
+    const published = Array.isArray(result?.published) ? result.published : [];
+    return {
+        draftId: input.draftId,
+        published: published.flatMap((entry) => {
+            const row = entry as Row;
+            if (typeof row.assignment_id !== 'string' || typeof row.variant_id !== 'string') return [];
+            return [{
+                variantId: row.variant_id,
+                assignmentId: row.assignment_id,
+                versionCode: typeof row.version_code === 'string' ? row.version_code : '',
+            }];
+        }),
+    };
 }
 
 const VERSION_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

@@ -105,6 +105,17 @@ export interface WorksheetRenderResult {
     warnings: string[];
 }
 
+export interface WorksheetPublishedVariant {
+    variantId: string;
+    assignmentId: string;
+    versionCode: string;
+}
+
+export interface WorksheetPublishResult {
+    draftId: string;
+    published: WorksheetPublishedVariant[];
+}
+
 export interface ProblemBankGrantSummary {
     id: string;
     academyId: string;

@@ -18,13 +18,19 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState, ErrorState } from '@/components/ui/state';
-import { createWorksheetDraft, loadWorksheetCart, renderWorksheetDraft } from './worksheet-service';
+import {
+    createWorksheetDraft,
+    loadWorksheetCart,
+    publishWorksheetDraft,
+    renderWorksheetDraft,
+} from './worksheet-service';
 import type {
     WorksheetCart,
     WorksheetCartItem,
     WorksheetCartProblem,
     WorksheetDraftCreated,
     WorksheetDraftSelectionChange,
+    WorksheetPublishResult,
     WorksheetRenderResult,
 } from './worksheet-types';
 
@@ -128,6 +134,9 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
     const [created, setCreated] = useState<WorksheetDraftCreated | null>(null);
     const [rendering, setRendering] = useState(false);
     const [renderResult, setRenderResult] = useState<WorksheetRenderResult | null>(null);
+    const [publishConfirming, setPublishConfirming] = useState(false);
+    const [publishing, setPublishing] = useState(false);
+    const [publishResult, setPublishResult] = useState<WorksheetPublishResult | null>(null);
 
     const loadCart = useCallback(async () => {
         if (!academyId || !studentId) return;
@@ -281,7 +290,11 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                 <Card>
                     <CardHeader>
                         <CardTitle>
-                            {renderResult ? 'PDF가 준비되었습니다 — 검수 후 인쇄하세요' : '학습지 초안이 저장되었습니다'}
+                            {publishResult
+                                ? '배포 완료 — 학생 앱에 과제가 등록되었습니다'
+                                : renderResult
+                                    ? 'PDF가 준비되었습니다 — 검수 후 인쇄·배포하세요'
+                                    : '학습지 초안이 저장되었습니다'}
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm text-muted-foreground">
@@ -299,13 +312,56 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                         ) : (
                             <p>PDF를 생성하면 검수용 미리보기와 교사용 정답지가 함께 만들어집니다.</p>
                         )}
+                        {publishResult ? (
+                            <p>
+                                지면 번호와 앱 문항 순서가 같게 등록되었습니다. 학생은 종이로 풀고
+                                Grade App에서 같은 번호에 답을 입력하면 됩니다.
+                            </p>
+                        ) : null}
+                        {renderResult && !publishResult ? (
+                            publishConfirming ? (
+                                <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2">
+                                    <p className="text-sm text-warning-foreground">
+                                        배포하면 학생 앱에 과제가 등록되고 이 학습지는 더 이상 수정할 수
+                                        없습니다. 인쇄물 검수를 마쳤나요?
+                                    </p>
+                                    <div className="mt-2 flex gap-2">
+                                        <Button
+                                            size="sm"
+                                            disabled={publishing}
+                                            onClick={async () => {
+                                                if (!academyId) return;
+                                                setPublishing(true);
+                                                try {
+                                                    setPublishResult(
+                                                        await publishWorksheetDraft(academyId, created.draftId),
+                                                    );
+                                                    toast.success('학습지가 배포되었습니다.');
+                                                } catch (error) {
+                                                    console.error('학습지 배포 실패:', error);
+                                                    toast.error(error instanceof Error ? error.message : '배포에 실패했습니다.');
+                                                } finally {
+                                                    setPublishing(false);
+                                                    setPublishConfirming(false);
+                                                }
+                                            }}
+                                        >
+                                            {publishing ? '배포 중…' : '배포 확정'}
+                                        </Button>
+                                        <Button size="sm" variant="outline" onClick={() => setPublishConfirming(false)}>
+                                            취소
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : null
+                        ) : null}
                         <div className="flex flex-wrap gap-2 pt-2">
                             {renderResult ? (
                                 <>
                                     {studentPdf?.url ? (
-                                        <Button asChild>
+                                        <Button asChild variant={publishResult ? 'default' : 'outline'}>
                                             <a href={studentPdf.url} target="_blank" rel="noreferrer">
-                                                학생용 PDF 검수·인쇄
+                                                학생용 PDF {publishResult ? '인쇄' : '검수·인쇄'}
                                             </a>
                                         </Button>
                                     ) : null}
@@ -314,6 +370,11 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                                             <a href={answerKey.url} target="_blank" rel="noreferrer">
                                                 정답지 (교사용)
                                             </a>
+                                        </Button>
+                                    ) : null}
+                                    {!publishResult && !publishConfirming ? (
+                                        <Button onClick={() => setPublishConfirming(true)}>
+                                            Grade App으로 배포
                                         </Button>
                                     ) : null}
                                 </>
@@ -345,6 +406,8 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                                 onClick={() => {
                                     setCreated(null);
                                     setRenderResult(null);
+                                    setPublishResult(null);
+                                    setPublishConfirming(false);
                                     void loadCart();
                                 }}
                             >
