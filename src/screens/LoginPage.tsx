@@ -5,7 +5,6 @@ import { BookOpen } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { csrfHeaders } from '../lib/lms/csrf-client';
-import { createClient } from '../lib/supabase/client';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -36,6 +35,8 @@ export function LoginPage() {
 
     setIsSubmitting(true);
     try {
+      // Loaded on demand so supabase-js stays out of the initial login bundle.
+      const { createClient } = await import('../lib/supabase/client');
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({
         email: resolveLoginEmail(loginId),

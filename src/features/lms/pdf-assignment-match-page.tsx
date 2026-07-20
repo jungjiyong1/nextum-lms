@@ -24,9 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { extractStudyqCodesFromPdf } from '@/lib/lms/pdf-problem-codes-client';
 import { findStudyqExternalCodes, parseManualStudyqCodes } from '@/lib/lms/pdf-problem-codes';
-import { uploadToSignedSupabasePath } from '@/lib/lms/signed-tus-upload';
 import {
     activeAssignmentMatchBatchId,
     assignmentMatchStorageKey,
@@ -360,6 +358,11 @@ export function PdfAssignmentMatchPage() {
         setWorking(true);
         let created: CreatedPdfAssignmentMatchBatch | null = null;
         try {
+            // Loaded on demand so the tus upload client stays out of the initial route bundle.
+            const [{ extractStudyqCodesFromPdf }, { uploadToSignedSupabasePath }] = await Promise.all([
+                import('@/lib/lms/pdf-problem-codes-client'),
+                import('@/lib/lms/signed-tus-upload'),
+            ]);
             const prepared: LocalPdfJob[] = [];
             const manualRequired: string[] = [];
             for (const job of localJobs) {
