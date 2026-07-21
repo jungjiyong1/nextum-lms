@@ -33,21 +33,33 @@ export async function createWorksheetDraft(
   academyId: string,
   input: Omit<CreateWorksheetDraftInput, 'academyId'>,
 ): Promise<WorksheetDraftCreated> {
-  return postLmsMutation<WorksheetDraftCreated>('/api/lms/worksheets/drafts', { academyId, ...input });
+  const result = await postLmsMutation<{ data: WorksheetDraftCreated }>(
+    '/api/lms/worksheets/drafts',
+    { academyId, ...input },
+  );
+  return result.data;
 }
 
 export async function renderWorksheetDraft(
   academyId: string,
   draftId: string,
 ): Promise<WorksheetRenderResult> {
-  return postLmsMutation<WorksheetRenderResult>('/api/lms/worksheets/render', { academyId, draftId });
+  const result = await postLmsMutation<{ data: WorksheetRenderResult }>(
+    '/api/lms/worksheets/render',
+    { academyId, draftId },
+  );
+  return result.data;
 }
 
 export async function publishWorksheetDraft(
   academyId: string,
   draftId: string,
 ): Promise<WorksheetPublishResult> {
-  return postLmsMutation<WorksheetPublishResult>('/api/lms/worksheets/publish', { academyId, draftId });
+  const result = await postLmsMutation<{ data: WorksheetPublishResult }>(
+    '/api/lms/worksheets/publish',
+    { academyId, draftId },
+  );
+  return result.data;
 }
 
 export async function loadProblemBankGrants(): Promise<ProblemBankGrantOverview> {
@@ -57,8 +69,9 @@ export async function loadProblemBankGrants(): Promise<ProblemBankGrantOverview>
 export async function setProblemBankGrant(
   input: { academyId: string; action: 'grant' | 'revoke'; note?: string },
 ): Promise<{ academyId: string; status: 'active' | 'revoked' }> {
-  return postLmsMutation<{ academyId: string; status: 'active' | 'revoked' }>(
+  const result = await postLmsMutation<{ data: { academyId: string; status: 'active' | 'revoked' } }>(
     '/api/lms/admin/problem-bank-grants',
     input,
   );
+  return result.data;
 }

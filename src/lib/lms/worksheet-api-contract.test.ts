@@ -50,6 +50,19 @@ describe('worksheet API contract', () => {
         expect(publishSection).toContain("rpc('publish_worksheet_v1'");
     });
 
+    it('worksheet service unwraps mutation response data', () => {
+        // postLmsMutation은 응답 본문 전체({success, data, ...})를 돌려주므로
+        // 서비스 메서드는 반드시 data를 벗겨서 반환해야 한다.
+        const service = readFileSync(
+            join(process.cwd(), 'src', 'features', 'lms', 'worksheet-service.ts'),
+            'utf8',
+        );
+        const mutationCount = service.split('postLmsMutation<').length - 1;
+        const unwrapCount = service.split('return result.data;').length - 1;
+        expect(mutationCount).toBeGreaterThan(0);
+        expect(unwrapCount).toBe(mutationCount);
+    });
+
     it('draft mutation recomputes roles server-side instead of trusting the client', () => {
         const mutations = readFileSync(
             join(process.cwd(), 'src', 'lib', 'lms', 'worksheet-mutations.ts'),
