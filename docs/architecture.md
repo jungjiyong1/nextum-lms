@@ -3,7 +3,7 @@
 ## Runtime boundaries
 
 NEXTUM LMS is a Next.js App Router web application. The root layout is intentionally
-small. Public authentication lives under `/login`; protected screens live in the
+small. Public authentication lives under `/login` and invitation-only `/signup`; protected screens live in the
 `(app)` route group.
 
 The protected server layout validates the Supabase JWT and loads the active account,

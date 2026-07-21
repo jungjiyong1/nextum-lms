@@ -468,6 +468,7 @@ export interface StaffAccountState {
   membershipActive: boolean;
   pendingInvitation: boolean;
   invitationExpiresAt: string | null;
+  signupInvitation: StaffSignupInvitation | null;
 }
 
 export interface StaffPayrollSummary {
@@ -517,6 +518,19 @@ export interface StaffMutationResult {
   staffName: string;
   tables: StaffMutationTableSummary[];
   totalAffectedRows: number;
+}
+
+export interface StaffSignupInvitation {
+  id?: string;
+  inviteCode: string;
+  expiresAt: string;
+  loginHint: string | null;
+}
+
+export interface CreateStaffResult {
+  staffId: string;
+  staffName: string;
+  invitation: StaffSignupInvitation;
 }
 
 export interface ClassroomSummary {

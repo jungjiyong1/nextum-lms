@@ -65,6 +65,11 @@ Database changes additionally require the runbook preflight and `npm run db:chec
 
 ## Decision Log
 
+### 2026-07-21
+
+- Added invitation-only LMS signup for academy staff: owner/admin registration in the instructor tab now creates a 128-bit, HMAC-hashed, 14-day one-time code tied to the staff record and role. `/signup` claims the code once, creates the Supabase Auth identity plus `core.user_accounts`/`core.academy_members` links, then signs the user in. Partial failures delete the new auth identity and release the invitation reservation; reissuing a code invalidates the previous pending code.
+- Added `20260721141617_staff_invitation_signup.sql` to enforce one pending invitation per staff member at the database boundary. Authorization continues to come from `core.academy_members`; editable Auth user metadata is not used for role checks.
+
 ### 2026-07-20
 
 - Added `docs/PROJECT_HANDOFF_GUIDE.md` as the audited onboarding and operations entry point across the app, API, Supabase, security, tests, CI, and deployment.

@@ -28,7 +28,9 @@ export function isProtectedAppPath(pathname: string): boolean {
 export function isPublicAuthPath(pathname: string): boolean {
     const normalized = normalizePathname(pathname);
     return normalized === '/login'
-        || normalized.startsWith('/login/');
+        || normalized.startsWith('/login/')
+        || normalized === '/signup'
+        || normalized.startsWith('/signup/');
 }
 
 export function isApiPath(pathname: string): boolean {

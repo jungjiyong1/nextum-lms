@@ -47,14 +47,18 @@ export async function POST(request: Request) {
             return mutationError('INVALID_STAFF_REQUEST', 'Invalid staff request.', { request });
         }
 
-        await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
+        const actor = await assertLmsRoleForAcademy(body.academyId, ['owner', 'admin']);
         if (body.staffId) {
             await updateStaffForAcademy(body.academyId, body.staffId, body.input as UpdateStaffInput);
+            return mutationSuccess(null, { request });
         } else {
-            await createStaffForAcademy(body.academyId, body.input as CreateStaffInput);
+            const result = await createStaffForAcademy(
+                body.academyId,
+                body.input as CreateStaffInput,
+                actor.personId,
+            );
+            return mutationSuccess(result, { request });
         }
-
-        return mutationSuccess(null, { request });
     } catch (error) {
         const authResponse = authErrorResponse(error);
         if (authResponse) return authResponse;

@@ -33,6 +33,7 @@ import type {
   CreateExpenseInput,
   CreateInstructorPaymentInput,
   CreateLearningAssignmentInput,
+  CreateStaffResult,
   CreateStudentResult,
   CreateScheduleRuleInput,
   DeleteScheduleInput,
@@ -50,6 +51,7 @@ import type {
   StaffOperationsOverview,
   StaffRole,
   StaffStatus,
+  StaffSignupInvitation,
   StaffSummary,
   ScheduleConflict,
   ScheduleMutationInput,
@@ -986,8 +988,25 @@ export async function loadStaffDetail(
   return getLmsJson<StaffDetail>(`/api/lms/staff/detail?${params.toString()}`, { policy: 'operational', ...options });
 }
 
-export async function createStaff(academyId: string, input: CreateStaffInput): Promise<void> {
-  await postLmsMutation('/api/lms/staff', { academyId, input });
+export async function createStaff(academyId: string, input: CreateStaffInput): Promise<CreateStaffResult> {
+  const result = await postLmsMutation<{ data?: CreateStaffResult }>('/api/lms/staff', { academyId, input });
+  if (!result.data?.invitation?.inviteCode) {
+    throw new Error('강사/직원 가입 코드를 발급하지 못했습니다.');
+  }
+  return result.data;
+}
+
+export async function issueStaffInvitation(
+  academyId: string,
+  staffId: string,
+  loginHint?: string | null,
+): Promise<StaffSignupInvitation> {
+  const result = await postLmsMutation<{ data?: StaffSignupInvitation }>(
+    '/api/lms/staff/invitations',
+    { academyId, staffId, loginHint: loginHint || null },
+  );
+  if (!result.data?.inviteCode) throw new Error('강사/직원 가입 코드를 발급하지 못했습니다.');
+  return result.data;
 }
 
 export async function updateStaff(academyId: string, staffId: string, input: UpdateStaffInput): Promise<void> {

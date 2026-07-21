@@ -23,6 +23,7 @@ import type {
     CreateClassroomInput,
     CreateScheduleRuleInput,
     DeleteScheduleInput,
+    CreateStaffResult,
     CreateStaffInput,
     CreateStudentInput,
     RecordAttendanceInput,
@@ -1332,7 +1333,11 @@ export async function upsertInstructorPayRateForAcademy(
     }
 }
 
-export async function createStaffForAcademy(academyId: string, input: CreateStaffInput) {
+export async function createStaffForAcademy(
+    academyId: string,
+    input: CreateStaffInput,
+    actorPersonId?: string | null,
+): Promise<CreateStaffResult> {
     const client = createAdminClient();
     const core = client.schema('core');
     const lms = client.schema('lms');
@@ -1369,19 +1374,115 @@ export async function createStaffForAcademy(academyId: string, input: CreateStaf
             .select('id')
             .single();
         ensureNoError(staffError, 'Failed to create staff member');
+        const staffId = String((staff as Row).id);
         if (hourlyRate !== null) {
             await upsertInstructorPayRate(
                 lms,
                 academyId,
-                String((staff as Row).id),
+                staffId,
                 input.hireDate || toSeoulDate(new Date()),
                 hourlyRate,
             );
         }
+        const invitation = await issueStaffInvitationForAcademy(
+            academyId,
+            staffId,
+            input.email,
+            actorPersonId,
+        );
+        return {
+            staffId,
+            staffName: name,
+            invitation,
+        };
     } catch (error) {
         await core.from('people').delete().eq('id', personRow.id).eq('primary_academy_id', academyId);
         throw error;
     }
+}
+
+export async function issueStaffInvitationForAcademy(
+    academyId: string,
+    staffId: string,
+    loginHint?: string | null,
+    actorPersonId?: string | null,
+) {
+    if (!staffId) throw new Error('강사/직원을 선택하세요.');
+
+    const client = createAdminClient();
+    const core = client.schema('core');
+    const { data: staff, error: staffError } = await core
+        .from('staff_members')
+        .select('id,person_id,role,status')
+        .eq('academy_id', academyId)
+        .eq('id', staffId)
+        .maybeSingle();
+    ensureNoError(staffError, 'Failed to load staff member');
+    if (!staff?.id || !staff.person_id) {
+        throw new Error('선택한 강사/직원이 이 학원에 속하지 않습니다.');
+    }
+    if (staff.role === 'owner') throw new Error('소유자 계정은 가입 코드를 발급할 수 없습니다.');
+    if (!['admin', 'staff', 'teacher', 'instructor'].includes(String(staff.role))) {
+        throw new Error('가입 코드를 발급할 수 없는 역할입니다.');
+    }
+    if (staff.status !== 'active') throw new Error('재직 중인 강사/직원만 가입할 수 있습니다.');
+
+    const { data: existingMembers, error: existingMembersError } = await core
+        .from('academy_members')
+        .select('id,user_account_id')
+        .eq('academy_id', academyId)
+        .eq('person_id', staff.person_id)
+        .eq('role', staff.role)
+        .eq('active', true)
+        .not('user_account_id', 'is', null)
+        .limit(1);
+    ensureNoError(existingMembersError, 'Failed to verify staff account');
+    if ((existingMembers || []).length > 0) {
+        throw new Error('이미 로그인 계정이 연결된 강사/직원입니다.');
+    }
+
+    const { error: pendingDeleteError } = await core
+        .from('account_invitations')
+        .delete()
+        .eq('academy_id', academyId)
+        .eq('staff_member_id', staffId)
+        .is('accepted_at', null);
+    ensureNoError(pendingDeleteError, 'Failed to clear pending staff invitations');
+
+    const normalizedHint = loginHint?.trim().toLowerCase() || null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const inviteCode = randomBytes(8).toString('hex').toUpperCase();
+        const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: invitation, error } = await core
+            .from('account_invitations')
+            .insert({
+                academy_id: academyId,
+                person_id: staff.person_id,
+                staff_member_id: staffId,
+                role: staff.role,
+                invite_code_hash: hashInviteCode(inviteCode),
+                invite_code_display: inviteCode,
+                login_hint: normalizedHint,
+                expires_at: expiresAt,
+                created_by: actorPersonId || null,
+            })
+            .select('id')
+            .single();
+
+        if (!error) {
+            return {
+                id: String(invitation.id),
+                inviteCode,
+                expiresAt,
+                loginHint: normalizedHint,
+            };
+        }
+        if (!String(error.message ?? '').toLowerCase().includes('duplicate')) {
+            ensureNoError(error, 'Failed to issue staff invitation');
+        }
+    }
+
+    throw new Error('고유한 가입 코드를 발급하지 못했습니다. 다시 시도하세요.');
 }
 
 export async function updateStaffForAcademy(academyId: string, staffId: string, input: UpdateStaffInput) {

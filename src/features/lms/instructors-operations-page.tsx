@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link';
 import {
     CalendarDays,
+    Copy,
     KeyRound,
     Pencil,
     Plus,
@@ -50,6 +51,7 @@ import {
     archiveStaff,
     createStaff,
     hardDeleteStaff,
+    issueStaffInvitation,
     loadStaffDetail,
     loadStaffOperationsOverview,
     previewHardDeleteStaff,
@@ -60,6 +62,7 @@ import { LatestAbortController } from './latest-abort-controller';
 import { useDebouncedValue } from './use-debounced-value';
 import type {
     ClassSummary,
+    CreateStaffResult,
     ScheduleItem,
     StaffDetail,
     StaffHardDeletePreview,
@@ -382,18 +385,55 @@ function ClassesTab({ classes, schedule }: { classes: ClassSummary[]; schedule: 
     );
 }
 
-function AccountTab({ detail }: { detail: StaffDetail }) {
+function AccountTab({
+    detail,
+    onCopyInviteCode,
+    onIssueInvitation,
+    issuingInvitation,
+}: {
+    detail: StaffDetail;
+    onCopyInviteCode: (code: string) => void;
+    onIssueInvitation: () => void;
+    issuingInvitation: boolean;
+}) {
     const account = detail.account;
     if (!account) {
         return <EmptyState icon={KeyRound} title="계정 상태를 볼 수 없습니다." />;
     }
     return (
-        <div className="grid gap-3 md:grid-cols-2">
-            <InfoItem label="로그인 계정" value={account.hasAccount ? '연결됨' : '없음'} />
-            <InfoItem label="계정 상태" value={account.accountStatus || '-'} />
-            <InfoItem label="멤버십 역할" value={roleLabel(account.membershipRole)} />
-            <InfoItem label="멤버십 활성" value={account.membershipActive ? '활성' : '비활성'} />
-            <InfoItem label="대기 초대" value={account.pendingInvitation ? `만료 ${shortDate(account.invitationExpiresAt)}` : '없음'} />
+        <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+                <InfoItem label="로그인 계정" value={account.hasAccount ? '연결됨' : '없음'} />
+                <InfoItem label="계정 상태" value={account.accountStatus || '-'} />
+                <InfoItem label="멤버십 역할" value={roleLabel(account.membershipRole)} />
+                <InfoItem label="멤버십 활성" value={account.membershipActive ? '활성' : '비활성'} />
+                <InfoItem label="대기 초대" value={account.pendingInvitation ? `만료 ${shortDate(account.invitationExpiresAt)}` : '없음'} />
+            </div>
+            {!account.hasAccount && (
+                <div className="rounded-xl border bg-muted/40 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                            <p className="text-sm font-medium">일회용 가입 코드</p>
+                            {account.signupInvitation ? (
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <code className="select-all break-all text-lg font-semibold tracking-[0.12em] text-foreground">
+                                        {account.signupInvitation.inviteCode}
+                                    </code>
+                                    <Button type="button" size="sm" variant="outline" onClick={() => onCopyInviteCode(account.signupInvitation?.inviteCode || '')}>
+                                        <Copy className="mr-2 h-4 w-4" />복사
+                                    </Button>
+                                </div>
+                            ) : (
+                                <p className="mt-1 text-sm text-muted-foreground">현재 사용할 수 있는 가입 코드가 없습니다.</p>
+                            )}
+                        </div>
+                        <Button type="button" variant="outline" onClick={onIssueInvitation} disabled={issuingInvitation}>
+                            <KeyRound className="mr-2 h-4 w-4" />
+                            {issuingInvitation ? '발급 중...' : account.signupInvitation ? '새 코드 발급' : '가입 코드 발급'}
+                        </Button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -499,6 +539,8 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
     const [hardDeletePasswordOpen, setHardDeletePasswordOpen] = useState(false);
     const [hardDeletePreview, setHardDeletePreview] = useState<StaffHardDeletePreview | null>(null);
     const [hardDeleteConfirmName, setHardDeleteConfirmName] = useState('');
+    const [createdInvitation, setCreatedInvitation] = useState<CreateStaffResult | null>(null);
+    const [issuingInvitation, setIssuingInvitation] = useState(false);
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
@@ -698,8 +740,10 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
                 await updateStaff(academyId, selectedStaffId, { ...payload, status: staffStatus });
                 toast.success('강사/직원 정보를 수정했습니다.');
             } else {
-                await createStaff(academyId, payload);
-                toast.success('강사/직원을 등록했습니다.');
+                const result = await createStaff(academyId, payload);
+                setCreatedInvitation(result);
+                setSelectedStaffId(result.staffId);
+                toast.success('강사/직원을 등록하고 가입 코드를 발급했습니다.');
             }
             resetForm();
             await load({ force: true });
@@ -708,6 +752,45 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
             toast.error(err instanceof Error ? err.message : '강사/직원 저장에 실패했습니다.');
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const copyInviteCode = async (code: string) => {
+        if (!code) return;
+        try {
+            await navigator.clipboard.writeText(code);
+            toast.success('가입 코드를 복사했습니다.');
+        } catch {
+            toast.error('가입 코드 복사에 실패했습니다.');
+        }
+    };
+
+    const issueInvitationForDetail = async () => {
+        if (!academyId || !detail || detail.account?.hasAccount) return;
+        setIssuingInvitation(true);
+        try {
+            const invitation = await issueStaffInvitation(academyId, detail.summary.id, detail.summary.email);
+            setDetail((current) => current && current.summary.id === detail.summary.id && current.account
+                ? {
+                    ...current,
+                    account: {
+                        ...current.account,
+                        pendingInvitation: true,
+                        invitationExpiresAt: invitation.expiresAt,
+                        signupInvitation: invitation,
+                    },
+                }
+                : current);
+            setCreatedInvitation({
+                staffId: detail.summary.id,
+                staffName: detail.summary.name,
+                invitation,
+            });
+            toast.success('새 가입 코드를 발급했습니다. 이전 코드는 더 이상 사용할 수 없습니다.');
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : '가입 코드 발급에 실패했습니다.');
+        } finally {
+            setIssuingInvitation(false);
         }
     };
 
@@ -919,7 +1002,16 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
                                     </TabsList>
                                     <TabsContent value="classes"><ClassesTab classes={detail.assignedClasses} schedule={detail.schedule} /></TabsContent>
                                     {detail.permissions.canViewSensitiveProfile && <TabsContent value="profile"><ProfileTab detail={detail} /></TabsContent>}
-                                    {detail.permissions.canViewAccount && <TabsContent value="account"><AccountTab detail={detail} /></TabsContent>}
+                                    {detail.permissions.canViewAccount && (
+                                        <TabsContent value="account">
+                                            <AccountTab
+                                                detail={detail}
+                                                onCopyInviteCode={(code) => void copyInviteCode(code)}
+                                                onIssueInvitation={() => void issueInvitationForDetail()}
+                                                issuingInvitation={issuingInvitation}
+                                            />
+                                        </TabsContent>
+                                    )}
                                     {canShowManagement && (
                                         <TabsContent value="manage">
                                             <ManagementTab detail={detail} onStartEdit={startEdit} onArchive={() => setArchiveOpen(true)} onHardDelete={openHardDelete} />
@@ -937,6 +1029,48 @@ export function InstructorsOperationsPage({ initialStaffId = '' }: { initialStaf
                     )}
                 </div>
             )}
+
+            <Dialog open={Boolean(createdInvitation)} onOpenChange={(open) => {
+                if (!open) setCreatedInvitation(null);
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>강사·직원 가입 코드</DialogTitle>
+                        <DialogDescription>
+                            {createdInvitation?.staffName || '등록한 사용자'}에게 전달할 일회용 가입 코드입니다.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="rounded-xl border bg-muted p-4">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">가입 코드</p>
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                                <code className="select-all break-all text-xl font-semibold tracking-[0.12em] text-foreground">
+                                    {createdInvitation?.invitation.inviteCode || '-'}
+                                </code>
+                                <Button type="button" variant="outline" size="sm" onClick={() => void copyInviteCode(createdInvitation?.invitation.inviteCode || '')}>
+                                    <Copy className="mr-2 h-4 w-4" />복사
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="grid gap-2 text-sm text-muted-foreground">
+                            <div className="flex items-center justify-between gap-3">
+                                <span>대상</span>
+                                <strong className="text-foreground">{createdInvitation?.staffName || '-'}</strong>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                                <span>만료일</span>
+                                <strong className="text-foreground">{shortDate(createdInvitation?.invitation.expiresAt)}</strong>
+                            </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                            로그인 화면의 회원가입에서 이 코드를 입력하면 현재 학원과 등록된 역할로 연결됩니다.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" onClick={() => setCreatedInvitation(null)}>확인</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
                 <DialogContent>

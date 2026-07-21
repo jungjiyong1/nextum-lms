@@ -676,7 +676,7 @@ async function loadStaffAccountState(
             .maybeSingle(),
         core
             .from('account_invitations')
-            .select('id,expires_at,accepted_at')
+            .select('id,invite_code_display,expires_at,login_hint,accepted_at')
             .eq('academy_id', academyId)
             .eq('staff_member_id', staff.id)
             .is('accepted_at', null)
@@ -691,13 +691,22 @@ async function loadStaffAccountState(
     const account = accountResult.data as Row | null;
     const member = memberResult.data as Row | null;
     const invite = inviteResult.data as Row | null;
+    const inviteCode = typeof invite?.invite_code_display === 'string' ? invite.invite_code_display : '';
+    const expiresAt = typeof invite?.expires_at === 'string' ? invite.expires_at : '';
+    const invitationUsable = Boolean(inviteCode && expiresAt && new Date(expiresAt).getTime() > Date.now());
     return {
         hasAccount: Boolean(account?.id || member?.user_account_id),
         accountStatus: account?.status ?? null,
         membershipRole: member?.role ?? null,
         membershipActive: Boolean(member?.active),
-        pendingInvitation: Boolean(invite?.id),
-        invitationExpiresAt: invite?.expires_at ?? null,
+        pendingInvitation: invitationUsable,
+        invitationExpiresAt: invitationUsable ? expiresAt : null,
+        signupInvitation: invitationUsable ? {
+            id: String(invite?.id || ''),
+            inviteCode,
+            expiresAt,
+            loginHint: typeof invite?.login_hint === 'string' ? invite.login_hint : null,
+        } : null,
     };
 }
 

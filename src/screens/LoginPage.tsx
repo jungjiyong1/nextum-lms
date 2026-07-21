@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { BookOpen } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { csrfHeaders } from '../lib/lms/csrf-client';
@@ -113,6 +114,13 @@ export function LoginPage() {
               {isSubmitting ? '로그인 중...' : '로그인'}
             </Button>
           </form>
+
+          <p className="mt-5 text-center text-sm text-muted-foreground">
+            가입 코드를 받으셨나요?{' '}
+            <Link href="/signup" className="font-medium text-primary hover:underline">
+              회원가입
+            </Link>
+          </p>
 
           <div className="mt-3 text-center">
             <p className="text-xs text-muted-foreground">© 2026 NEXTUM</p>

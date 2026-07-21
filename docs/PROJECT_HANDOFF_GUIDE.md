@@ -346,12 +346,16 @@ API 변경 시 반드시 확인할 순서:
 
 - 사용자가 입력한 로그인 ID를 설정된 도메인의 이메일로 바꿔 Supabase password login을 수행한다.
 - 서버는 `auth.getClaims()` 뒤 `core.user_accounts`의 active 상태를 확인한다.
-- public 회원가입은 없다.
+- `/signup`은 공개 화면이지만 회원가입 자체는 학원 owner/admin이 강사 탭에서 발급한 14일 유효 일회용 코드가 있어야만 진행된다.
+- 가입 코드는 HMAC hash로 조회하고 원문은 미사용 초대를 관리자에게 표시할 때만 사용한다. 코드를 선점한 뒤 Auth 사용자, `core.user_accounts`, `core.academy_members`를 연결하며 실패하면 Auth 사용자와 선점 상태를 원복한다.
+- 역할은 초대에 기록된 `core.account_invitations.role`에서 `core.academy_members`로 복사한다. Auth `user_metadata`는 권한 판단에 사용하지 않는다.
 - 정확히 `loginId === "admin"`인 로그인만 즉시 `/select-academy`로 이동하는 특수 분기가 있다. 다른 다중 학원 사용자는 보호 layout의 일반 redirect에 의존한다.
 
 주요 파일:
 
 - [LoginPage](../src/screens/LoginPage.tsx)
+- [signup page](../src/app/signup/page.tsx)
+- [signup claim route](../src/app/api/signup/claim/route.ts)
 - [academy access](../src/lib/lms/academy-access.ts)
 - [auth helpers](../src/lib/lms/auth.ts)
 
@@ -418,6 +422,7 @@ API 변경 시 반드시 확인할 순서:
 | 경로 | 역할 |
 | --- | --- |
 | `/login` | Supabase Auth 로그인 |
+| `/signup` | 강사·직원 일회용 코드 회원가입 |
 | `/select-academy` | 다중 학원 계정의 현재 학원 선택 |
 | `/` | 운영 대시보드 |
 | `/assignments` | 배포 과제 현황·상세 |
