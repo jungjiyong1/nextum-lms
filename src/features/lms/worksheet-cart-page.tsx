@@ -87,6 +87,7 @@ interface ItemSelection {
     changeLog: WorksheetDraftSelectionChange[];
     difficultyMode: DifficultyMode;
     bandPlan: WorksheetCartBandPlan | null;
+    itemCount: number;
     adjusting: boolean;
 }
 
@@ -187,6 +188,7 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                 changeLog: [],
                 difficultyMode: previous?.difficultyMode ?? 'recommended',
                 bandPlan: previous?.bandPlan ?? null,
+                itemCount: previous?.itemCount ?? item.suggestedItemCount,
                 adjusting: previous?.adjusting ?? false,
             });
         }
@@ -252,17 +254,68 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
         const key = itemKey(item);
         const selection = selections.get(key);
         if (!selection) return;
-        const bandPlan = preset === 'recommended'
+        // 추천 프리셋 + 기본 문항 수일 때만 재정의 없이 서버 기본 규칙을 쓴다.
+        const bandPlan = preset === 'recommended' && selection.itemCount === item.suggestedItemCount
             ? null
             : (buildPresetBandPlan(
                 preset,
                 item.suggestedChallengeBand as ChallengeBand,
-                item.suggestedItemCount,
+                selection.itemCount,
             ) as WorksheetCartBandPlan);
         const next = new Map(selections);
         next.set(key, { ...selection, difficultyMode: preset, bandPlan });
         void recomputeWithDifficulty(next);
     }, [selections, recomputeWithDifficulty]);
+
+    const stepItemCount = useCallback((item: WorksheetCartItem, delta: number) => {
+        const key = itemKey(item);
+        const selection = selections.get(key);
+        if (!selection || !cart) return;
+        const maxPerItem = cart.config.maxAutoTotalItems;
+        const nextCount = Math.max(1, Math.min(selection.itemCount + delta, maxPerItem));
+        if (nextCount === selection.itemCount) return;
+
+        let bandPlan: WorksheetCartBandPlan | null;
+        if (selection.difficultyMode === 'custom' && selection.bandPlan) {
+            const plan: WorksheetCartBandPlan = { ...selection.bandPlan };
+            const target = item.suggestedChallengeBand as ChallengeBand;
+            if (delta > 0) {
+                // 목표 난이도부터, 후보가 남은 가까운 난이도 순으로 1문항 추가
+                const order = [...BANDS].sort(
+                    (left, right) => Math.abs(left - target) - Math.abs(right - target) || left - right,
+                );
+                const bandToGrow = order.find(
+                    (band) => (plan[band] ?? 0) < (item.bandAvailability[band] ?? 0),
+                );
+                if (!bandToGrow) return;
+                plan[bandToGrow] = (plan[bandToGrow] ?? 0) + 1;
+            } else {
+                // 문항이 가장 많은 난이도(동률이면 목표에서 먼 쪽)에서 1문항 제거
+                const bandToShrink = [...BANDS]
+                    .filter((band) => (plan[band] ?? 0) > 0)
+                    .sort(
+                        (left, right) => (plan[right] ?? 0) - (plan[left] ?? 0)
+                            || Math.abs(right - target) - Math.abs(left - target),
+                    )[0];
+                if (bandToShrink === undefined) return;
+                plan[bandToShrink] = (plan[bandToShrink] ?? 0) - 1;
+            }
+            bandPlan = plan;
+        } else {
+            const preset = selection.difficultyMode === 'custom' ? 'recommended' : selection.difficultyMode;
+            bandPlan = nextCount === item.suggestedItemCount && preset === 'recommended'
+                ? null
+                : (buildPresetBandPlan(
+                    preset,
+                    item.suggestedChallengeBand as ChallengeBand,
+                    nextCount,
+                ) as WorksheetCartBandPlan);
+        }
+
+        const next = new Map(selections);
+        next.set(key, { ...selection, itemCount: nextCount, bandPlan });
+        void recomputeWithDifficulty(next);
+    }, [selections, cart, recomputeWithDifficulty]);
 
     const stepBand = useCallback((item: WorksheetCartItem, band: ChallengeBand, delta: number) => {
         const key = itemKey(item);
@@ -277,7 +330,7 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
         const total = BANDS.reduce((sum, value) => sum + (base[value] ?? 0), 0);
         if (total < 1 || total > cart.config.manualMaxTotalItems) return;
         const next = new Map(selections);
-        next.set(key, { ...selection, difficultyMode: 'custom', bandPlan: base });
+        next.set(key, { ...selection, difficultyMode: 'custom', bandPlan: base, itemCount: total });
         void recomputeWithDifficulty(next);
     }, [selections, cart, recomputeWithDifficulty]);
 
@@ -636,6 +689,35 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                                             </span>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2">
+                                            <div className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-2 py-1">
+                                                <span className="text-xs text-muted-foreground">문항 수</span>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 w-7 px-0"
+                                                    disabled={recomputing || selection.itemCount <= 1}
+                                                    aria-label="문항 수 줄이기"
+                                                    onClick={() => stepItemCount(item, -1)}
+                                                >
+                                                    −
+                                                </Button>
+                                                <span className="min-w-4 text-center text-sm font-semibold">
+                                                    {selection.problems.length}
+                                                </span>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 w-7 px-0"
+                                                    disabled={recomputing
+                                                        || selection.itemCount >= cart.config.maxAutoTotalItems}
+                                                    aria-label="문항 수 늘리기"
+                                                    onClick={() => stepItemCount(item, 1)}
+                                                >
+                                                    +
+                                                </Button>
+                                            </div>
                                             <div className="inline-flex items-center gap-0.5 rounded-xl bg-muted p-0.5">
                                                 {DIFFICULTY_PRESETS.map((preset) => (
                                                     <Button
