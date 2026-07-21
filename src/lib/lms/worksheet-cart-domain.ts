@@ -21,6 +21,7 @@ import {
     type ProblemHistoryRecord,
     type SelectedProblem,
     type SelectionWarning,
+    type WorksheetBandPlan,
 } from './worksheet-selection';
 
 /** reporting.v_learning_evidence_base 한 행의 정규화된 형태 */
@@ -52,6 +53,7 @@ export interface CartItemComputation extends EligibleWorksheetItem {
     selected: SelectedProblem[];
     alternates: SelectedProblem[];
     warnings: SelectionWarning[];
+    bandAvailability: Record<ChallengeBand, number>;
 }
 
 export interface CartComputationResult {
@@ -226,8 +228,9 @@ export interface ComputeCartInput {
     history: readonly ProblemHistoryRecord[];
     asOf: string;
     seed: string;
-    alternateCount?: number;
     config?: WorksheetRecommendationConfig;
+    /** 항목별 난이도 계획 재정의. key = `${analysisSkillId}:${purpose}` */
+    bandPlanOverrides?: ReadonlyMap<string, WorksheetBandPlan>;
 }
 
 /**
@@ -237,7 +240,6 @@ export interface ComputeCartInput {
  */
 export function computeWorksheetCart(input: ComputeCartInput): CartComputationResult {
     const config = input.config ?? DEFAULT_WORKSHEET_RECOMMENDATION_CONFIG;
-    const alternateCount = input.alternateCount ?? 3;
     const eligibility = getEligibleWorksheetItems({
         skills: input.summaries,
         asOf: input.asOf,
@@ -258,12 +260,14 @@ export function computeWorksheetCart(input: ComputeCartInput): CartComputationRe
             problemId: tag.problemId,
             challengeBand: tag.challengeBand as ChallengeBand,
         }));
+        const bandPlan = input.bandPlanOverrides?.get(`${item.analysisSkillId}:${item.purpose}`);
         const baseInput = {
             purpose: item.purpose,
             targetChallengeBand: item.suggestedChallengeBand,
+            itemCount: item.suggestedItemCount,
+            bandPlan,
             candidates,
             history: input.history,
-            excludedProblemIds: [...usedProblemIds],
             asOf: input.asOf,
             seed: `${input.seed}:${item.analysisSkillId}:${item.purpose}`,
             config,
@@ -271,7 +275,7 @@ export function computeWorksheetCart(input: ComputeCartInput): CartComputationRe
 
         const authoritative = selectWorksheetProblems({
             ...baseInput,
-            itemCount: item.suggestedItemCount,
+            excludedProblemIds: [...usedProblemIds],
         });
         if (authoritative.verificationBlocked) {
             return {
@@ -280,21 +284,22 @@ export function computeWorksheetCart(input: ComputeCartInput): CartComputationRe
                 selected: [],
                 alternates: [],
                 warnings: [],
+                bandAvailability: authoritative.bandAvailability,
             };
         }
 
-        const extended = selectWorksheetProblems({
-            ...baseInput,
-            itemCount: item.suggestedItemCount + alternateCount,
-        });
         const selectedIds = authoritative.selected.map((problem) => problem.problemId);
-        const extendedIds = extended.selected.map((problem) => problem.problemId);
-        const prefixMatches =
-            !extended.verificationBlocked &&
-            selectedIds.every((problemId, index) => extendedIds[index] === problemId);
-        const alternates = prefixMatches
-            ? extended.selected.slice(authoritative.selected.length)
-            : [];
+        // 교체 후보 = 같은 난이도 구성의 다음 후보들 (이미 뽑힌 문제 제외)
+        let alternates: SelectedProblem[] = [];
+        try {
+            const alternateRun = selectWorksheetProblems({
+                ...baseInput,
+                excludedProblemIds: [...usedProblemIds, ...selectedIds],
+            });
+            if (!alternateRun.verificationBlocked) alternates = alternateRun.selected;
+        } catch {
+            alternates = [];
+        }
 
         // 예비 문제까지 예약해 두어야 교체가 학습지 내 중복을 만들 수 없다.
         usedProblemIds.push(...selectedIds, ...alternates.map((problem) => problem.problemId));
@@ -304,6 +309,7 @@ export function computeWorksheetCart(input: ComputeCartInput): CartComputationRe
             selected: authoritative.selected,
             alternates,
             warnings: authoritative.warnings,
+            bandAvailability: authoritative.bandAvailability,
         };
     });
 

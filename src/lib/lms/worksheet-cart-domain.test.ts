@@ -194,6 +194,31 @@ describe('computeWorksheetCart', () => {
         expect(result.items[0].selected).toHaveLength(0);
     });
 
+    it('applies band-plan overrides and reports availability', () => {
+        const tags = [
+            ...['a1', 'a2', 'a3'].map((id) => tag(id, 1)),
+            ...['b1', 'b2', 'b3'].map((id) => tag(id, 2)),
+            ...['c1', 'c2'].map((id) => tag(id, 3)),
+        ];
+        const result = computeWorksheetCart({
+            summaries: [verificationSummary],
+            approvedTags: tags,
+            history: [],
+            asOf: '2026-07-20',
+            seed: 'seed-o',
+            bandPlanOverrides: new Map([['skill-1:verification', { 1: 1, 3: 2 }]]),
+        });
+
+        const bands = result.items[0].selected.map((problem) => problem.challengeBand).sort();
+        expect(bands).toEqual([1, 3, 3]);
+        expect(result.items[0].bandAvailability).toEqual({ 1: 3, 2: 3, 3: 2, 4: 0 });
+        // 교체 후보도 같은 구성 규칙으로 뽑되 이미 뽑힌 문제는 제외된다
+        const alternateIds = result.items[0].alternates.map((problem) => problem.problemId);
+        for (const problem of result.items[0].selected) {
+            expect(alternateIds).not.toContain(problem.problemId);
+        }
+    });
+
     it('passes excluded skills through', () => {
         const result = computeWorksheetCart({
             summaries: [{

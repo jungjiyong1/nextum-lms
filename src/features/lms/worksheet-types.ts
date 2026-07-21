@@ -17,6 +17,15 @@ export interface WorksheetCartWarning {
     detail: string;
 }
 
+/** 난이도(1~4)별 문항 수 */
+export type WorksheetCartBandPlan = Record<number, number>;
+
+export interface WorksheetCartItemOverride {
+    analysisSkillId: string;
+    purpose: WorksheetCartPurpose;
+    bandPlan: WorksheetCartBandPlan;
+}
+
 export interface WorksheetCartItem {
     analysisSkillId: string;
     skillName: string;
@@ -33,6 +42,8 @@ export interface WorksheetCartItem {
     problems: WorksheetCartProblem[];
     alternates: WorksheetCartProblem[];
     warnings: WorksheetCartWarning[];
+    /** 난이도별 선택 가능 후보 수 (스테퍼 상한·안내용) */
+    bandAvailability: WorksheetCartBandPlan;
 }
 
 export interface WorksheetCartExcludedSkill {
@@ -71,6 +82,8 @@ export interface WorksheetDraftSelectionInput {
     purpose: WorksheetCartPurpose;
     problemIds: string[];
     changeLog?: WorksheetDraftSelectionChange[];
+    /** 교사가 난이도 구성을 조정한 경우 그 계획 (서버가 같은 계획으로 재검증) */
+    bandPlan?: WorksheetCartBandPlan;
 }
 
 export interface CreateWorksheetDraftInput {

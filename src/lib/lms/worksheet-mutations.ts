@@ -257,6 +257,16 @@ export async function createWorksheetDraft(
         asOf: input.asOf,
         seed: input.seed,
         includeImages: false,
+        // 교사가 조정한 난이도 계획 그대로 재계산해야 문제 풀이 일치한다.
+        overrides: input.selections.flatMap((selection) =>
+            selection.bandPlan
+                ? [{
+                    analysisSkillId: selection.analysisSkillId,
+                    purpose: selection.purpose,
+                    bandPlan: selection.bandPlan,
+                }]
+                : [],
+        ),
     });
     if (!loaded.cart.problemBankGranted) {
         throw new LmsAuthError('이 학원은 문제은행 사용 승인이 없습니다.', 403);

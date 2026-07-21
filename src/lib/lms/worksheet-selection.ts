@@ -41,10 +41,17 @@ export interface SelectedProblem {
     similarityGroupId: string;
 }
 
+/** 난이도별 요청 문항 수. 예: { 2: 1, 3: 2 } = 중 1 + 상 2 */
+export type WorksheetBandPlan = Partial<Record<ChallengeBand, number>>;
+
+export type WorksheetDifficultyPreset = 'easier' | 'recommended' | 'harder';
+
 export interface WorksheetSelectionInput {
     purpose: EligiblePurpose;
     targetChallengeBand: ChallengeBand;
     itemCount: number;
+    /** 지정 시 itemCount 대신 계획의 합이 총 문항 수가 된다. */
+    bandPlan?: WorksheetBandPlan;
     candidates: readonly CandidateProblem[];
     history: readonly ProblemHistoryRecord[];
     /** 같은 학습지에 이미 담긴 문제 (동일 문제지 내 중복 절대 금지) */
@@ -59,6 +66,77 @@ export interface WorksheetSelectionResult {
     warnings: SelectionWarning[];
     /** 확인용 미풀이 문항이 부족해 확인을 제안할 수 없는 상태 */
     verificationBlocked: boolean;
+    /** 난이도별 선택 가능 후보 수 (최근 제외 규칙 적용 후, 선택 전) */
+    bandAvailability: Record<ChallengeBand, number>;
+}
+
+function oneBandEasier(band: ChallengeBand): ChallengeBand {
+    return (band > 1 ? band - 1 : band + 1) as ChallengeBand;
+}
+
+function mergeIntoPlan(plan: WorksheetBandPlan, band: ChallengeBand, count: number): void {
+    if (count <= 0) return;
+    plan[band] = (plan[band] ?? 0) + count;
+}
+
+/**
+ * 프리셋을 난이도 계획으로 바꾼다. '추천'은 기본 규칙(목표 2/3 + 한 단계
+ * 아래 1/3)이고, '더 쉽게'는 무게중심을 한 단계 내리며, '더 어렵게'는 목표
+ * 위주에 한 단계 위 문항을 1/3 섞는다. 프리셋은 자동 상한(기본 3)을 넘지
+ * 않는다 — 최상(4)은 직접 조정에서만 선택한다.
+ */
+export function buildPresetBandPlan(
+    preset: WorksheetDifficultyPreset,
+    targetChallengeBand: ChallengeBand,
+    itemCount: number,
+    config: WorksheetRecommendationConfig = DEFAULT_WORKSHEET_RECOMMENDATION_CONFIG,
+): WorksheetBandPlan {
+    if (!Number.isInteger(itemCount) || itemCount <= 0) {
+        throw new Error('itemCount must be a positive integer');
+    }
+    const plan: WorksheetBandPlan = {};
+    const majority = Math.ceil((itemCount * 2) / 3);
+
+    if (preset === 'easier') {
+        if (targetChallengeBand === 1) {
+            mergeIntoPlan(plan, 1, itemCount);
+            return plan;
+        }
+        const easier = (targetChallengeBand - 1) as ChallengeBand;
+        mergeIntoPlan(plan, easier, majority);
+        mergeIntoPlan(plan, oneBandEasier(easier), itemCount - majority);
+        return plan;
+    }
+
+    if (preset === 'harder') {
+        const harder = Math.min(
+            targetChallengeBand + 1,
+            config.maxAutoChallengeBand,
+        ) as ChallengeBand;
+        mergeIntoPlan(plan, targetChallengeBand, majority);
+        mergeIntoPlan(plan, harder, itemCount - majority);
+        return plan;
+    }
+
+    mergeIntoPlan(plan, targetChallengeBand, majority);
+    mergeIntoPlan(plan, oneBandEasier(targetChallengeBand), itemCount - majority);
+    return plan;
+}
+
+function normalizeBandPlan(plan: WorksheetBandPlan): Array<[ChallengeBand, number]> {
+    const entries: Array<[ChallengeBand, number]> = [];
+    for (const band of [1, 2, 3, 4] as const) {
+        const count = plan[band];
+        if (count === undefined || count === 0) continue;
+        if (!Number.isInteger(count) || count < 0) {
+            throw new Error('bandPlan counts must be non-negative integers');
+        }
+        entries.push([band, count]);
+    }
+    if (entries.length === 0) {
+        throw new Error('bandPlan must request at least one problem');
+    }
+    return entries;
 }
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -135,6 +213,12 @@ function bandFillOrder(target: ChallengeBand): ChallengeBand[] {
 
 type NormalizedCandidate = SelectedProblem & { lastSeenOn: string | null };
 
+function countByBand(pool: readonly NormalizedCandidate[]): Record<ChallengeBand, number> {
+    const counts: Record<ChallengeBand, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    for (const candidate of pool) counts[candidate.challengeBand] += 1;
+    return counts;
+}
+
 function takeFromBand(
     pool: NormalizedCandidate[],
     band: ChallengeBand | null,
@@ -173,12 +257,17 @@ export function selectWorksheetProblems(
 ): WorksheetSelectionResult {
     const config = input.config ?? DEFAULT_WORKSHEET_RECOMMENDATION_CONFIG;
     const asOfTimestamp = dateOnlyTimestamp(input.asOf, 'asOf');
-    if (!Number.isInteger(input.itemCount) || input.itemCount <= 0) {
+    if (!input.bandPlan && (!Number.isInteger(input.itemCount) || input.itemCount <= 0)) {
         throw new Error('itemCount must be a positive integer');
     }
     if (input.seed.trim().length === 0) {
         throw new Error('seed must not be empty');
     }
+    const planEntries = normalizeBandPlan(
+        input.bandPlan
+            ?? buildPresetBandPlan('recommended', input.targetChallengeBand, input.itemCount, config),
+    );
+    const totalCount = planEntries.reduce((sum, [, count]) => sum + count, 0);
 
     const history = mergeProblemHistory(input.history);
     const seenGroups = new Set(
@@ -221,8 +310,13 @@ export function selectWorksheetProblems(
                 candidate.lastSeenOn === null &&
                 !seenGroups.has(candidate.similarityGroupId),
         );
-        if (freshPool.length < input.itemCount) {
-            return { selected: [], warnings, verificationBlocked: true };
+        if (freshPool.length < totalCount) {
+            return {
+                selected: [],
+                warnings,
+                verificationBlocked: true,
+                bandAvailability: countByBand(freshPool),
+            };
         }
     } else {
         freshPool = shuffled.filter(
@@ -239,48 +333,44 @@ export function selectWorksheetProblems(
             .sort((left, right) => left.lastSeenOn!.localeCompare(right.lastSeenOn!));
     }
 
-    const primaryCount = Math.ceil((input.itemCount * 2) / 3);
-    const secondaryBand =
-        input.targetChallengeBand > 1
-            ? ((input.targetChallengeBand - 1) as ChallengeBand)
-            : ((input.targetChallengeBand + 1) as ChallengeBand);
+    const bandAvailability = countByBand(freshPool);
 
-    takeFromBand(freshPool, input.targetChallengeBand, primaryCount, picked, pickedIds, pickedGroups);
-    takeFromBand(
-        freshPool,
-        secondaryBand,
-        input.itemCount - picked.length,
-        picked,
-        pickedIds,
-        pickedGroups,
+    // 계획된 난이도를 목표에 가까운 순서로 채운다.
+    const orderedPlan = [...planEntries].sort(
+        (left, right) =>
+            Math.abs(left[0] - input.targetChallengeBand) - Math.abs(right[0] - input.targetChallengeBand)
+            || left[0] - right[0],
     );
+    for (const [band, count] of orderedPlan) {
+        takeFromBand(freshPool, band, count, picked, pickedIds, pickedGroups);
+    }
 
-    if (picked.length < input.itemCount) {
-        // 기본 분배가 남긴 부족분은 목표 난이도에서 먼저 다시 채운다.
+    if (picked.length < totalCount) {
+        // 계획이 남긴 부족분은 목표 난이도에서 먼저 다시 채운다.
         takeFromBand(
             freshPool,
             input.targetChallengeBand,
-            input.itemCount - picked.length,
+            totalCount - picked.length,
             picked,
             pickedIds,
             pickedGroups,
         );
         let filledFromOtherBands = 0;
         for (const band of bandFillOrder(input.targetChallengeBand)) {
-            if (picked.length >= input.itemCount) break;
+            if (picked.length >= totalCount) break;
             filledFromOtherBands += takeFromBand(
-                freshPool, band, input.itemCount - picked.length, picked, pickedIds, pickedGroups,
+                freshPool, band, totalCount - picked.length, picked, pickedIds, pickedGroups,
             );
         }
         if (filledFromOtherBands > 0) {
             warnings.push({
                 code: 'band_shortage',
-                detail: `목표 난이도 ${input.targetChallengeBand} 문항이 부족해 가까운 난이도로 보충했습니다.`,
+                detail: '요청한 난이도의 문항이 부족해 가까운 난이도로 보충했습니다.',
             });
         }
     }
 
-    if (picked.length < input.itemCount && input.purpose !== 'verification') {
+    if (picked.length < totalCount && input.purpose !== 'verification') {
         const before = picked.length;
         takeFromBand(stalePool, null, input.itemCount - picked.length, picked, pickedIds, pickedGroups);
         if (picked.length > before) {
@@ -294,13 +384,13 @@ export function selectWorksheetProblems(
     if (picked.length < input.itemCount) {
         // 미풀이 후보가 동형 그룹으로 겹쳐 실제 선택 수가 모자라면 확인은 성립하지 않는다.
         if (input.purpose === 'verification') {
-            return { selected: [], warnings: [], verificationBlocked: true };
+            return { selected: [], warnings: [], verificationBlocked: true, bandAvailability };
         }
         warnings.push({
             code: 'count_shortage',
-            detail: `요청 ${input.itemCount}문항 중 ${picked.length}문항만 선택할 수 있습니다.`,
+            detail: `요청 ${totalCount}문항 중 ${picked.length}문항만 선택할 수 있습니다.`,
         });
     }
 
-    return { selected: picked, warnings, verificationBlocked: false };
+    return { selected: picked, warnings, verificationBlocked: false, bandAvailability };
 }

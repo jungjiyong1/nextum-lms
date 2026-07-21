@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChallengeBand } from './learning-evidence';
 import {
+    buildPresetBandPlan,
     mergeProblemHistory,
     selectWorksheetProblems,
     type CandidateProblem,
@@ -229,5 +230,77 @@ describe('selectWorksheetProblems', () => {
         expect(() => selection({ itemCount: 0 })).toThrow();
         expect(() => selection({ seed: '  ' })).toThrow();
         expect(() => selection({ asOf: 'not-a-date' })).toThrow();
+    });
+
+    it('honors an explicit band plan exactly when the pool allows', () => {
+        const result = selection({
+            purpose: 'practice',
+            bandPlan: { 1: 1, 2: 2, 3: 1 },
+            candidates: [...candidates(4, 1), ...candidates(4, 2), ...candidates(4, 3)],
+        });
+        const counts = result.selected.reduce<Record<number, number>>((acc, problem) => {
+            acc[problem.challengeBand] = (acc[problem.challengeBand] ?? 0) + 1;
+            return acc;
+        }, {});
+        expect(counts).toEqual({ 1: 1, 2: 2, 3: 1 });
+        expect(result.warnings).toHaveLength(0);
+    });
+
+    it('fills band-plan shortages from nearby bands with a warning', () => {
+        const result = selection({
+            purpose: 'practice',
+            bandPlan: { 3: 3 },
+            targetChallengeBand: 3,
+            candidates: [...candidates(1, 3), ...candidates(5, 2)],
+        });
+        expect(result.selected).toHaveLength(3);
+        expect(result.warnings.map((warning) => warning.code)).toContain('band_shortage');
+    });
+
+    it('blocks verification when unseen problems cannot cover the plan total', () => {
+        const result = selection({
+            purpose: 'verification',
+            bandPlan: { 2: 3 },
+            candidates: candidates(2, 2),
+        });
+        expect(result.verificationBlocked).toBe(true);
+    });
+
+    it('reports per-band availability of the selectable pool', () => {
+        const result = selection({
+            purpose: 'practice',
+            itemCount: 2,
+            candidates: [...candidates(3, 1), ...candidates(2, 2)],
+            history: [{ problemId: 'band1-p1', lastSeenOn: '2026-07-15' }],
+        });
+        expect(result.bandAvailability).toEqual({ 1: 2, 2: 2, 3: 0, 4: 0 });
+    });
+
+    it('rejects invalid band plans', () => {
+        expect(() => selection({ bandPlan: {} })).toThrow();
+        expect(() => selection({ bandPlan: { 2: -1 } })).toThrow();
+        expect(() => selection({ bandPlan: { 2: 1.5 } })).toThrow();
+    });
+});
+
+describe('buildPresetBandPlan', () => {
+    it('matches the default split for the recommended preset', () => {
+        expect(buildPresetBandPlan('recommended', 2, 3)).toEqual({ 2: 2, 1: 1 });
+        expect(buildPresetBandPlan('recommended', 1, 3)).toEqual({ 1: 2, 2: 1 });
+    });
+
+    it('shifts the center of gravity down for easier', () => {
+        expect(buildPresetBandPlan('easier', 3, 3)).toEqual({ 2: 2, 1: 1 });
+        expect(buildPresetBandPlan('easier', 1, 4)).toEqual({ 1: 4 });
+    });
+
+    it('adds a harder tail capped at the auto band limit', () => {
+        expect(buildPresetBandPlan('harder', 2, 3)).toEqual({ 2: 2, 3: 1 });
+        // 목표가 이미 자동 상한이면 전부 목표 난이도로
+        expect(buildPresetBandPlan('harder', 3, 3)).toEqual({ 3: 3 });
+    });
+
+    it('rejects invalid counts', () => {
+        expect(() => buildPresetBandPlan('recommended', 2, 0)).toThrow();
     });
 });

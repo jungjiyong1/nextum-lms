@@ -19,6 +19,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState, ErrorState } from '@/components/ui/state';
 import {
+    buildPresetBandPlan,
+    type WorksheetDifficultyPreset,
+} from '@/lib/lms/worksheet-selection';
+import type { ChallengeBand } from '@/lib/lms/learning-evidence';
+import {
     createWorksheetDraft,
     loadWorksheetCart,
     publishWorksheetDraft,
@@ -26,7 +31,9 @@ import {
 } from './worksheet-service';
 import type {
     WorksheetCart,
+    WorksheetCartBandPlan,
     WorksheetCartItem,
+    WorksheetCartItemOverride,
     WorksheetCartProblem,
     WorksheetDraftCreated,
     WorksheetDraftSelectionChange,
@@ -60,11 +67,35 @@ const CHANGE_REASONS = [
 const PROBLEMS_PER_PAGE = 4;
 const MINUTES_PER_PROBLEM = 2;
 
+const BANDS: readonly ChallengeBand[] = [1, 2, 3, 4];
+const BAND_LABELS: Record<number, string> = { 1: '하', 2: '중', 3: '상', 4: '최상' };
+// primary 토큰의 농도 단계로 난이도를 표현한다 (다크 모드 토큰 자동 대응)
+const BAND_BAR_ALPHA: Record<number, number> = { 1: 0.25, 2: 0.5, 3: 0.75, 4: 1 };
+
+const DIFFICULTY_PRESETS: ReadonlyArray<{ value: WorksheetDifficultyPreset; label: string }> = [
+    { value: 'easier', label: '더 쉽게' },
+    { value: 'recommended', label: '추천' },
+    { value: 'harder', label: '더 어렵게' },
+];
+
+type DifficultyMode = WorksheetDifficultyPreset | 'custom';
+
 interface ItemSelection {
     included: boolean;
     problems: WorksheetCartProblem[];
     unusedAlternates: WorksheetCartProblem[];
     changeLog: WorksheetDraftSelectionChange[];
+    difficultyMode: DifficultyMode;
+    bandPlan: WorksheetCartBandPlan | null;
+    adjusting: boolean;
+}
+
+function countProblemsByBand(problems: readonly WorksheetCartProblem[]): Record<number, number> {
+    const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    for (const problem of problems) {
+        if (counts[problem.challengeBand] !== undefined) counts[problem.challengeBand] += 1;
+    }
+    return counts;
 }
 
 interface PendingChange {
@@ -138,6 +169,30 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
     const [publishing, setPublishing] = useState(false);
     const [publishResult, setPublishResult] = useState<WorksheetPublishResult | null>(null);
 
+    const [recomputing, setRecomputing] = useState(false);
+
+    const buildSelections = useCallback((
+        data: WorksheetCart,
+        prior?: Map<string, ItemSelection>,
+    ): Map<string, ItemSelection> => {
+        const next = new Map<string, ItemSelection>();
+        for (const item of data.items) {
+            const key = itemKey(item);
+            const previous = prior?.get(key);
+            next.set(key, {
+                included: previous?.included
+                    ?? (item.state !== 'locked' && !item.verificationBlocked),
+                problems: [...item.problems],
+                unusedAlternates: [...item.alternates],
+                changeLog: [],
+                difficultyMode: previous?.difficultyMode ?? 'recommended',
+                bandPlan: previous?.bandPlan ?? null,
+                adjusting: previous?.adjusting ?? false,
+            });
+        }
+        return next;
+    }, []);
+
     const loadCart = useCallback(async () => {
         if (!academyId || !studentId) return;
         setLoading(true);
@@ -145,27 +200,86 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
         try {
             const data = await loadWorksheetCart(academyId, studentId);
             setCart(data);
-            const initial = new Map<string, ItemSelection>();
-            for (const item of data.items) {
-                initial.set(itemKey(item), {
-                    included: item.state !== 'locked' && !item.verificationBlocked,
-                    problems: [...item.problems],
-                    unusedAlternates: [...item.alternates],
-                    changeLog: [],
-                });
-            }
-            setSelections(initial);
+            setSelections(buildSelections(data));
         } catch (error) {
             console.error('학습지 장바구니 로드 실패:', error);
             setLoadError(error instanceof Error ? error.message : '장바구니를 불러오지 못했습니다.');
         } finally {
             setLoading(false);
         }
-    }, [academyId, studentId]);
+    }, [academyId, studentId, buildSelections]);
 
     useEffect(() => {
         void loadCart();
     }, [loadCart]);
+
+    // 난이도 계획이 바뀌면 같은 시드로 전체 장바구니를 다시 계산한다.
+    // (항목 간 중복 방지가 유지되도록 부분 재계산 대신 전체 재계산)
+    const recomputeWithDifficulty = useCallback(async (
+        nextSelections: Map<string, ItemSelection>,
+    ) => {
+        if (!academyId || !cart) return;
+        setSelections(nextSelections);
+        setRecomputing(true);
+        try {
+            const overrides: WorksheetCartItemOverride[] = [];
+            for (const item of cart.items) {
+                const selection = nextSelections.get(itemKey(item));
+                if (selection?.bandPlan) {
+                    overrides.push({
+                        analysisSkillId: item.analysisSkillId,
+                        purpose: item.purpose,
+                        bandPlan: selection.bandPlan,
+                    });
+                }
+            }
+            const data = await loadWorksheetCart(academyId, cart.studentId, {
+                asOf: cart.asOf,
+                seed: cart.seed,
+                overrides,
+            });
+            setCart(data);
+            setSelections(buildSelections(data, nextSelections));
+        } catch (error) {
+            console.error('난이도 재계산 실패:', error);
+            toast.error(error instanceof Error ? error.message : '난이도 구성을 적용하지 못했습니다.');
+        } finally {
+            setRecomputing(false);
+        }
+    }, [academyId, cart, buildSelections]);
+
+    const applyPreset = useCallback((item: WorksheetCartItem, preset: WorksheetDifficultyPreset) => {
+        const key = itemKey(item);
+        const selection = selections.get(key);
+        if (!selection) return;
+        const bandPlan = preset === 'recommended'
+            ? null
+            : (buildPresetBandPlan(
+                preset,
+                item.suggestedChallengeBand as ChallengeBand,
+                item.suggestedItemCount,
+            ) as WorksheetCartBandPlan);
+        const next = new Map(selections);
+        next.set(key, { ...selection, difficultyMode: preset, bandPlan });
+        void recomputeWithDifficulty(next);
+    }, [selections, recomputeWithDifficulty]);
+
+    const stepBand = useCallback((item: WorksheetCartItem, band: ChallengeBand, delta: number) => {
+        const key = itemKey(item);
+        const selection = selections.get(key);
+        if (!selection || !cart) return;
+        const base: WorksheetCartBandPlan = selection.bandPlan
+            ? { ...selection.bandPlan }
+            : countProblemsByBand(selection.problems);
+        const available = item.bandAvailability[band] ?? 0;
+        const nextValue = Math.max(0, Math.min((base[band] ?? 0) + delta, Math.max(available, base[band] ?? 0)));
+        base[band] = nextValue;
+        const total = BANDS.reduce((sum, value) => sum + (base[value] ?? 0), 0);
+        if (total < 1 || total > cart.config.manualMaxTotalItems) return;
+        const next = new Map(selections);
+        next.set(key, { ...selection, difficultyMode: 'custom', bandPlan: base });
+        void recomputeWithDifficulty(next);
+    }, [selections, cart, recomputeWithDifficulty]);
 
     const applyPendingChange = useCallback(() => {
         if (!pendingChange) return;
@@ -205,11 +319,17 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
 
     const totals = useMemo(() => {
         let count = 0;
+        const bands: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
         for (const [, selection] of selections) {
-            if (selection.included) count += selection.problems.length;
+            if (!selection.included) continue;
+            count += selection.problems.length;
+            for (const problem of selection.problems) {
+                if (bands[problem.challengeBand] !== undefined) bands[problem.challengeBand] += 1;
+            }
         }
         return {
             count,
+            bands,
             pages: Math.max(1, Math.ceil(count / PROBLEMS_PER_PAGE)),
             minutes: count * MINUTES_PER_PROBLEM,
         };
@@ -225,6 +345,7 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                 purpose: item.purpose,
                 problemIds: selection.problems.map((problem) => problem.problemId),
                 changeLog: selection.changeLog,
+                ...(selection.bandPlan ? { bandPlan: selection.bandPlan } : {}),
             }];
         });
         if (payload.length === 0) {
@@ -487,6 +608,132 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
                                         {warning.detail}
                                     </p>
                                 ))}
+                                {!item.verificationBlocked ? (
+                                    <div className="space-y-2 pt-1">
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            <span className="text-xs text-muted-foreground">난이도 구성</span>
+                                            <div className="flex items-end gap-1" aria-hidden="true">
+                                                {BANDS.map((band) => {
+                                                    const count = countProblemsByBand(selection.problems)[band] ?? 0;
+                                                    return (
+                                                        <div
+                                                            key={band}
+                                                            className={count > 0 ? 'w-6 rounded-sm' : 'w-6 rounded-sm bg-muted'}
+                                                            style={{
+                                                                height: `${4 + count * 6}px`,
+                                                                ...(count > 0
+                                                                    ? { background: `hsl(var(--primary) / ${BAND_BAR_ALPHA[band]})` }
+                                                                    : {}),
+                                                            }}
+                                                        />
+                                                    );
+                                                })}
+                                            </div>
+                                            <span className="text-xs font-medium text-foreground">
+                                                {BANDS
+                                                    .map((band) => `${BAND_LABELS[band]} ${countProblemsByBand(selection.problems)[band] ?? 0}`)
+                                                    .join(' · ')}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <div className="inline-flex items-center gap-0.5 rounded-xl bg-muted p-0.5">
+                                                {DIFFICULTY_PRESETS.map((preset) => (
+                                                    <Button
+                                                        key={preset.value}
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        disabled={recomputing}
+                                                        className={selection.difficultyMode === preset.value
+                                                            ? 'h-8 rounded-[10px] bg-card text-primary-strong shadow-sm hover:bg-card'
+                                                            : 'h-8 rounded-[10px]'}
+                                                        onClick={() => applyPreset(item, preset.value)}
+                                                    >
+                                                        {preset.label}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant={selection.difficultyMode === 'custom' ? 'secondary' : 'outline'}
+                                                size="sm"
+                                                className="h-8"
+                                                disabled={recomputing}
+                                                onClick={() => {
+                                                    setSelections((current) => {
+                                                        const next = new Map(current);
+                                                        next.set(key, { ...selection, adjusting: !selection.adjusting });
+                                                        return next;
+                                                    });
+                                                }}
+                                            >
+                                                직접 조정
+                                            </Button>
+                                            {recomputing ? (
+                                                <span className="text-xs text-muted-foreground">다시 뽑는 중…</span>
+                                            ) : null}
+                                        </div>
+                                        {selection.adjusting ? (
+                                            <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5">
+                                                <div className="grid grid-cols-4 gap-2">
+                                                    {BANDS.map((band) => {
+                                                        const current = (selection.bandPlan
+                                                            ?? countProblemsByBand(selection.problems))[band] ?? 0;
+                                                        const isTarget = band === item.suggestedChallengeBand;
+                                                        return (
+                                                            <div key={band} className="text-center">
+                                                                <p className={isTarget
+                                                                    ? 'mb-1 text-xs font-medium text-primary-strong'
+                                                                    : 'mb-1 text-xs font-medium text-muted-foreground'}>
+                                                                    {BAND_LABELS[band]}{isTarget ? ' · 목표' : ''}
+                                                                </p>
+                                                                <div className="inline-flex items-center gap-1.5">
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-7 w-7 px-0"
+                                                                        disabled={recomputing || current === 0}
+                                                                        aria-label={`${BAND_LABELS[band]} 줄이기`}
+                                                                        onClick={() => stepBand(item, band, -1)}
+                                                                    >
+                                                                        −
+                                                                    </Button>
+                                                                    <span className="min-w-4 text-sm font-semibold">{current}</span>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-7 w-7 px-0"
+                                                                        disabled={recomputing
+                                                                            || current >= (item.bandAvailability[band] ?? 0)}
+                                                                        aria-label={`${BAND_LABELS[band]} 늘리기`}
+                                                                        onClick={() => stepBand(item, band, 1)}
+                                                                    >
+                                                                        +
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <p className="mt-2 text-xs text-muted-foreground">
+                                                    후보 문제: {BANDS
+                                                        .map((band) => `${BAND_LABELS[band]} ${item.bandAvailability[band] ?? 0}`)
+                                                        .join(' · ')} — 부족하면 가까운 난이도로 보충하고 알려드립니다
+                                                </p>
+                                            </div>
+                                        ) : null}
+                                        {item.purpose === 'verification' && selection.difficultyMode !== 'recommended' ? (
+                                            <div className="rounded-xl border border-warning/30 bg-warning-soft px-3 py-2">
+                                                <p className="text-xs text-warning-foreground">
+                                                    확인 문항의 난이도를 바꾸면 그 난이도 기준으로 실력이 기록됩니다.
+                                                    현재 목표는 {BAND_LABELS[item.suggestedChallengeBand]}({item.suggestedChallengeBand})입니다.
+                                                </p>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                             </CardHeader>
                             {selection.problems.length > 0 ? (
                                 <CardContent className="space-y-2">
@@ -554,11 +801,21 @@ export function WorksheetCartPage({ studentId }: { studentId: string }) {
 
             <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
                 <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">
-                        총 <span className="font-medium text-foreground">{totals.count}문항</span>
-                        {' · '}약 {totals.pages}페이지 · 예상 {totals.minutes}분
-                    </p>
-                    <Button onClick={() => void submit()} disabled={creating || totals.count === 0}>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm text-muted-foreground">
+                            총 <span className="font-medium text-foreground">{totals.count}문항</span>
+                            {' · '}약 {totals.pages}페이지 · 예상 {totals.minutes}분
+                        </p>
+                        {BANDS.filter((band) => totals.bands[band] > 0).map((band) => (
+                            <StatusBadge
+                                key={band}
+                                label={`${BAND_LABELS[band]} ${totals.bands[band]}`}
+                                tone={band <= 1 ? 'neutral' : band === 2 ? 'info' : 'primary'}
+                                icon={false}
+                            />
+                        ))}
+                    </div>
+                    <Button onClick={() => void submit()} disabled={creating || recomputing || totals.count === 0}>
                         {creating ? '저장 중…' : '학습지 초안 만들기'}
                     </Button>
                 </div>

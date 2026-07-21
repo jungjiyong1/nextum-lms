@@ -3,6 +3,7 @@ import 'server-only';
 import type {
     WorksheetCart,
     WorksheetCartItem,
+    WorksheetCartItemOverride,
     WorksheetCartProblem,
 } from '@/features/lms/worksheet-types';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -20,7 +21,11 @@ import {
     type CartItemComputation,
     type EvidenceBaseRow,
 } from './worksheet-cart-domain';
-import type { ProblemHistoryRecord, SelectedProblem } from './worksheet-selection';
+import type {
+    ProblemHistoryRecord,
+    SelectedProblem,
+    WorksheetBandPlan,
+} from './worksheet-selection';
 
 type Row = Record<string, unknown>;
 
@@ -437,6 +442,49 @@ export interface LoadWorksheetCartParams {
     asOf?: string;
     seed?: string;
     includeImages?: boolean;
+    overrides?: readonly WorksheetCartItemOverride[];
+}
+
+const CART_PURPOSES = new Set(['verification', 'practice', 'review']);
+const MAX_OVERRIDE_ITEMS = 20;
+const MAX_BAND_COUNT = 40;
+
+/** 클라이언트가 보낸 난이도 재정의를 검증해 도메인 형태로 바꾼다. */
+export function normalizeCartOverrides(
+    overrides: readonly WorksheetCartItemOverride[] | undefined,
+): Map<string, WorksheetBandPlan> {
+    const map = new Map<string, WorksheetBandPlan>();
+    if (!overrides) return map;
+    if (overrides.length > MAX_OVERRIDE_ITEMS) {
+        throw new Error('난이도 재정의 항목이 너무 많습니다.');
+    }
+    for (const override of overrides) {
+        if (
+            typeof override?.analysisSkillId !== 'string' ||
+            !override.analysisSkillId.trim() ||
+            !CART_PURPOSES.has(override.purpose)
+        ) {
+            throw new Error('난이도 재정의 형식이 올바르지 않습니다.');
+        }
+        const plan: WorksheetBandPlan = {};
+        let total = 0;
+        for (const [key, value] of Object.entries(override.bandPlan ?? {})) {
+            const band = Number(key);
+            if (band !== 1 && band !== 2 && band !== 3 && band !== 4) {
+                throw new Error('난이도는 1~4만 지정할 수 있습니다.');
+            }
+            if (!Number.isInteger(value) || value < 0 || value > MAX_BAND_COUNT) {
+                throw new Error('난이도별 문항 수가 올바르지 않습니다.');
+            }
+            if (value > 0) plan[band as 1 | 2 | 3 | 4] = value;
+            total += value;
+        }
+        if (total === 0 || total > MAX_BAND_COUNT) {
+            throw new Error('난이도 구성의 총 문항 수가 올바르지 않습니다.');
+        }
+        map.set(`${override.analysisSkillId}:${override.purpose}`, plan);
+    }
+    return map;
 }
 
 export interface LoadedWorksheetCart {
@@ -510,6 +558,7 @@ export async function loadWorksheetCart(
         asOf,
         seed,
         config,
+        bandPlanOverrides: normalizeCartOverrides(params.overrides),
     });
 
     const cartProblemIds = [...new Set(
@@ -557,6 +606,7 @@ export async function loadWorksheetCart(
         problems: item.selected.map(toCartProblem),
         alternates: item.alternates.map(toCartProblem),
         warnings: item.warnings.map((warning) => ({ code: warning.code, detail: warning.detail })),
+        bandAvailability: item.bandAvailability,
     }));
 
     return {

@@ -5,6 +5,7 @@ import type {
   CreateWorksheetDraftInput,
   ProblemBankGrantOverview,
   WorksheetCart,
+  WorksheetCartItemOverride,
   WorksheetDraftCreated,
   WorksheetPublishResult,
   WorksheetRenderResult,
@@ -13,11 +14,18 @@ import type {
 export async function loadWorksheetCart(
   academyId: string,
   studentId: string,
-  options: LmsRequestOptions & { asOf?: string; seed?: string } = {},
+  options: LmsRequestOptions & {
+    asOf?: string;
+    seed?: string;
+    overrides?: WorksheetCartItemOverride[];
+  } = {},
 ): Promise<WorksheetCart> {
   const params = new URLSearchParams({ academyId, studentId });
   if (options.asOf) params.set('asOf', options.asOf);
   if (options.seed) params.set('seed', options.seed);
+  if (options.overrides && options.overrides.length > 0) {
+    params.set('overrides', JSON.stringify(options.overrides));
+  }
   return getLmsJson<WorksheetCart>(`/api/lms/worksheets/cart?${params.toString()}`, { policy: 'live', ...options });
 }
 
