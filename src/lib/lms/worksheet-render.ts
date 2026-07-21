@@ -23,7 +23,7 @@ type Row = Record<string, unknown>;
 const WORKSHEET_ARTIFACTS_BUCKET = 'worksheet-artifacts';
 const PROBLEM_IMAGES_BUCKET = 'problem-images';
 const SIGNED_URL_TTL_SECONDS = 600;
-const RENDER_ENGINE_VERSION = 4;
+const RENDER_ENGINE_VERSION = 5;
 
 function ensureNoError(error: { message: string } | null, context: string): void {
     if (error) throw new Error(`${context}: ${error.message}`);
@@ -444,7 +444,6 @@ export async function renderWorksheetDraft(
                         seq: item.seq,
                         widthPx: normalized.widthPx,
                         heightPx: normalized.heightPx,
-                        contentHeightToWidthRatio: normalized.contentHeightToWidthRatio,
                     });
                     images.push({ seq: item.seq, png: normalized.png });
                 }

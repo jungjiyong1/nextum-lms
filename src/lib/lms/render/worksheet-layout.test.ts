@@ -7,12 +7,8 @@ import {
     type LayoutItemInput,
 } from './worksheet-layout';
 
-function normalItem(seq: number): LayoutItemInput {
-    return { seq, widthPx: 1000, heightPx: 600 };
-}
-
-function tallItem(seq: number): LayoutItemInput {
-    return { seq, widthPx: 1000, heightPx: 1100 };
+function item(seq: number, heightPx = 600): LayoutItemInput {
+    return { seq, widthPx: 1000, heightPx };
 }
 
 describe('deriveLayoutMetrics', () => {
@@ -26,56 +22,41 @@ describe('deriveLayoutMetrics', () => {
 });
 
 describe('layoutWorksheet', () => {
-    it('places four normal items in two columns on one page', () => {
-        const result = layoutWorksheet([1, 2, 3, 4].map(normalItem));
+    it('places four items in row-major quadrant order', () => {
+        const result = layoutWorksheet([1, 2, 3, 4].map((seq) => item(seq)));
         expect(result.pages).toHaveLength(1);
         const [a, b, c, d] = result.pages[0].items;
-        expect(a.xMm).toBe(b.xMm);
-        expect(b.yMm).toBeGreaterThan(a.yMm);
-        expect(c.xMm).toBeGreaterThan(a.xMm);
-        expect(c.yMm).toBe(a.yMm);
-        expect(d.xMm).toBe(c.xMm);
-        expect(d.yMm).toBe(b.yMm);
-        expect(result.warnings).toHaveLength(0);
+        expect(a.xMm).toBeLessThan(b.xMm);
+        expect(a.yMm).toBe(b.yMm);
+        expect(c.xMm).toBe(a.xMm);
+        expect(c.yMm).toBeGreaterThan(a.yMm);
+        expect(d.xMm).toBe(b.xMm);
+        expect(d.yMm).toBe(c.yMm);
+        expect(result.pages[0].items.map((placed) => placed.kind))
+            .toEqual(['quarter', 'quarter', 'quarter', 'quarter']);
     });
 
-    it('starts a new page after four normal items', () => {
-        const result = layoutWorksheet([1, 2, 3, 4, 5, 6].map(normalItem));
-        expect(result.pages).toHaveLength(2);
-        expect(result.pages[0].items.map((item) => item.seq)).toEqual([1, 2, 3, 4]);
-        expect(result.pages[1].items.map((item) => item.seq)).toEqual([5, 6]);
-    });
-
-    it('gives tall items one full column and places two on a page', () => {
-        const result = layoutWorksheet([tallItem(1), tallItem(2)]);
+    it('always keeps tall items in one of the four quadrants', () => {
+        const result = layoutWorksheet([1, 2, 3, 4].map((seq) => item(seq, 1300)));
         expect(result.pages).toHaveLength(1);
-        expect(result.pages[0].items.map((item) => item.kind))
-            .toEqual(['full_column', 'full_column']);
-        expect(result.pages[0].items[1].xMm).toBeGreaterThan(result.pages[0].items[0].xMm);
+        expect(result.pages[0].items).toHaveLength(4);
+        for (const placed of result.pages[0].items) {
+            expect(placed.kind).toBe('quarter');
+            expect(placed.imageHeightMm)
+                .toBeLessThanOrEqual(deriveLayoutMetrics(DEFAULT_LAYOUT_CONFIG).rowHeightMm);
+        }
     });
 
-    it('uses content proportions for placement while keeping a common canvas width', () => {
-        const result = layoutWorksheet([{
-            seq: 1,
-            widthPx: 1024,
-            heightPx: 700,
-            contentHeightToWidthRatio: 1.1,
-        }]);
-        expect(result.pages[0].items[0].kind).toBe('full_column');
-    });
-
-    it('keeps mixed items in sequence and leaves a partial column blank when needed', () => {
-        const result = layoutWorksheet([normalItem(1), tallItem(2), normalItem(3)]);
+    it('starts a new page after every four items', () => {
+        const result = layoutWorksheet([1, 2, 3, 4, 5, 6].map((seq) => item(seq)));
         expect(result.pages).toHaveLength(2);
-        expect(result.pages[0].items.map((item) => item.seq)).toEqual([1, 2]);
-        expect(result.pages[0].items[1].kind).toBe('full_column');
-        expect(result.pages[1].items[0].seq).toBe(3);
+        expect(result.pages[0].items.map((placed) => placed.seq)).toEqual([1, 2, 3, 4]);
+        expect(result.pages[1].items.map((placed) => placed.seq)).toEqual([5, 6]);
     });
 
-    it('uses image proportions rather than DPI metadata to determine placement', () => {
+    it('uses the shared image width for a consistent text scale', () => {
         const result = layoutWorksheet([{ seq: 1, widthPx: 2000, heightPx: 1000 }]);
         const placed = result.pages[0].items[0];
-        expect(placed.kind).toBe('half_column');
         expect(placed.imageWidthMm).toBeCloseTo(80, 5);
         expect(placed.imageHeightMm).toBeCloseTo(40, 5);
     });

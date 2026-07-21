@@ -3,6 +3,7 @@ import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
 import {
     DEFAULT_LAYOUT_CONFIG,
+    deriveLayoutMetrics,
     type LayoutConfig,
     type WorksheetLayoutResult,
 } from './worksheet-layout';
@@ -10,6 +11,7 @@ import {
 const MM_TO_PT = 72 / 25.4;
 const BLACK = rgb(0.1, 0.1, 0.1);
 const GRAY = rgb(0.45, 0.45, 0.45);
+const DIVIDER_GRAY = rgb(0.72, 0.72, 0.72);
 // 재렌더 시 바이트가 흔들리지 않도록 문서 시각 메타데이터를 고정한다.
 const FIXED_DOCUMENT_DATE = new Date('2026-01-01T00:00:00.000Z');
 
@@ -84,6 +86,31 @@ function drawHeader(
     });
 }
 
+/** 네 문제 영역의 경계를 한눈에 볼 수 있도록 본문 중앙에 십자 분할선을 그린다. */
+function drawQuadrantDividers(page: PDFPage, config: LayoutConfig): void {
+    const metrics = deriveLayoutMetrics(config);
+    const pageHeightPt = mm(config.pageHeightMm);
+    const left = mm(metrics.contentLeftMm);
+    const right = mm(metrics.contentLeftMm + metrics.contentWidthMm);
+    const top = pageHeightPt - mm(metrics.contentTopMm);
+    const bottom = pageHeightPt - mm(metrics.contentTopMm + metrics.contentHeightMm);
+    const centerX = mm(metrics.contentLeftMm + metrics.contentWidthMm / 2);
+    const centerY = pageHeightPt - mm(metrics.contentTopMm + metrics.contentHeightMm / 2);
+
+    page.drawLine({
+        start: { x: centerX, y: bottom },
+        end: { x: centerX, y: top },
+        thickness: 0.6,
+        color: DIVIDER_GRAY,
+    });
+    page.drawLine({
+        start: { x: left, y: centerY },
+        end: { x: right, y: centerY },
+        thickness: 0.6,
+        color: DIVIDER_GRAY,
+    });
+}
+
 /**
  * 조판 결과와 정규화된 이미지로 학생용 PDF를 합성한다. 지면에는 학원명,
  * 과제명, 학생명, 날짜, 버전 코드, 문제 번호만 표시한다 — 외부 출처 코드나
@@ -106,6 +133,7 @@ export async function composeStudentPdf(input: ComposeStudentPdfInput): Promise<
     for (const [pageIndex, layoutPage] of input.layout.pages.entries()) {
         const page = document.addPage([mm(config.pageWidthMm), mm(config.pageHeightMm)]);
         drawHeader(page, input.header, { regular, bold }, config, pageIndex, pageCount);
+        drawQuadrantDividers(page, config);
 
         for (const item of layoutPage.items) {
             const png = imagesBySeq.get(item.seq);

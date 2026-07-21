@@ -8,7 +8,6 @@ export interface NormalizedProblemImage {
     png: Uint8Array;
     widthPx: number;
     heightPx: number;
-    contentHeightToWidthRatio: number;
 }
 
 /**
@@ -60,6 +59,5 @@ export async function normalizeProblemImage(buffer: Uint8Array): Promise<Normali
         png: new Uint8Array(normalized.data),
         widthPx: normalized.info.width,
         heightPx: normalized.info.height,
-        contentHeightToWidthRatio: trimProbe.info.height / trimProbe.info.width,
     };
 }

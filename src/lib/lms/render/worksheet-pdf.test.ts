@@ -54,7 +54,7 @@ describe('composeStudentPdf', () => {
         const bytes = await composeStudentPdf({ header: HEADER, layout, images, fonts });
         const loaded = await PDFDocument.load(bytes);
         expect(loaded.getPageCount()).toBe(layout.pages.length);
-        expect(loaded.getPageCount()).toBe(3);
+        expect(loaded.getPageCount()).toBe(2);
         expect(bytes.byteLength).toBeGreaterThan(10_000);
     });
 

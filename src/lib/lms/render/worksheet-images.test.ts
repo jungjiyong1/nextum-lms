@@ -29,7 +29,6 @@ describe('normalizeProblemImage', () => {
 
         expect(normalized.widthPx).toBe(1024);
         expect(normalized.heightPx).toBe(307);
-        expect(normalized.contentHeightToWidthRatio).toBeCloseTo(300 / 800, 5);
         expect(metadata.format).toBe('png');
         expect(metadata.hasAlpha).toBe(false);
     });
