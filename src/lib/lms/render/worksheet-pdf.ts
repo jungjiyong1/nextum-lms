@@ -1,4 +1,4 @@
-import fontkit from '@pdf-lib/fontkit';
+import fontkit from 'pdf-fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
 import {
@@ -112,19 +112,20 @@ export async function composeStudentPdf(input: ComposeStudentPdfInput): Promise<
             if (!png) throw new Error(`item ${item.seq} is missing a normalized image`);
             const embedded = await document.embedPng(png);
 
-            const labelBaselineY = pageHeightPt - mm(item.yMm) - 10;
+            const itemTopMm = item.yMm + config.problemPaddingMm;
+            const itemLeftMm = item.xMm + config.problemPaddingMm;
+            const labelBaselineY = pageHeightPt - mm(itemTopMm) - 10;
             page.drawText(`${item.seq}.`, {
-                x: mm(item.xMm),
+                x: mm(itemLeftMm),
                 y: labelBaselineY,
                 size: 11,
                 font: bold,
                 color: BLACK,
             });
 
-            const imageTopMm = item.yMm + config.labelMm;
             page.drawImage(embedded, {
-                x: mm(item.xMm),
-                y: pageHeightPt - mm(imageTopMm) - mm(item.imageHeightMm),
+                x: mm(itemLeftMm + config.numberGutterMm),
+                y: pageHeightPt - mm(itemTopMm) - mm(item.imageHeightMm),
                 width: mm(item.imageWidthMm),
                 height: mm(item.imageHeightMm),
             });

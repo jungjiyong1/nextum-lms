@@ -1,7 +1,7 @@
 /**
- * 4문제/페이지 고정 조판 (A4 세로, 2열 × 2행). 복잡한 패킹은 하지 않는다.
- * 문항 순서는 항상 유지되고, 빈 셀은 풀이 공간으로 남는다.
- * 모든 치수는 밀리미터. PDF 포인트 변환은 합성 단계에서 한다.
+ * A4 세로 2단 조판. 짧은 문항은 한 단에 2개, 세로로 긴 문항은 한 단 전체를
+ * 사용한다. 원본 픽셀 수나 DPI는 지면 크기가 아니라 해상도이므로 배치 결정에
+ * 사용하지 않는다.
  */
 
 export interface LayoutConfig {
@@ -12,16 +12,16 @@ export interface LayoutConfig {
     footerMm: number;
     columnGapMm: number;
     rowGapMm: number;
-    /** 문제 번호 라벨 영역 높이 */
-    labelMm: number;
-    /** 원본 대비 최대 확대 배율 */
-    maxScale: number;
-    /** 이 축소율 미만이면 검수 경고 */
-    minScaleWarning: number;
-    /** 이 비율 이상이면 전폭 배치 */
-    fullWidthAspectRatio: number;
-    /** 치수 정보가 없는 이미지에 가정하는 DPI */
-    fallbackDpi: number;
+    /** 문제 번호를 위한 단 왼쪽 여백 */
+    numberGutterMm: number;
+    /** 각 문제 영역 안쪽의 상하좌우 여백 */
+    problemPaddingMm: number;
+    /** 공통 글자 배율을 결정하는 문제 이미지 최대 너비 */
+    problemImageWidthMm: number;
+    /** 세로/가로 비율이 이 값 이상이면 한 단 전체를 사용한다. */
+    fullColumnHeightToWidthRatio: number;
+    /** 인쇄 해상도가 이 값보다 낮으면 검수 경고를 남긴다. */
+    minEffectiveDpi: number;
 }
 
 export const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
@@ -32,34 +32,34 @@ export const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
     footerMm: 8,
     columnGapMm: 6,
     rowGapMm: 4,
-    labelMm: 6,
-    maxScale: 1.25,
-    minScaleWarning: 0.7,
-    fullWidthAspectRatio: 1.6,
-    fallbackDpi: 150,
+    numberGutterMm: 7,
+    problemPaddingMm: 2.5,
+    problemImageWidthMm: 80,
+    fullColumnHeightToWidthRatio: 0.9,
+    minEffectiveDpi: 150,
 };
 
 export interface LayoutItemInput {
     seq: number;
     widthPx: number;
     heightPx: number;
-    dpi?: number | null;
+    /** 외곽 여백을 제외한 실제 문항 내용의 세로/가로 비율 */
+    contentHeightToWidthRatio?: number;
 }
 
-export type LayoutPlacementKind = 'cell' | 'full_width' | 'own_page';
+export type LayoutPlacementKind = 'half_column' | 'full_column';
 
 export interface PlacedItem {
     seq: number;
     kind: LayoutPlacementKind;
-    /** 페이지 좌상단 기준 위치 (mm) — 라벨 포함 영역의 좌상단 */
+    /** 페이지 좌상단 기준 라벨 포함 영역의 좌상단 위치 (mm) */
     xMm: number;
     yMm: number;
     /** 이미지 표시 크기 (mm) */
     imageWidthMm: number;
     imageHeightMm: number;
-    /** 원본 논리 크기 대비 배율 */
-    scale: number;
-    scaleWarning: boolean;
+    /** 실제 출력 크기에서의 유효 해상도 */
+    effectiveDpi: number;
 }
 
 export interface LayoutPage {
@@ -68,7 +68,7 @@ export interface LayoutPage {
 
 export interface LayoutWarning {
     seq: number;
-    code: 'scale_below_minimum';
+    code: 'low_effective_dpi';
     detail: string;
 }
 
@@ -100,30 +100,23 @@ export function deriveLayoutMetrics(config: LayoutConfig): Derived {
     };
 }
 
-function naturalSizeMm(item: LayoutItemInput, config: LayoutConfig): { width: number; height: number } {
-    const dpi = item.dpi && item.dpi > 0 ? item.dpi : config.fallbackDpi;
+function fitImage(
+    item: LayoutItemInput,
+    boxWidthMm: number,
+    boxHeightMm: number,
+): { widthMm: number; heightMm: number; effectiveDpi: number } {
+    const mmPerPixel = Math.min(boxWidthMm / item.widthPx, boxHeightMm / item.heightPx);
     return {
-        width: (item.widthPx / dpi) * 25.4,
-        height: (item.heightPx / dpi) * 25.4,
+        widthMm: item.widthPx * mmPerPixel,
+        heightMm: item.heightPx * mmPerPixel,
+        effectiveDpi: 25.4 / mmPerPixel,
     };
 }
 
-function fitInto(
-    natural: { width: number; height: number },
-    boxWidth: number,
-    boxHeight: number,
-    maxScale: number,
-): { width: number; height: number; scale: number } {
-    const scale = Math.min(boxWidth / natural.width, boxHeight / natural.height, maxScale);
-    return { width: natural.width * scale, height: natural.height * scale, scale };
-}
-
 /**
- * 문항 이미지들을 페이지에 배치한다. 규칙:
- * - 기본 2열 × 2행 고정 셀.
- * - 가로세로 비율이 기준 이상이면 전폭 행(그 페이지는 3문항이 된다).
- * - 전폭으로도 행 높이에서 기준 축소율 미만이 되는 초대형 문항은 단독 페이지.
- * - 문항은 절대 분할하지 않고, 순서를 유지하며, 빈 셀은 채우지 않는다.
+ * 문항을 왼쪽 단 위에서 아래로, 이어서 오른쪽 단 위에서 아래로 배치한다.
+ * 짧은 문항은 반 단, 세로로 긴 문항은 한 단을 차지하므로 한 페이지에는
+ * 마지막 페이지를 제외하고 2~4문항이 들어간다.
  */
 export function layoutWorksheet(
     items: readonly LayoutItemInput[],
@@ -134,104 +127,79 @@ export function layoutWorksheet(
     const warnings: LayoutWarning[] = [];
 
     let page: LayoutPage = { items: [] };
-    // slot: 0=좌상, 1=우상, 2=좌하, 3=우하. 행 단위 점유 관리.
-    let slot = 0;
+    let column = 0;
+    let occupiedHalfRows = 0;
 
     const flushPage = () => {
         if (page.items.length > 0) {
             pages.push(page);
             page = { items: [] };
         }
-        slot = 0;
+        column = 0;
+        occupiedHalfRows = 0;
     };
 
-    const cellImageHeight = metrics.rowHeightMm - config.labelMm;
-    const columnX = (column: number) =>
+    const advanceColumn = () => {
+        column += 1;
+        occupiedHalfRows = 0;
+        if (column >= 2) flushPage();
+    };
+
+    const columnX = () =>
         metrics.contentLeftMm + column * (metrics.columnWidthMm + config.columnGapMm);
-    const rowY = (row: number) => metrics.contentTopMm + row * (metrics.rowHeightMm + config.rowGapMm);
 
     for (const item of items) {
         if (item.widthPx <= 0 || item.heightPx <= 0) {
             throw new Error(`item ${item.seq} has invalid image dimensions`);
         }
-        const natural = naturalSizeMm(item, config);
-        const aspect = item.widthPx / item.heightPx;
-        const inCell = fitInto(natural, metrics.columnWidthMm, cellImageHeight, config.maxScale);
-        // 넓은 이미지뿐 아니라 셀에서 기준 미만으로 줄어드는 문항도 전폭으로 승격한다.
-        const wantsFullWidth =
-            aspect >= config.fullWidthAspectRatio || inCell.scale < config.minScaleWarning;
 
-        if (wantsFullWidth) {
-            const inRow = fitInto(
-                natural,
-                metrics.contentWidthMm,
-                cellImageHeight,
-                config.maxScale,
-            );
-            if (inRow.scale < config.minScaleWarning) {
-                // 전폭 행으로도 너무 줄어드는 초대형 문항은 단독 페이지에 놓는다.
-                flushPage();
-                const alone = fitInto(
-                    natural,
-                    metrics.contentWidthMm,
-                    metrics.contentHeightMm - config.labelMm,
-                    config.maxScale,
-                );
-                const scaleWarning = alone.scale < config.minScaleWarning;
-                if (scaleWarning) {
-                    warnings.push({
-                        seq: item.seq,
-                        code: 'scale_below_minimum',
-                        detail: `${item.seq}번 문항이 단독 페이지에서도 원본의 ${Math.round(alone.scale * 100)}%로 축소됩니다.`,
-                    });
-                }
-                page.items.push({
-                    seq: item.seq,
-                    kind: 'own_page',
-                    xMm: metrics.contentLeftMm,
-                    yMm: metrics.contentTopMm,
-                    imageWidthMm: alone.width,
-                    imageHeightMm: alone.height,
-                    scale: alone.scale,
-                    scaleWarning,
-                });
-                flushPage();
-                continue;
-            }
+        const usesFullColumn =
+            (item.contentHeightToWidthRatio ?? item.heightPx / item.widthPx)
+                >= config.fullColumnHeightToWidthRatio;
 
-            // 전폭 문항은 새 행이 필요하다. 현재 행이 부분 점유면 그 행의 남은 셀은 빈다.
-            if (slot % 2 === 1) slot += 1;
-            if (slot >= 4) flushPage();
-            const row = Math.floor(slot / 2);
-            page.items.push({
-                seq: item.seq,
-                kind: 'full_width',
-                xMm: metrics.contentLeftMm,
-                yMm: rowY(row),
-                imageWidthMm: inRow.width,
-                imageHeightMm: inRow.height,
-                scale: inRow.scale,
-                scaleWarning: false,
-            });
-            slot += 2;
-            if (slot >= 4) flushPage();
-            continue;
-        }
+        if (usesFullColumn && occupiedHalfRows > 0) advanceColumn();
+        if (column >= 2) flushPage();
 
-        if (slot >= 4) flushPage();
-        const row = Math.floor(slot / 2);
-        const column = slot % 2;
+        const kind: LayoutPlacementKind = usesFullColumn ? 'full_column' : 'half_column';
+        const boxHeightMm = usesFullColumn
+            ? metrics.contentHeightMm - config.problemPaddingMm * 2
+            : metrics.rowHeightMm - config.problemPaddingMm * 2;
+        const fitted = fitImage(
+            item,
+            Math.min(
+                config.problemImageWidthMm,
+                metrics.columnWidthMm - config.numberGutterMm - config.problemPaddingMm * 2,
+            ),
+            boxHeightMm,
+        );
+        const yMm = usesFullColumn
+            ? metrics.contentTopMm
+            : metrics.contentTopMm + occupiedHalfRows * (metrics.rowHeightMm + config.rowGapMm);
+
         page.items.push({
             seq: item.seq,
-            kind: 'cell',
-            xMm: columnX(column),
-            yMm: rowY(row),
-            imageWidthMm: inCell.width,
-            imageHeightMm: inCell.height,
-            scale: inCell.scale,
-            scaleWarning: inCell.scale < config.minScaleWarning,
+            kind,
+            xMm: columnX(),
+            yMm,
+            imageWidthMm: fitted.widthMm,
+            imageHeightMm: fitted.heightMm,
+            effectiveDpi: fitted.effectiveDpi,
         });
-        slot += 1;
+
+        if (fitted.effectiveDpi < config.minEffectiveDpi) {
+            warnings.push({
+                seq: item.seq,
+                code: 'low_effective_dpi',
+                detail: `${item.seq}번 문항의 인쇄 해상도가 약 ${Math.round(fitted.effectiveDpi)} DPI입니다. 원본 이미지를 확인해 주세요.`,
+            });
+        }
+
+        if (usesFullColumn) {
+            advanceColumn();
+        } else {
+            occupiedHalfRows += 1;
+            if (occupiedHalfRows >= 2) advanceColumn();
+        }
     }
 
     flushPage();

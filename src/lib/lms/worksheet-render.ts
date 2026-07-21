@@ -23,6 +23,7 @@ type Row = Record<string, unknown>;
 const WORKSHEET_ARTIFACTS_BUCKET = 'worksheet-artifacts';
 const PROBLEM_IMAGES_BUCKET = 'problem-images';
 const SIGNED_URL_TTL_SECONDS = 600;
+const RENDER_ENGINE_VERSION = 4;
 
 function ensureNoError(error: { message: string } | null, context: string): void {
     if (error) throw new Error(`${context}: ${error.message}`);
@@ -188,7 +189,7 @@ async function claimRenderJob(
 ): Promise<JobClaim> {
     const admin = createAdminClient();
     const learning = admin.schema('learning');
-    const idempotencyKey = `${draftId}:r${renderRevision}:${kind}:${variantId ?? 'draft'}`;
+    const idempotencyKey = `${draftId}:r${renderRevision}:engine${RENDER_ENGINE_VERSION}:${kind}:${variantId ?? 'draft'}`;
 
     const { data: existing, error: readError } = await learning
         .from('worksheet_render_jobs')
@@ -276,6 +277,7 @@ async function saveArtifact(input: {
         .from(WORKSHEET_ARTIFACTS_BUCKET)
         .upload(storagePath, Buffer.from(input.bytes), {
             contentType: 'application/pdf',
+            cacheControl: '0',
             upsert: true,
         });
     ensureNoError(uploadError, '산출물 업로드에 실패했습니다');
@@ -442,7 +444,7 @@ export async function renderWorksheetDraft(
                         seq: item.seq,
                         widthPx: normalized.widthPx,
                         heightPx: normalized.heightPx,
-                        dpi: normalized.dpi,
+                        contentHeightToWidthRatio: normalized.contentHeightToWidthRatio,
                     });
                     images.push({ seq: item.seq, png: normalized.png });
                 }
