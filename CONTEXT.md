@@ -4,6 +4,7 @@ Nextum LMS is the operator-facing Next.js web app for academy management. It use
 
 ## Current State
 
+- The audited whole-project entry point is `docs/PROJECT_HANDOFF_GUIDE.md`.
 - App Router routes live in `src/app`.
 - The protected `(app)` server layout validates auth and loads the shell context before rendering `AppShell`.
 - App Router `loading.tsx`, `error.tsx`, and `not-found.tsx` own route-level fallback states.
@@ -63,6 +64,17 @@ npm run verify
 Database changes additionally require the runbook preflight and `npm run db:check`.
 
 ## Decision Log
+
+### 2026-07-20
+
+- Added `docs/PROJECT_HANDOFF_GUIDE.md` as the audited onboarding and operations entry point across the app, API, Supabase, security, tests, CI, and deployment.
+- Recorded the current 46-migration local/remote parity, live database catalog snapshot, verification status, documentation drift, and safe change checklists.
+- Added the worksheet v1 schema (`20260720134500_worksheet_v1_schema.sql`): worksheet drafts/variants/items, render jobs, artifacts, recommendation logs, problem-bank academy grants, and asset render metadata. All worksheet tables are service-role only; publishing materializes each variant into the existing per-student `learning.assignments` contract so Grade App needs no changes.
+- Added `supabase/tests/worksheet_v1_smoke.sql` and a `db-contract` CI job that applies every migration to a clean database and runs all SQL smoke tests on each PR/push.
+- Added the worksheet recommendation engine as pure functions (`worksheet-config.ts`, `worksheet-eligibility.ts`, `worksheet-selection.ts`): pull-based eligibility with correction→verification (2d) and confirmed→review (14d) gates, locked-item re-tagging, permanent exclusion for verification, 30-day exclusion with oldest-first re-admission for practice/review, seeded reproducible selection, and configurable defaults for lms.settings overrides.
+- Added worksheet publish v1 (`20260721001500`): `learning.publish_worksheet_v1` atomically freezes each variant manifest and materializes it into the existing per-student assignment contract (assignment + target + student_direct recipient + seq-ordered items), and `learning.submit_session_v2` was redefined with per-item worksheet evidence overrides — attempts on `evidence_eligible = false` items are always `correction`/`analysis_eligible = false` (`worksheet_practice`), and worksheet assignments validate problems by item snapshot so mixed-book sheets submit cleanly. `worksheet_publish_v1_smoke.sql` proves printed seq = app order and practice-item non-pollution on every CI run. The review screen gained a confirm-gated publish step.
+- Added the worksheet PDF renderer: pure 2×2 layout engine with full-width/own-page promotion and scale warnings (`src/lib/lms/render/worksheet-layout.ts`), sharp image normalization, pdf-lib composition with committed Noto Sans KR TTFs (OFL, subset-embedded), teacher answer key, idempotent `worksheet_render_jobs` claiming, uploads to the new private `worksheet-artifacts` bucket (never touched by the match cleanup cron), `/api/lms/worksheets/render` (maxDuration 300), and the cart's render/review step with signed URLs. Fonts are traced into the function bundle via `outputFileTracingIncludes`.
+- Wired the worksheet cart end to end: `worksheet-queries.ts`/`worksheet-mutations.ts` (evidence→eligibility assembly, unified assignment history, draft creation with server-side role recomputation), `/api/lms/worksheets/*` and `/api/lms/admin/problem-bank-grants` Route Handlers, the `/worksheets/new` cart screen with swap/remove reason logging, the super-admin grant screen at `/settings/problem-bank`, and a student-detail entry button. Worksheet browser API lives in `worksheet-service.ts` (not `service.ts`) to keep shared chunks small; the login bundle budget was re-based to 144 KiB with the shared-chunk measurement rationale documented in the budget script.
 
 ### 2026-07-07
 

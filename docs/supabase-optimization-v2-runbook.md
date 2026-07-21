@@ -3,6 +3,8 @@
 작성일: 2026-07-10
 대상 프로젝트: `nextum-data` (`lecdpaxcguxdkdrevpzw`, PostgreSQL 17)
 
+> **역사 스냅샷 주의 (2026-07-20):** 이 문서의 30개 migration 및 “v2 하나만 pending” 수치는 2026-07-10 rollout 당시 기록이다. 현재 local/remote 이력은 46개이며, 현재 상태와 전체 작업 절차는 [프로젝트 종합 인수인계 가이드](PROJECT_HANDOFF_GUIDE.md)를 먼저 확인한다.
+
 ## 목적과 범위
 
 이 문서는 `20260709194443_supabase_growth_optimization_v2.sql`의 DB 계약, 배포 순서, 검증, 모니터링, 롤백 절차를 정의한다.

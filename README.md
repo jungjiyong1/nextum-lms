@@ -5,6 +5,11 @@ Next.js App Router application backed by Supabase Auth and PostgreSQL. This repo
 owns the shared database contract; Grade App consumes the approved identity, content,
 learning, and Realtime contracts without owning independent DDL.
 
+New contributors should start with the
+[comprehensive project handoff guide](docs/PROJECT_HANDOFF_GUIDE.md). It records the
+current application, database, security, operations, verification status, known
+documentation drift, and safe change procedures in one place.
+
 ## Runtime architecture
 
 Protected pages are server-first:
@@ -79,8 +84,10 @@ Use the URL and publishable/secret values printed by `supabase start` in
 `.env.local`. Do not commit `.env.local`. Remote-only historical versions are
 represented by explicit no-op history markers, while the clean `0001` baseline
 contains the compatibility columns needed by later migrations. A fresh reset must
-apply all 30 migrations and reach the v2 migration; follow the history-repair and
-deployment gates in the v2 runbook before changing the production database.
+apply all 46 migrations (the 2026-07-20 snapshot) and reach the latest timestamped
+migration. The v2 runbook's 30-migration counts are a dated rollout record rather
+than the current total; still follow its history-repair and deployment gates before
+changing the production database.
 
 ## Development admin
 
@@ -98,16 +105,20 @@ The seed script requires `SUPABASE_SECRET_KEY` or
 
 ## Page routes
 
-All routes except `/login` are protected by the `(app)` server layout.
+Business routes are protected by the `(app)` server layout. `/login` and the
+session-gated `/select-academy` flow live outside that layout.
 
 | Route | Purpose |
 | --- | --- |
 | `/login` | Supabase Auth login |
+| `/select-academy` | Active academy selection for multi-academy accounts |
 | `/` | Learning and academy operations dashboard |
 | `/assignments` | Assignment list, filters, deployment, and management |
 | `/assignments/new` | Content-scope or worksheet assignment creation |
 | `/assignments/[assignmentId]` | Assignment recipients, progress, and problem detail |
+| `/assignments/pdf-match` | PDF problem-code extraction, matching, and assignment finalization |
 | `/classrooms` | Class roster and operations overview |
+| `/classrooms/[classId]/*` | Per-class overview, schedule, students, learning, materials, and settings |
 | `/classrooms/attendance` | Attendance recording |
 | `/classrooms/schedule` | Recurring schedule and occurrence management |
 | `/classrooms/settings` | Class, classroom, and book settings |
