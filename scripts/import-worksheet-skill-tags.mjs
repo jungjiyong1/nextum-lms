@@ -86,7 +86,11 @@ const types = await loadAllRows('problem_types', 'id,name,unit_id', (q) => q.eq(
 // gaeppul 교재에서 "유형N: ..." 이름의 유형 행은 type_id가 가리킨다
 // (problem_type_id는 유형명만 있는 병행 행을 가리킬 수 있음).
 const problems = await loadAllRows('problems', 'id,type_id,problem_type_id,difficulty_hint', (q) => q.eq('book_id', book.id));
-const skills = await loadAllRows('analysis_skills', 'id,name', (q) => q.eq('grade', matching.skillGrade).eq('active', true));
+const skillsRaw = await loadAllRows('analysis_skills', 'id,name,metadata', (q) => q.eq('grade', matching.skillGrade).eq('active', true));
+// 고교 선택과목은 grade가 공유되므로 part_key로 좁힌다 (예: calculus1).
+const skills = matching.skillPartKey
+  ? skillsRaw.filter((skill) => skill.metadata?.part_key === matching.skillPartKey)
+  : skillsRaw;
 console.log(`단원 ${units.length} · 유형 ${types.length} · 문제 ${problems.length} · 스킬 ${skills.length}`);
 
 // 단원은 "N. 대단원 / MM 소단원"의 번호 쌍으로 매칭한다 (명칭 표기 차이 흡수).
@@ -101,9 +105,11 @@ function typeNumber(value) {
 }
 
 const unitByNumbers = new Map();
+const unitByNormName = new Map();
 for (const unit of units) {
   const key = unitNumbers(unit.name);
   if (key) unitByNumbers.set(key, unit.id);
+  unitByNormName.set(normalizeName(unit.name), unit.id);
 }
 const skillByName = new Map(skills.map((skill) => [normalizeName(skill.name), skill]));
 const typeByUnitNumber = new Map();
@@ -127,7 +133,8 @@ for (const [, row] of firstRowByType) {
     unmatched.push({ ...row, reason: 'no_pat_mapping' });
     continue;
   }
-  const unitId = unitByNumbers.get(unitNumbers(row.unitName) ?? '');
+  const unitId = unitByNumbers.get(unitNumbers(row.unitName) ?? '')
+    ?? unitByNormName.get(normalizeName(row.unitName));
   if (!unitId) {
     unmatched.push({ ...row, reason: 'unit_not_found' });
     continue;

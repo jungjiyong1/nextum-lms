@@ -1,0 +1,23 @@
+{
+  "source": "수학 내용 기준 수동 대응 (2026-07-21). 은행 미적분Ⅰ 유형이 함수의 극한 단원 18개뿐이라 해당 범위의 유형책 유형 15개만 대응. 연속·미분·적분 단원은 은행에 유형·문제가 없어 제외.",
+  "bookKey": "gaeppul_high_calculus1_type",
+  "skillGrade": "high-elective",
+  "skillPartKey": "calculus1",
+  "rows": [
+    { "row": 1, "typeNo": 1, "unitName": "01 함수의 극한 / 01 함수의 극한", "typeName": "유형1: x→a일 때의 함수의 수렴과 발산", "patNo": 0, "patName": "함수의 수렴과 발산", "status": "manual-semantic" },
+    { "row": 2, "typeNo": 2, "unitName": "01 함수의 극한 / 01 함수의 극한", "typeName": "유형2: x→∞, x→-∞일 때의 함수의 수렴과 발산", "patNo": 0, "patName": "함수의 수렴과 발산", "status": "manual-semantic" },
+    { "row": 3, "typeNo": 3, "unitName": "01 함수의 극한 / 01 함수의 극한", "typeName": "유형3: 그래프가 주어진 함수의 극한", "patNo": 0, "patName": "함수의 극한값 구하기", "status": "manual-semantic" },
+    { "row": 4, "typeNo": 4, "unitName": "01 함수의 극한 / 01 함수의 극한", "typeName": "유형4: 함수의 극한값의 존재 ⑴", "patNo": 0, "patName": "함수의 극한값의 존재", "status": "manual-semantic" },
+    { "row": 5, "typeNo": 5, "unitName": "01 함수의 극한 / 01 함수의 극한", "typeName": "유형5: 함수의 극한값의 존재 ⑵", "patNo": 0, "patName": "함수의 극한값의 존재", "status": "manual-semantic" },
+    { "row": 6, "typeNo": 6, "unitName": "01 함수의 극한 / 01 함수의 극한", "typeName": "유형6: 합성함수의 극한", "patNo": 0, "patName": "합성함수의 극한", "status": "manual-semantic" },
+    { "row": 7, "typeNo": 7, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형1: 함수의 극한에 대한 성질", "patNo": 0, "patName": "함수의 극한에 대한 성질", "status": "manual-semantic" },
+    { "row": 8, "typeNo": 8, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형2: 0/0 꼴의 함수의 극한", "patNo": 0, "patName": "0/0 꼴의 극한; 유리식", "status": "manual-semantic" },
+    { "row": 9, "typeNo": 9, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형3: ∞/∞ 꼴의 함수의 극한", "patNo": 0, "patName": "∞/∞ 꼴의 극한", "status": "manual-semantic" },
+    { "row": 10, "typeNo": 10, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형4: ∞-∞ 꼴의 함수의 극한", "patNo": 0, "patName": "∞-∞ 꼴의 극한", "status": "manual-semantic" },
+    { "row": 11, "typeNo": 11, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형5: ∞×0 꼴의 함수의 극한", "patNo": 0, "patName": "∞×0 꼴의 극한", "status": "manual-semantic" },
+    { "row": 12, "typeNo": 12, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형6: 극한값을 이용하여 미정계수 구하기", "patNo": 0, "patName": "미정계수의 결정", "status": "manual-semantic" },
+    { "row": 13, "typeNo": 13, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형7: 극한값을 이용하여 함수의 식 구하기", "patNo": 0, "patName": "다항식의 결정", "status": "manual-semantic" },
+    { "row": 14, "typeNo": 14, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형8: 함수의 극한의 대소 관계", "patNo": 0, "patName": "함수의 극한의 대소 관계", "status": "manual-semantic" },
+    { "row": 15, "typeNo": 15, "unitName": "02 함수의 극한값의 계산 / 02 함수의 극한값의 계산", "typeName": "유형9: 함수의 극한의 활용", "patNo": 0, "patName": "함수의 극한의 활용", "status": "manual-semantic" }
+  ]
+}
