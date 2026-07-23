@@ -28,8 +28,20 @@ export const TAXONOMY_KEY = 'pbl_math_v1';
 export const UUID_NAMESPACE = '07e3034f-87ab-5415-95ae-bb654a6730b3';
 
 export const ROUTE_CONTRACTS = Object.freeze({
+  middle2_numbers_expressions: Object.freeze({ part_name: '중2', name: 'Ⅰ. 수와 식', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  middle1_numbers_operations: Object.freeze({ part_name: '중1', name: '수와 연산', course_code: 'middle1', grade_code: 'middle-1', school_type: 'middle' }),
+  middle1_letters_expressions: Object.freeze({ part_name: '중1', name: '문자와 식', course_code: 'middle1', grade_code: 'middle-1', school_type: 'middle' }),
+  middle2_linear_inequalities: Object.freeze({ part_name: '중2', name: 'Ⅱ. 부등식', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  middle2_simultaneous_equations: Object.freeze({ part_name: '중2', name: 'Ⅲ. 방정식', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  middle2_linear_functions: Object.freeze({ part_name: '중2', name: 'Ⅳ. 함수', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
   middle2_geometry_properties: Object.freeze({ part_name: '중2', name: '도형의 성질', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
   middle2_linear_function_graphs: Object.freeze({ part_name: '중2', name: '일차함수와 그래프', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  middle2_similarity: Object.freeze({ part_name: '중2', name: 'Ⅵ. 도형의 닮음', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  middle2_similarity_applications: Object.freeze({ part_name: '중2', name: 'Ⅶ. 닮음의 활용', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  middle2_pythagorean_theorem: Object.freeze({ part_name: '중2', name: 'Ⅷ. 피타고라스 정리', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  middle2_probability: Object.freeze({ part_name: '중2', name: 'Ⅸ. 확률', course_code: 'middle2', grade_code: 'middle-2', school_type: 'middle' }),
+  calculus1_differentiation: Object.freeze({ part_name: '미적분1', name: '미분', course_code: 'calculus-1', grade_code: 'high-elective', school_type: 'high' }),
+  calculus1_integration: Object.freeze({ part_name: '미적분1', name: '적분', course_code: 'calculus-1', grade_code: 'high-elective', school_type: 'high' }),
   middle3_real_numbers: Object.freeze({ part_name: '중3', name: '실수', course_code: 'middle3', grade_code: 'middle-3', school_type: 'middle' }),
   middle3_quadratic_functions: Object.freeze({ part_name: '중3', name: '이차함수', course_code: 'middle3', grade_code: 'middle-3', school_type: 'middle' }),
   common_math1_equations_inequalities: Object.freeze({ part_name: '공통수학1', name: '방정식과 부등식', course_code: 'common-math-1', grade_code: 'high-common-1', school_type: 'high' }),
@@ -37,6 +49,19 @@ export const ROUTE_CONTRACTS = Object.freeze({
   algebra_exponential_log_trig: Object.freeze({ part_name: '대수', name: '지수·로그·삼각함수', course_code: 'algebra', grade_code: 'high-elective', school_type: 'high' }),
   calculus1_limits_continuity: Object.freeze({ part_name: '미적분1', name: '함수의 극한과 연속', course_code: 'calculus-1', grade_code: 'high-elective', school_type: 'high' }),
 });
+
+// The historical initial bundle intentionally contains only these eight
+// routes. New routes are admitted through incremental bundles.
+const INITIAL_ROUTE_KEYS = Object.freeze([
+  'middle2_geometry_properties',
+  'middle2_linear_function_graphs',
+  'middle3_real_numbers',
+  'middle3_quadratic_functions',
+  'common_math1_equations_inequalities',
+  'common_math2_functions',
+  'algebra_exponential_log_trig',
+  'calculus1_limits_continuity',
+]);
 
 export const INITIAL_PART_COUNTS = Object.freeze({
   중2: 3205,
@@ -382,8 +407,8 @@ export function validateBundle(inputDir, academyId = ACADEMY_ID) {
   if (manifest.import_mode === 'initial') {
     invariant(manifest.bank_problem_count_after_import === 9538, 'The initial bank manifest must declare exactly 9,538 problems');
     invariant(
-      manifestRouteKeys.size === Object.keys(ROUTE_CONTRACTS).length
-      && Object.keys(ROUTE_CONTRACTS).every((key) => manifestRouteKeys.has(key)),
+      manifestRouteKeys.size === INITIAL_ROUTE_KEYS.length
+      && INITIAL_ROUTE_KEYS.every((key) => manifestRouteKeys.has(key)),
       'The initial bank manifest must contain all eight fixed routes exactly once',
     );
   }
@@ -481,7 +506,12 @@ export function validateBundle(inputDir, academyId = ACADEMY_ID) {
   invariant(verification.verified_count === problems.length, 'approval.verification.verified_count mismatch');
   invariant(verification.unresolved_count === 0, 'approval.verification.unresolved_count must be zero');
   const approvalChecklist = asObject(approval.checklist, 'approval.checklist');
-  for (const key of ['answers_match', 'crops_match', 'generated_choices_reviewed', 'taxonomy_reviewed']) {
+  const approvalMode = approval.approval_mode ?? 'delivery_ready';
+  invariant(['delivery_ready', 'source_capture'].includes(approvalMode), 'approval.approval_mode is invalid');
+  const requiredChecklist = approvalMode === 'source_capture'
+    ? ['source_codes_match', 'source_images_match', 'taxonomy_reviewed']
+    : ['answers_match', 'crops_match', 'generated_choices_reviewed', 'taxonomy_reviewed'];
+  for (const key of requiredChecklist) {
     invariant(approvalChecklist[key] === true, `approval.checklist.${key} must be true`);
   }
 
@@ -492,6 +522,7 @@ export function validateBundle(inputDir, academyId = ACADEMY_ID) {
     approval,
     approvalPath,
     approvalSha256: sha256File(approvalPath),
+    approvalMode,
     approvedBy,
     approvedAt: approvedAt.toISOString(),
     pipelineVersion,
@@ -901,6 +932,7 @@ function buildStageRows(bundle, options) {
             },
             verification: {
               approved: true,
+              approval_mode: bundle.approvalMode,
               approved_by: bundle.approvedBy,
               approved_at: bundle.approvedAt,
             },

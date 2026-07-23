@@ -9,6 +9,7 @@ out/
 .next/
 coverage/
 output/
+tmp/
 backups/
 .playwright-cli/
 .playwright-mcp/
