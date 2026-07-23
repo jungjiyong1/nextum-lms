@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { unstable_cache } from 'next/cache';
+
 import { requiresAssignedClassScope } from '@/core/auth/roles';
 import type {
     AssignmentBookCatalogSummary,
@@ -18,6 +20,7 @@ import type {
 } from '@/features/lms/types';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { loadAllRowsById } from '@/lib/supabase/load-all-rows-by-id';
+import { loadAllRowsByOffset } from '@/lib/supabase/load-all-rows-by-offset';
 import type { LmsRoleContext } from './auth';
 import { loadAssignedClassIdsForContext } from './class-queries';
 import { sortByProblemOrder } from './problem-order';
@@ -213,7 +216,7 @@ async function loadStudents(
     });
 }
 
-async function loadAssignmentBookCatalog(content: SchemaClient, academyId: string): Promise<AssignmentBookCatalogSummary[]> {
+async function loadAssignmentBookCatalogUncached(content: SchemaClient, academyId: string): Promise<AssignmentBookCatalogSummary[]> {
     const books = await loadAllRowsById<Row>((afterId, limit) => {
         let query = content
             .from('books')
@@ -255,18 +258,16 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
             if (afterId) query = query.gt('id', afterId);
             return query;
         }, 'Failed to load problem types'),
-        loadAllRowsById<Row>((afterId, limit) => {
-            let query = content
+        loadAllRowsByOffset<Row>((from, to) => {
+            return content
                 .from('problems')
                 .select('id,book_id,unit_id,problem_type_id,type_id,middle_unit:metadata->>middle_unit')
                 .in('book_id', bookIds)
                 .eq('verified', true)
                 .eq('is_example', false)
                 .order('id', { ascending: true })
-                .limit(limit);
-            if (afterId) query = query.gt('id', afterId);
-            return query;
-        }, 'Failed to load published assignment catalog facets'),
+                .range(from, to);
+        }, 'Failed to load published assignment catalog facets', 1_000, 12),
     ]);
 
     const publishedBookIds = new Set<string>();
@@ -369,6 +370,15 @@ async function loadAssignmentBookCatalog(content: SchemaClient, academyId: strin
         };
     });
 }
+
+const loadCachedAssignmentBookCatalog = unstable_cache(
+    async (academyId: string) => {
+        const client = createAdminClient();
+        return loadAssignmentBookCatalogUncached(client.schema('content'), academyId);
+    },
+    ['assignment-book-catalog-v1'],
+    { revalidate: 5 * 60 },
+);
 
 async function fetchAssignmentPeople(
     core: SchemaClient,
@@ -825,10 +835,22 @@ export async function loadAssignmentManagementData(
 
     const [assignments, books, classes, students] = await Promise.all([
         loadAssignments(learning, content, core, context, assignedClassIds),
-        loadAssignmentBookCatalog(content, context.academyId),
+        loadCachedAssignmentBookCatalog(context.academyId),
         loadClasses(core, context.academyId, assignedClassIds),
         loadStudents(core, context.academyId, assignedClassIds),
     ]);
 
     return { assignments, books, classes, students, permissions: permissionsForContext(context) };
+}
+
+const loadCachedAssignmentManagementDataByActor = unstable_cache(
+    async (context: LmsRoleContext) => loadAssignmentManagementData(context),
+    ['assignment-management-page-data-v1'],
+    { revalidate: 5 * 60 },
+);
+
+export async function loadCachedAssignmentManagementData(
+    context: LmsRoleContext,
+): Promise<AssignmentManagementData> {
+    return loadCachedAssignmentManagementDataByActor(context);
 }

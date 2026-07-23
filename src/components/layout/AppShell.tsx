@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
 import type { AppProfile } from '@/core/auth/profile';
+import { AssignmentCreatePage, AssignmentsStatusPage } from '@/features/lms/assignments-operations-page';
+import type { AssignmentManagementData } from '@/features/lms/types';
 import {
     appPageFromPath,
     appPageHref,
@@ -13,10 +15,31 @@ import {
     getRoleLabel,
 } from '@/core/auth/roles';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import { subscribeLmsInvalidations } from '@/features/lms/service';
+import {
+    addLmsInvalidationListener,
+    loadAssignmentManagementData,
+    primeAssignmentManagementData,
+    subscribeLmsInvalidations,
+} from '@/features/lms/service';
 
 import { AccessDeniedScreen } from '../security/AccessDeniedScreen';
 import { Sidebar } from './Sidebar';
+
+function AssignmentManagementDataSeed({
+    academyId,
+    children,
+    data,
+}: {
+    academyId: string;
+    children: ReactNode;
+    data: AssignmentManagementData;
+}) {
+    useState(() => {
+        primeAssignmentManagementData(academyId, data);
+        return true;
+    });
+    return children;
+}
 
 function AppShellContent({
     academyCount,
@@ -50,6 +73,17 @@ function AppShellContent({
     }, [profile?.current_academy_id]);
 
     useEffect(() => {
+        const academyId = profile?.current_academy_id;
+        if (!academyId) return undefined;
+        return addLmsInvalidationListener((payload) => {
+            if (payload.academyId && payload.academyId !== academyId) return;
+            const domain = payload.domain || 'lms';
+            if (!['assignments', 'students', 'classes', 'learning', 'lms', 'admin'].includes(domain)) return;
+            void loadAssignmentManagementData(academyId, { force: true }).catch(() => undefined);
+        });
+    }, [profile?.current_academy_id]);
+
+    useEffect(() => {
         if (canAccessCurrentPage || !fallbackPage || fallbackPage === activePage) return;
         router.replace(appPageHref[fallbackPage]);
     }, [activePage, canAccessCurrentPage, fallbackPage, router]);
@@ -58,8 +92,13 @@ function AppShellContent({
         void signOut();
     }, [signOut]);
 
+    const routeContent = pathname === '/assignments'
+        ? <AssignmentsStatusPage />
+        : pathname === '/assignments/new'
+            ? <AssignmentCreatePage />
+            : children;
     const mainContent = canAccessCurrentPath
-        ? children
+        ? routeContent
         : (
             <AccessDeniedScreen
                 roleLabel={profile?.role ? getRoleLabel(profile.role) : undefined}
@@ -86,27 +125,37 @@ function AppShellContent({
 }
 
 export function AppShell({
+    academyId,
     academyCount,
     academyName,
     children,
+    initialAssignmentManagementData,
     profile,
     pdfAssignmentMatchEnabled,
 }: {
+    academyId: string;
     academyCount: number;
     academyName: string;
     children: ReactNode;
+    initialAssignmentManagementData: AssignmentManagementData;
     profile: AppProfile;
     pdfAssignmentMatchEnabled: boolean;
 }) {
     return (
         <AuthProvider profile={profile}>
-            <AppShellContent
-                academyCount={academyCount}
-                academyName={academyName}
-                pdfAssignmentMatchEnabled={pdfAssignmentMatchEnabled}
+            <AssignmentManagementDataSeed
+                key={academyId}
+                academyId={academyId}
+                data={initialAssignmentManagementData}
             >
-                {children}
-            </AppShellContent>
+                <AppShellContent
+                    academyCount={academyCount}
+                    academyName={academyName}
+                    pdfAssignmentMatchEnabled={pdfAssignmentMatchEnabled}
+                >
+                    {children}
+                </AppShellContent>
+            </AssignmentManagementDataSeed>
         </AuthProvider>
     );
 }

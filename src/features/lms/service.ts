@@ -160,6 +160,7 @@ const MAX_CACHE_ENTRIES = 200;
 const instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const getCache = new Map<string, { expiresAt: number; promise: Promise<unknown>; lastAccessedAt: number }>();
 const inFlightGets = new Map<string, Promise<unknown>>();
+const assignmentManagementSnapshots = new Map<string, AssignmentManagementData>();
 const invalidationListeners = new Set<(payload: LmsInvalidationPayload) => void>();
 const realtimeChannels = new Map<string, { channel: RealtimeChannel; refCount: number }>();
 const seenEventIds = new Map<string, number>();
@@ -1041,7 +1042,17 @@ export async function updateBook(academyId: string, bookId: string, input: Updat
 
 export async function loadAssignmentManagementData(academyId: string, options: LmsRequestOptions = {}): Promise<AssignmentManagementData> {
   const params = new URLSearchParams({ academyId });
-  return getLmsJson<AssignmentManagementData>(`/api/lms/assignments?${params.toString()}`, { policy: 'operational', ...options });
+  const data = await getLmsJson<AssignmentManagementData>(`/api/lms/assignments?${params.toString()}`, { policy: 'operational', ...options });
+  assignmentManagementSnapshots.set(academyId, data);
+  return data;
+}
+
+export function primeAssignmentManagementData(academyId: string, data: AssignmentManagementData): void {
+  assignmentManagementSnapshots.set(academyId, data);
+}
+
+export function peekAssignmentManagementData(academyId: string): AssignmentManagementData | null {
+  return assignmentManagementSnapshots.get(academyId) ?? null;
 }
 
 export async function loadAssignmentDetail(

@@ -66,6 +66,7 @@ import {
     importWorksheetAssignment,
     loadAssignmentDetail,
     loadAssignmentManagementData,
+    peekAssignmentManagementData,
     recallAssignment,
     removeAssignmentRecipient,
 } from './service';
@@ -99,7 +100,7 @@ import type {
     StudentSummary,
 } from './types';
 
-type AssignmentPageLoadOptions = { force?: boolean; background?: boolean };
+type AssignmentPageLoadOptions = { force?: boolean; background?: boolean; silent?: boolean };
 type AssignmentStatusFilter = 'all' | 'open' | 'due_soon' | 'overdue' | 'completed' | 'recalled';
 type ProgressStatusFilter = 'all' | 'not_started' | 'in_progress' | 'completed';
 type AssignmentManageTab = 'manage' | 'deploy';
@@ -2432,13 +2433,15 @@ function ClassAssignmentList({
 export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAssignmentId?: string }) {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
-    const [data, setData] = useState<AssignmentManagementData | null>(null);
+    const [data, setData] = useState<AssignmentManagementData | null>(() => (
+        academyId ? peekAssignmentManagementData(academyId) : null
+    ));
     const [detail, setDetail] = useState<LearningAssignmentDetail | null>(null);
     const [selectedClassKey, setSelectedClassKey] = useState(ALL_CLASS_KEY);
     const [selectedAssignmentId, setSelectedAssignmentId] = useState(initialAssignmentId);
     const initialSelectionApplied = useRef(false);
     const [filtersHydrated, setFiltersHydrated] = useState(false);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(data === null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -2454,8 +2457,9 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
 
     const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
         if (!academyId) return;
-        if (options.background) setRefreshing(true);
-        else setLoading(true);
+        const showRefreshing = options.background && !options.silent;
+        if (showRefreshing) setRefreshing(true);
+        else if (!options.background) setLoading(true);
         try {
             const next = await loadAssignmentManagementData(academyId, { force: options.force });
             setData(next);
@@ -2463,8 +2467,8 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
         } catch (err) {
             setError(err instanceof Error ? err.message : '과제 현황을 불러오지 못했습니다.');
         } finally {
-            if (options.background) setRefreshing(false);
-            else setLoading(false);
+            if (showRefreshing) setRefreshing(false);
+            else if (!options.background) setLoading(false);
         }
     }, [academyId]);
 
@@ -2484,10 +2488,6 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
             if (!options.background) setDetailLoading(false);
         }
     }, [academyId]);
-
-    useEffect(() => {
-        void load();
-    }, [load]);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -2841,8 +2841,10 @@ export function AssignmentsStatusPage({ initialAssignmentId = '' }: { initialAss
 export function AssignmentCreatePage() {
     const { profile } = useAuth();
     const academyId = academyIdOf(profile?.current_academy_id);
-    const [data, setData] = useState<AssignmentManagementData | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<AssignmentManagementData | null>(() => (
+        academyId ? peekAssignmentManagementData(academyId) : null
+    ));
+    const [loading, setLoading] = useState(data === null);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -2867,8 +2869,9 @@ export function AssignmentCreatePage() {
 
     const load = useCallback(async (options: AssignmentPageLoadOptions = {}) => {
         if (!academyId) return;
-        if (options.background) setRefreshing(true);
-        else setLoading(true);
+        const showRefreshing = options.background && !options.silent;
+        if (showRefreshing) setRefreshing(true);
+        else if (!options.background) setLoading(true);
         try {
             const next = await loadAssignmentManagementData(academyId, { force: options.force });
             setData(next);
@@ -2876,14 +2879,10 @@ export function AssignmentCreatePage() {
         } catch (err) {
             setError(err instanceof Error ? err.message : '과제 관리 데이터를 불러오지 못했습니다.');
         } finally {
-            if (options.background) setRefreshing(false);
-            else setLoading(false);
+            if (showRefreshing) setRefreshing(false);
+            else if (!options.background) setLoading(false);
         }
     }, [academyId]);
-
-    useEffect(() => {
-        void load();
-    }, [load]);
 
     useEffect(() => {
         if (!academyId) return undefined;

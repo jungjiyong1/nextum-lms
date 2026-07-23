@@ -133,6 +133,22 @@ export function Sidebar({
     const navigationHref = React.useCallback((href: string) => (
         href.startsWith('/accounting/') ? `${href}?month=${encodeURIComponent(accountingMonth)}` : href
     ), [accountingMonth]);
+    const navigateInstantly = React.useCallback((
+        event: React.MouseEvent<HTMLAnchorElement>,
+        href: string,
+    ) => {
+        if (
+            (href !== '/assignments' && href !== '/assignments/new')
+            || event.metaKey
+            || event.ctrlKey
+            || event.shiftKey
+            || event.altKey
+        ) {
+            return;
+        }
+        event.preventDefault();
+        window.history.pushState(null, '', href);
+    }, []);
 
     React.useEffect(() => {
         setExpandedSections(new Set([activePage]));
@@ -195,7 +211,8 @@ export function Sidebar({
                                     active && 'bg-primary-soft text-primary-strong',
                                     visuallyCollapsed && 'justify-center px-2',
                                 )}
-                                onClick={() => {
+                                onClick={(event) => {
+                                    navigateInstantly(event, navigationHref(item.href));
                                     setExpandedSections((prev) => {
                                         if (!hasChildren) return new Set();
                                         if (active && prev.has(item.id)) return new Set();
@@ -228,6 +245,7 @@ export function Sidebar({
                                             <Link
                                                 key={child.id}
                                                 href={navigationHref(child.href)}
+                                                onClick={(event) => navigateInstantly(event, navigationHref(child.href))}
                                                 className={cn(
                                                     'flex min-h-8 items-center rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground',
                                                     childActive && 'bg-muted text-foreground',
