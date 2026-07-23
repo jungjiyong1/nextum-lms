@@ -10,6 +10,7 @@ out/
 coverage/
 output/
 tmp/
+__pycache__/
 backups/
 .playwright-cli/
 .playwright-mcp/
